@@ -33,6 +33,15 @@ export interface Level {
     algorithm: string;
     confidence: number;
     noteCount: number;
+    onsetNoteCount: number;
+    accentNoteCount: number;
+    sustainGuideCount: number;
+    guideRowCount: number;
+    strongBeatQuantile: number;
+    minImpactStrength: number;
+    sustainEnergyRatio: number;
+    maxSustainTicks: number;
+    maxOnsetOffsetMs: number;
     spikeCount: number;
     spikeRows: {
       single: number;
@@ -45,6 +54,7 @@ export interface Level {
     tick: number;
     timeSeconds: number;
     intensity: number;
+    durationTicks: number;
   }>;
   obstacles: ObstacleRow[];
 }

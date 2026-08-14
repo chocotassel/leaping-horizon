@@ -54,7 +54,14 @@ function percentile(values, ratio) {
 
 const config = configPath
   ? JSON.parse(await readFile(configPath, 'utf8'))
-  : { ticksPerBeat: 2, spikeRatios: { single: 0.45, double: 0.35, triple: 0.2 }, accents: [] };
+  : {
+      ticksPerBeat: 2,
+      strongBeatQuantile: 0.85,
+      sustainEnergyRatio: 0.72,
+      maxSustainTicks: 2,
+      spikeRatios: { single: 0.45, double: 0.35, triple: 0.2 },
+      accents: [],
+    };
 const { samples, sampleRate } = decodePcm16Wav(await readFile(inputPath));
 const analysis = detect(samples, { fs: sampleRate, minBpm: 80, maxBpm: 160, delta: 1.25 });
 if (!analysis.beats.length || analysis.confidence < 0.35) throw new Error('Could not detect a stable beat grid.');
@@ -70,6 +77,7 @@ const ticksPerBeat = config.ticksPerBeat;
 const tickDuration = beatDuration / ticksPerBeat;
 const tickCount = Math.ceil((durationSeconds - beatOffsetSeconds) / tickDuration);
 const flux = spectralFlux(samples, { fs: sampleRate });
+const maxOnsetOffsetSeconds = 0.05;
 const rawStrengths = Array.from({ length: tickCount }, (_, tick) => {
   const frame = Math.round((beatOffsetSeconds + tick * tickDuration) * sampleRate / flux.hopSize);
   let strength = 0;
@@ -79,29 +87,94 @@ const rawStrengths = Array.from({ length: tickCount }, (_, tick) => {
 const quiet = percentile(rawStrengths, 0.2);
 const loud = percentile(rawStrengths, 0.9);
 const strengths = rawStrengths.map((value) => Math.max(0, Math.min(1, (value - quiet) / Math.max(1e-9, loud - quiet))));
+const strongBeatQuantile = config.strongBeatQuantile ?? 0.85;
+const strongBeatThreshold = percentile(rawStrengths, strongBeatQuantile);
+const energyRadius = Math.round(sampleRate * 0.08);
+const tickEnergies = Array.from({ length: tickCount }, (_, tick) => {
+  const center = Math.round((beatOffsetSeconds + tick * tickDuration) * sampleRate);
+  const start = Math.max(0, center - energyRadius);
+  const end = Math.min(samples.length, center + energyRadius);
+  let energy = 0;
+  for (let index = start; index < end; index += 1) energy += samples[index] ** 2;
+  return Math.sqrt(energy / Math.max(1, end - start));
+});
+const sustainEnergyFloor = percentile(tickEnergies, 0.7);
+const sustainEnergyRatio = config.sustainEnergyRatio ?? 0.72;
+const maxSustainTicks = config.maxSustainTicks ?? 2;
+const onsetOffsetByTick = new Map();
+for (const onset of analysis.onsets) {
+  const tick = Math.round((onset - beatOffsetSeconds) / tickDuration);
+  const offset = Math.abs(onset - (beatOffsetSeconds + tick * tickDuration));
+  if (offset < (onsetOffsetByTick.get(tick) ?? Infinity)) onsetOffsetByTick.set(tick, offset);
+}
 const accents = config.accents.map((accent) => ({
   label: accent.label,
   tick: Math.round(accent.beat * ticksPerBeat),
   timeSeconds: Math.round((beatOffsetSeconds + accent.beat * beatDuration) * 1000) / 1000,
   intensity: accent.intensity,
+  durationTicks: 1,
 }));
 const accentByTick = new Map(accents.map((accent) => [accent.tick, accent]));
 
 const firstPlayableTick = Math.max(ticksPerBeat * 4, Math.ceil((2.5 - beatOffsetSeconds) / tickDuration));
 const lastPlayableTime = durationSeconds - 2.5;
-const candidates = [];
+const impactSeedByTick = new Map();
 for (let tick = firstPlayableTick; tick < tickCount; tick += 1) {
   const time = beatOffsetSeconds + tick * tickDuration;
   if (time > lastPlayableTime) break;
   const accent = accentByTick.get(tick);
-  if (accent || tick % ticksPerBeat === 0 || strengths[tick] >= 0.78) {
-    candidates.push({ tick, strength: accent ? 2 : strengths[tick], accent });
+  const onsetOffset = onsetOffsetByTick.get(tick);
+  if (accent || (rawStrengths[tick] >= strongBeatThreshold && onsetOffset <= maxOnsetOffsetSeconds)) {
+    impactSeedByTick.set(tick, { tick, accent, onsetOffset });
   }
 }
 
-const ranked = [...candidates].sort((left, right) => right.strength - left.strength);
-const tripleCount = Math.round(candidates.length * config.spikeRatios.triple);
-const doubleCount = Math.round(candidates.length * config.spikeRatios.double);
+const sustainSourceByTick = new Map();
+const accentContinuationByTick = new Map();
+for (const seed of impactSeedByTick.values()) {
+  const referenceEnergy = Math.max(tickEnergies[seed.tick], tickEnergies[seed.tick + 1] ?? 0);
+  const minimumEnergy = seed.accent
+    ? referenceEnergy * sustainEnergyRatio
+    : Math.max(sustainEnergyFloor, referenceEnergy * sustainEnergyRatio);
+  for (let offset = 1; offset <= maxSustainTicks; offset += 1) {
+    const tick = seed.tick + offset;
+    if (tick >= tickCount || beatOffsetSeconds + tick * tickDuration > lastPlayableTime) break;
+    if (tickEnergies[tick] < minimumEnergy) break;
+    if (!impactSeedByTick.has(tick)) sustainSourceByTick.set(tick, seed.tick);
+    if (seed.accent) {
+      accentContinuationByTick.set(tick, seed.accent);
+      seed.accent.durationTicks = offset + 1;
+    }
+  }
+}
+
+const candidates = [];
+for (let tick = firstPlayableTick; tick < tickCount; tick += 1) {
+  const time = beatOffsetSeconds + tick * tickDuration;
+  if (time > lastPlayableTime) break;
+  const impactSeed = impactSeedByTick.get(tick);
+  const sustainSourceTick = sustainSourceByTick.get(tick);
+  const accent = accentByTick.get(tick) || accentContinuationByTick.get(tick);
+  const isImpact = Boolean(impactSeed);
+  const isSustainGuide = !isImpact && sustainSourceTick !== undefined;
+  if (isImpact || isSustainGuide || tick % ticksPerBeat === 0) {
+    candidates.push({
+      tick,
+      strength: accent ? 2 : strengths[tick],
+      rawStrength: rawStrengths[tick],
+      accent,
+      isImpact,
+      isSustainGuide,
+      sustainSourceTick,
+      onsetOffset: impactSeed?.onsetOffset,
+    });
+  }
+}
+
+const impactCandidates = candidates.filter((candidate) => candidate.isImpact);
+const ranked = [...impactCandidates].sort((left, right) => right.strength - left.strength);
+const tripleCount = Math.round(impactCandidates.length * config.spikeRatios.triple);
+const doubleCount = Math.round(impactCandidates.length * config.spikeRatios.double);
 const difficultyByTick = new Map(ranked.map((candidate, index) => [
   candidate.tick,
   index < tripleCount ? 3 : index < tripleCount + doubleCount ? 2 : 1,
@@ -117,8 +190,10 @@ let spikeCount = 0;
 for (let index = 0; index < candidates.length; index += 1) {
   const candidate = candidates[index];
   const availableSteps = Math.max(1, candidate.tick - previousTick);
-  const currentAccentIndex = accents.findIndex((accent) => accent.tick === candidate.tick);
-  const nextAccentIndex = accents.findIndex((accent) => accent.tick >= candidate.tick);
+  const currentAccentIndex = candidate.accent ? accents.indexOf(candidate.accent) : -1;
+  const nextAccentIndex = currentAccentIndex >= 0
+    ? currentAccentIndex
+    : accents.findIndex((accent) => accent.tick >= candidate.tick);
   const nextAccent = accents[nextAccentIndex];
   const accentEdge = nextAccentIndex % 2 === 0 ? 4 : 0;
 
@@ -132,10 +207,16 @@ for (let index = 0; index < candidates.length; index += 1) {
     lane += direction * Math.min(1, availableSteps);
   }
 
-  let difficulty = difficultyByTick.get(candidate.tick);
-  if (candidate.accent) difficulty = 3;
+  let difficulty = candidate.isImpact
+    ? difficultyByTick.get(candidate.tick)
+    : candidate.isSustainGuide
+      ? Math.max(1, (difficultyByTick.get(candidate.sustainSourceTick) ?? 2) - 1)
+      : 1;
+  if (candidate.isImpact && candidate.accent) difficulty = 3;
+  if (candidate.isSustainGuide && candidate.accent) difficulty = 2;
   lane = Math.max(0, Math.min(4, lane));
-  rows[candidate.tick][lane] = 1;
+  if (candidate.isImpact) difficulty = Math.min(difficulty, [3, 2, 1, 2, 3][lane]);
+  if (candidate.isImpact) rows[candidate.tick][lane] = 1;
 
   const spikeLanes = lane >= 3
     ? [0, 1, 2]
@@ -149,6 +230,16 @@ for (let index = 0; index < candidates.length; index += 1) {
 }
 
 const title = suppliedTitle || basename(inputPath, extname(inputPath));
+const automaticImpacts = impactCandidates.filter((candidate) => !candidate.accent);
+if (automaticImpacts.some((candidate) => (
+  candidate.rawStrength < strongBeatThreshold || candidate.onsetOffset > maxOnsetOffsetSeconds
+))) {
+  throw new Error('Generated an impact outside the strong-beat limits.');
+}
+const minImpactStrength = Math.max(0, Math.min(
+  1,
+  (strongBeatThreshold - quiet) / Math.max(1e-9, loud - quiet),
+));
 const level = {
   id: title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
   version: 2,
@@ -162,9 +253,20 @@ const level = {
     durationSeconds: Math.round(durationSeconds * 1000) / 1000,
   },
   generation: {
-    algorithm: 'spectral-flux-guided-lane-path-v2',
+    algorithm: 'strong-beat-sustained-lane-path-v4',
     confidence: Math.round(analysis.confidence * 1000) / 1000,
-    noteCount: candidates.length,
+    noteCount: impactCandidates.length,
+    onsetNoteCount: automaticImpacts.length,
+    accentNoteCount: impactCandidates.filter((candidate) => candidate.accent).length,
+    sustainGuideCount: candidates.filter((candidate) => candidate.isSustainGuide).length,
+    guideRowCount: candidates.length - impactCandidates.length,
+    strongBeatQuantile,
+    minImpactStrength: Math.round(minImpactStrength * 1000) / 1000,
+    sustainEnergyRatio,
+    maxSustainTicks,
+    maxOnsetOffsetMs: automaticImpacts.length
+      ? Math.round(Math.max(...automaticImpacts.map((candidate) => candidate.onsetOffset)) * 1000)
+      : 0,
     spikeCount,
     spikeRows,
   },
@@ -174,4 +276,4 @@ const level = {
 
 await mkdir(dirname(outputPath), { recursive: true });
 await writeFile(outputPath, `${JSON.stringify(level, null, 2)}\n`);
-console.log(`Generated ${candidates.length} notes, ${spikeCount} spikes (${spikeRows.single}/${spikeRows.double}/${spikeRows.triple}) at ${bpm} BPM.`);
+console.log(`Generated ${impactCandidates.length} impacts, ${candidates.length - impactCandidates.length} guide rows, and ${spikeCount} spikes at ${bpm} BPM.`);

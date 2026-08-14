@@ -80,7 +80,6 @@ export class GameScene {
   private readonly outerSpectrumBars: THREE.InstancedMesh;
   private readonly innerSpectrumBars: THREE.InstancedMesh;
   private readonly floatingCubes: THREE.InstancedMesh;
-  private readonly floatingEdges: THREE.InstancedMesh;
   private readonly floatingData: FloatingCube[];
   private readonly speedStreaks: THREE.InstancedMesh;
   private readonly comboCanvas: HTMLCanvasElement;
@@ -155,7 +154,6 @@ export class GameScene {
     this.outerSpectrumBars = environment.outerSpectrumBars;
     this.innerSpectrumBars = environment.innerSpectrumBars;
     this.floatingCubes = environment.floatingCubes;
-    this.floatingEdges = environment.floatingEdges;
     this.floatingData = environment.floatingData;
     this.speedStreaks = environment.speedStreaks;
     this.trailMesh = this.createPlayer();
@@ -458,7 +456,6 @@ export class GameScene {
     outerSpectrumBars: THREE.InstancedMesh;
     innerSpectrumBars: THREE.InstancedMesh;
     floatingCubes: THREE.InstancedMesh;
-    floatingEdges: THREE.InstancedMesh;
     floatingData: FloatingCube[];
     speedStreaks: THREE.InstancedMesh;
   } {
@@ -516,12 +513,13 @@ export class GameScene {
     const floatingData = Array.from({ length: FLOATING_CUBE_COUNT }, (_, index) => {
       const side = index % 2 === 0 ? -1 : 1;
       const depthIndex = Math.floor(index / 2);
-      const depthBand = depthIndex % 32;
+      const upper = depthIndex % 4 === 0;
+      const randomSize = ((index * 29) % 17) / 16;
       return {
-        x: side * (5.2 + depthBand * 1.1 + ((depthIndex * 5) % 7) * 0.35),
-        y: depthIndex < 32 ? 0.6 + ((index * 13) % 21) * 1.1 : 0.6 + ((depthIndex - 32) % 4) * 1.4,
-        z: 2 - depthBand * 3.4 - (index % 3) * 0.4,
-        size: 0.28 + ((index * 5) % 9) * 0.1,
+        x: side * (((depthIndex * 7) % 5) * 0.35),
+        y: upper ? 16 + ((depthIndex * 11) % 7) * 1.6 : 0.35 + ((depthIndex * 13) % 4) * 0.7,
+        z: 6 - depthIndex * 2.8,
+        size: upper ? 0.18 + randomSize * 0.4 : 0.35 + randomSize * 0.72,
         phase: index * 0.73,
       };
     });
@@ -537,23 +535,10 @@ export class GameScene {
       floatingMaterial,
       FLOATING_CUBE_COUNT,
     );
-    const floatingEdges = new THREE.InstancedMesh(
-      cubeGeometry,
-      this.createGlowMaterial({
-        transparent: true,
-        opacity: 0.13,
-        fog: false,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        toneMapped: false,
-      }),
-      FLOATING_CUBE_COUNT,
-    );
     floatingCubes.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    floatingEdges.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     floatingCubes.frustumCulled = false;
-    floatingEdges.frustumCulled = false;
-    this.scene.add(floatingCubes, floatingEdges);
+    floatingCubes.renderOrder = -15;
+    this.scene.add(floatingCubes);
 
     const speedStreaks = new THREE.InstancedMesh(
       new THREE.BoxGeometry(0.025, 0.025, 3.8),
@@ -571,29 +556,31 @@ export class GameScene {
     speedStreaks.frustumCulled = false;
     this.scene.add(speedStreaks);
 
-    return { outerSpectrumBars, innerSpectrumBars, floatingCubes, floatingEdges, floatingData, speedStreaks };
+    return { outerSpectrumBars, innerSpectrumBars, floatingCubes, floatingData, speedStreaks };
   }
 
   private createBackgroundGrid(): void {
     const vertices: number[] = [];
-    for (let x = -16; x <= 16; x += 1.6) vertices.push(x, -1, -47, x, 16, -47);
-    for (let y = -1; y <= 16; y += 1.6) vertices.push(-16, y, -47, 16, y, -47);
+    for (let x = -56; x <= 56; x += 5.6) vertices.push(x, 3, -120, x, 76, -120);
+    for (let y = 3; y <= 76; y += 5.6) vertices.push(-56, y, -120, 56, y, -120);
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
     const grid = new THREE.LineSegments(
       geometry,
-      this.createGlowLineMaterial({ transparent: true, opacity: 0.22, fog: false }),
+      this.createGlowLineMaterial({ transparent: true, opacity: 0.16, fog: false, depthWrite: false }),
     );
-    this.scene.add(grid);
+    grid.renderOrder = -20;
+    this.camera.add(grid);
+    this.scene.add(this.camera);
 
     const accentVertices = [
-      -11, 7, -45, -8, 9, -45, -8, 9, -45, -6.4, 7.5, -45,
-      8.5, 3, -45, 10.2, 4.6, -45, 10.2, 4.6, -45, 12, 3.4, -45,
-      -10, 3, -45, -8.8, 2.4, -45, -8.8, 2.4, -45, -7.5, 4.2, -45,
+      -48, 44, -119, -38, 52, -119, -38, 52, -119, -29, 46, -119,
+      32, 29, -119, 41, 38, -119, 41, 38, -119, 50, 32, -119,
+      -46, 24, -119, -39, 20, -119, -39, 20, -119, -32, 29, -119,
     ];
     const accentGeometry = new THREE.BufferGeometry();
     accentGeometry.setAttribute('position', new THREE.Float32BufferAttribute(accentVertices, 3));
-    this.scene.add(new THREE.LineSegments(
+    this.camera.add(new THREE.LineSegments(
       accentGeometry,
       this.createGlowLineMaterial({ fog: false }),
     ));
@@ -703,7 +690,7 @@ export class GameScene {
     return this.playerX;
   }
 
-  render(time: number, level: Level, states: ObstacleStateRow[], combo: number): void {
+  render(time: number, level: Level, states: ObstacleStateRow[], combo: number, spectrum: Uint8Array): void {
     if (this.disposed) return;
     const dt = Math.min(this.clock.getDelta(), 0.05);
     if (!this.crashed) {
@@ -731,7 +718,7 @@ export class GameScene {
     const cameraJitter = this.hitImpulse * Math.sin(time * 115);
     this.camera.position.x += (this.playerX * 0.06 + cameraJitter - this.camera.position.x) * Math.min(1, dt * 11);
     this.camera.position.y = CAMERA_Y + cameraJitter * 0.28;
-    this.updateSpectrum(time, combo, level.song.durationSeconds, level.song.bpm);
+    this.updateSpectrum(time, combo, level.song.durationSeconds, level.song.bpm, spectrum);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -768,7 +755,7 @@ export class GameScene {
     colors.needsUpdate = true;
   }
 
-  private updateSpectrum(time: number, combo: number, duration: number, bpm: number): void {
+  private updateSpectrum(time: number, combo: number, duration: number, bpm: number, spectrum: Uint8Array): void {
     const approach = getRingApproach(time, duration, this.lastObstacleTime);
     this.rhythmRing.position.set(
       THREE.MathUtils.lerp(0, this.camera.position.x, approach),
@@ -779,10 +766,18 @@ export class GameScene {
     const beatPhase = (time % beat) / beat;
     const beatKick = Math.exp(-beatPhase * 6.5);
     const comboBoost = Math.min(0.4, combo * 0.006);
+    const maxBin = Math.min(55, spectrum.length - 2);
+    let averageEnergy = 0;
+    for (let bin = 2; bin <= maxBin; bin += 1) averageEnergy += spectrum[bin] / 255;
+    averageEnergy /= maxBin - 1;
     for (let i = 0; i < OUTER_SPECTRUM_COUNT; i += 1) {
-      const angle = (i / OUTER_SPECTRUM_COUNT) * Math.PI * 2;
-      const wave = Math.abs(Math.sin(time * 4.7 + i * 0.47));
-      const length = 0.9 + wave * 1.7 + beatKick * (0.8 + (i % 5) * 0.1) + comboBoost * 2.2;
+      const position = i / OUTER_SPECTRUM_COUNT;
+      const angle = position * Math.PI * 2;
+      const frequencyPosition = 1 - Math.abs(position * 2 - 1);
+      const bin = 2 + Math.floor(frequencyPosition * (maxBin - 2));
+      const energy = (spectrum[bin - 1] + spectrum[bin] * 2 + spectrum[bin + 1]) / (255 * 4);
+      const response = Math.pow(Math.max(0, energy - averageEnergy - 0.035), 0.72);
+      const length = 0.62 + response * (6.8 + beatKick * 1.4) + comboBoost;
       const radius = 14.7 + length * 0.5;
       this.position.set(Math.cos(angle) * radius, RING_CENTER_Y + Math.sin(angle) * radius, 0.15);
       this.quaternion.setFromEuler(new THREE.Euler(0, 0, angle - Math.PI / 2));
@@ -795,9 +790,13 @@ export class GameScene {
 
     // 内圈略靠近镜头，避免频谱竖条被主环完全遮住。
     for (let i = 0; i < INNER_SPECTRUM_COUNT; i += 1) {
-      const angle = (i / INNER_SPECTRUM_COUNT) * Math.PI * 2;
-      const wave = Math.abs(Math.cos(time * 5.2 + i * 0.39));
-      const length = 0.35 + wave * 0.65 + beatKick * 0.35 + comboBoost * 0.7;
+      const position = i / INNER_SPECTRUM_COUNT;
+      const angle = position * Math.PI * 2;
+      const frequencyPosition = 1 - Math.abs(position * 2 - 1);
+      const bin = 2 + Math.floor(frequencyPosition * (maxBin - 2));
+      const energy = (spectrum[bin - 1] + spectrum[bin] * 2 + spectrum[bin + 1]) / (255 * 4);
+      const response = Math.pow(Math.max(0, energy - averageEnergy - 0.035), 0.78);
+      const length = 0.28 + response * 2.1 + comboBoost * 0.4;
       const radius = 11.3 - length * 0.5;
       this.position.set(Math.cos(angle) * radius, RING_CENTER_Y + Math.sin(angle) * radius, 0.75);
       this.quaternion.setFromEuler(new THREE.Euler(0, 0, angle - Math.PI / 2));
@@ -812,19 +811,20 @@ export class GameScene {
   private updateFloatingCubes(time: number): void {
     for (let i = 0; i < this.floatingData.length; i += 1) {
       const cube = this.floatingData[i];
-      this.position.set(cube.x, cube.y + Math.sin(time * 0.8 + cube.phase) * 0.16, cube.z);
+      const z = 6 - ((time * 2.1 + 6 - cube.z) % 112);
+      const depth = 6 - z;
+      const upper = cube.y > 12;
+      const x = Math.sign(cube.x || (i % 2 === 0 ? -1 : 1))
+        * ((upper ? 6.4 + depth * 0.22 : 3 + depth * 0.09) + Math.abs(cube.x));
+      this.position.set(x, cube.y + depth * (upper ? 0.055 : 0.012) + Math.sin(time * 0.55 + cube.phase) * 0.18, z);
       this.quaternion.setFromEuler(new THREE.Euler(time * 0.18 + cube.phase, time * 0.24 + cube.phase * 0.7, cube.phase));
       this.scale.setScalar(cube.size);
       this.matrix.compose(this.position, this.quaternion, this.scale);
       this.floatingCubes.setMatrixAt(i, this.matrix);
       this.floatingCubes.setColorAt(i, this.tempColor.setHex(i % 5 === 0 ? 0x35271f : i % 3 === 0 ? 0x211b18 : 0x171514));
-      this.scale.setScalar(cube.size * 1.48);
-      this.matrix.compose(this.position, this.quaternion, this.scale);
-      this.floatingEdges.setMatrixAt(i, this.matrix);
     }
     this.floatingCubes.instanceMatrix.needsUpdate = true;
     if (this.floatingCubes.instanceColor) this.floatingCubes.instanceColor.needsUpdate = true;
-    this.floatingEdges.instanceMatrix.needsUpdate = true;
   }
 
   private updateSpeedStreaks(time: number): void {

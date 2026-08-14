@@ -1,5 +1,8 @@
 {
   "ticksPerBeat": 2,
+  "strongBeatQuantile": 0.85,
+  "sustainEnergyRatio": 0.72,
+  "maxSustainTicks": 2,
   "spikeRatios": {
     "single": 0.45,
     "double": 0.35,

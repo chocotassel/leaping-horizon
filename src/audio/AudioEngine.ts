@@ -8,6 +8,8 @@ export class AudioEngine {
   private context: AudioContext;
   private source: AudioBufferSourceNode | null = null;
   private gain: GainNode;
+  private analyser: AnalyserNode;
+  private spectrumData: Uint8Array<ArrayBuffer>;
   private startedAt = 0;
   private pausedAt = 0;
   private isPaused = false;
@@ -36,7 +38,12 @@ export class AudioEngine {
       : new AudioContextClass({ latencyHint: 'interactive', sampleRate: 22050 });
     AudioEngine.sharedContext = this.context;
     this.gain = this.context.createGain();
+    this.analyser = this.context.createAnalyser();
+    this.analyser.fftSize = 256;
+    this.analyser.smoothingTimeConstant = 0.62;
+    this.spectrumData = new Uint8Array(this.analyser.frequencyBinCount);
     this.gain.gain.value = 0.48;
+    this.analyser.connect(this.gain);
     this.gain.connect(this.context.destination);
     this.duration = duration;
     this.bpm = bpm;
@@ -49,7 +56,7 @@ export class AudioEngine {
     if (this.stopped) return;
     this.source = this.context.createBufferSource();
     this.source.buffer = buffer;
-    this.source.connect(this.gain);
+    this.source.connect(this.analyser);
     this.source.start();
     this.startedAt = this.context.currentTime;
     this.pausedAt = 0;
@@ -106,6 +113,11 @@ export class AudioEngine {
     return this.isPaused;
   }
 
+  get spectrum(): Uint8Array<ArrayBuffer> {
+    this.analyser.getByteFrequencyData(this.spectrumData);
+    return this.spectrumData;
+  }
+
   async pause(): Promise<void> {
     if (this.isPaused) return;
     this.pausedAt = this.currentTime;
@@ -124,6 +136,7 @@ export class AudioEngine {
     this.stopped = true;
     try { this.source?.stop(); } catch { /* already stopped */ }
     this.source?.disconnect();
+    this.analyser.disconnect();
     this.gain.disconnect();
     this.source = null;
   }

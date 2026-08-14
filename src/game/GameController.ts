@@ -83,7 +83,7 @@ export class GameController {
     if (this.finished) return;
     const time = this.audio.currentTime;
     if (!this.audio.paused && !this.dead) this.judgeObstacles(time);
-    this.scene.render(time, this.level, this.states, this.combo);
+    this.scene.render(time, this.level, this.states, this.combo, this.audio.spectrum);
 
     if (time - this.lastHudUpdate > 0.045 || time >= this.level.song.durationSeconds) {
       this.callbacks.onHud(this.score, this.combo, Math.min(1, time / this.level.song.durationSeconds));
