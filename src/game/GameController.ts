@@ -37,7 +37,7 @@ export class GameController {
 
   constructor(canvas: HTMLCanvasElement, level: Level, callbacks: GameCallbacks) {
     this.scene = new GameScene(canvas, level);
-    this.audio = new AudioEngine(level.song.durationSeconds, level.song.bpm);
+    this.audio = new AudioEngine(level.song.durationSeconds, level.song.bpm, level.song.audioUrl);
     this.level = level;
     this.callbacks = callbacks;
     this.states = level.obstacles.map((row) => row.map((type) => (
@@ -46,8 +46,9 @@ export class GameController {
   }
 
   start(): void {
-    this.audio.start();
-    this.frameId = requestAnimationFrame(this.loop);
+    void this.audio.start().then(() => {
+      if (!this.finished) this.frameId = requestAnimationFrame(this.loop);
+    });
   }
 
   resize(width: number, height: number): void {
@@ -97,9 +98,9 @@ export class GameController {
   };
 
   private judgeObstacles(time: number): void {
-    const beatDuration = 60 / this.level.song.bpm;
+    const tickDuration = 60 / this.level.song.bpm / this.level.ticksPerBeat;
     for (let beatIndex = 0; beatIndex < this.level.obstacles.length; beatIndex += 1) {
-      const secondsUntilBeat = beatIndex * beatDuration - time;
+      const secondsUntilBeat = this.level.song.beatOffsetSeconds + beatIndex * tickDuration - time;
       for (let laneIndex = 0; laneIndex < LANE_CENTERS.length; laneIndex += 1) {
         const lane = laneIndex as LaneIndex;
         const type = this.level.obstacles[beatIndex][lane];

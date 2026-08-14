@@ -6,19 +6,22 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
+    "generate:level": "node scripts/generate-level.mjs",
     "preview": "vite preview --host 0.0.0.0",
+    "test:level": "node scripts/level-check.mjs",
     "test:physics": "tsc src/game/physics.ts --ignoreConfig --target ES2020 --module ESNext --moduleResolution Bundler --outDir /tmp/leaping-horizon-physics-check --skipLibCheck && node scripts/physics-check.mjs",
     "typecheck": "tsc -b"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "typescript": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "three": "latest"
+    "three": "latest",
+    "typescript": "latest",
+    "vite": "latest"
   },
   "devDependencies": {
+    "@audio/beat": "^2.1.2",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "@types/three": "latest"

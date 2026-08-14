@@ -18,12 +18,34 @@ export type ObstacleRow = [
 export interface Song {
   title: string;
   artist: string;
+  audioUrl: string;
   bpm: number;
+  beatOffsetSeconds: number;
   durationSeconds: number;
 }
 
 export interface Level {
+  id: string;
+  version: number;
+  ticksPerBeat: number;
   song: Song;
+  generation: {
+    algorithm: string;
+    confidence: number;
+    noteCount: number;
+    spikeCount: number;
+    spikeRows: {
+      single: number;
+      double: number;
+      triple: number;
+    };
+  };
+  accents: Array<{
+    label: string;
+    tick: number;
+    timeSeconds: number;
+    intensity: number;
+  }>;
   obstacles: ObstacleRow[];
 }
 

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <path
+    d="M256 36 289 93 M256 36 223 93 M447 366 414 309 M447 366 381 366 M65 366 131 366 M65 366 98 309"
+    fill="none"
+    stroke="#fff"
+    stroke-width="14"
+    stroke-linecap="square"
+    stroke-linejoin="miter"
+  />
+</svg>

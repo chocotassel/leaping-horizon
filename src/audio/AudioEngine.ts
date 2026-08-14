@@ -2,10 +2,7 @@ type WindowWithWebkitAudio = Window & typeof globalThis & {
   webkitAudioContext?: typeof AudioContext;
 };
 
-/**
- * 一段完全本地生成的原创循环，不依赖外部音频文件或网络。
- * 首次点击开始时生成低采样率缓冲，之后仅播放一个 AudioBufferSource。
- */
+/** 加载关卡音频；资源不可用时退回本地合成音轨。 */
 export class AudioEngine {
   private static sharedContext: AudioContext | null = null;
   private context: AudioContext;
@@ -16,6 +13,8 @@ export class AudioEngine {
   private isPaused = false;
   private readonly duration: number;
   private readonly bpm: number;
+  private readonly audioUrl: string;
+  private stopped = false;
 
   /** 必须从用户点击回调直接调用，以满足移动浏览器的音频播放策略。 */
   static async unlock(): Promise<void> {
@@ -28,7 +27,7 @@ export class AudioEngine {
     if (this.sharedContext.state === 'suspended') await this.sharedContext.resume();
   }
 
-  constructor(duration: number, bpm: number) {
+  constructor(duration: number, bpm: number, audioUrl: string) {
     const AudioContextClass = window.AudioContext ||
       (window as WindowWithWebkitAudio).webkitAudioContext;
     if (!AudioContextClass) throw new Error('Web Audio is not supported.');
@@ -41,11 +40,13 @@ export class AudioEngine {
     this.gain.connect(this.context.destination);
     this.duration = duration;
     this.bpm = bpm;
+    this.audioUrl = audioUrl;
   }
 
-  start(): void {
+  async start(): Promise<void> {
     if (this.context.state === 'suspended') void this.context.resume();
-    const buffer = this.createTrack();
+    const buffer = await this.loadTrack();
+    if (this.stopped) return;
     this.source = this.context.createBufferSource();
     this.source.buffer = buffer;
     this.source.connect(this.gain);
@@ -53,6 +54,17 @@ export class AudioEngine {
     this.startedAt = this.context.currentTime;
     this.pausedAt = 0;
     this.isPaused = false;
+  }
+
+  private async loadTrack(): Promise<AudioBuffer> {
+    try {
+      const response = await fetch(this.audioUrl);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await this.context.decodeAudioData(await response.arrayBuffer());
+    } catch (error) {
+      console.warn('Unable to load level audio; using the local fallback track.', error);
+      return this.createTrack();
+    }
   }
 
   private createTrack(): AudioBuffer {
@@ -109,6 +121,7 @@ export class AudioEngine {
   }
 
   stop(): void {
+    this.stopped = true;
     try { this.source?.stop(); } catch { /* already stopped */ }
     this.source?.disconnect();
     this.gain.disconnect();

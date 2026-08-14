@@ -1,5 +1,9 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
+import dartBladesSvg from '../assets/dart-blades.svg?raw';
+import dartCornersSvg from '../assets/dart-corners.svg?raw';
+import dartTriangleSvg from '../assets/dart-triangle.svg?raw';
 import {
   LANE_CENTERS,
   ObstacleType,
@@ -11,7 +15,9 @@ import {
   APPROACH_SECONDS,
   getObstacleZ,
   getRingApproach,
+  OBSTACLE_SPAWN_Z,
   PLAYER_Z,
+  shouldRenderObstacle,
 } from './physics';
 
 const NORMAL_BANDS_PER_OBSTACLE = 5;
@@ -21,9 +27,11 @@ const FLOATING_CUBE_COUNT = 80;
 const OUTER_SPECTRUM_COUNT = 112;
 const INNER_SPECTRUM_COUNT = 88;
 const SPEED_STREAK_COUNT = 42;
-const RING_HOLD_Z = -90;
 const RING_CENTER_Y = 15;
 const PLAYER_LIMIT_X = 2;
+const PLAYER_IDLE_SPIN_SPEED = 1.5;
+const PLAYER_HIT_SPIN_SPEED = 48;
+const PLAYER_SPIN_RECOVERY = 4;
 const CAMERA_Y = 6.8;
 const CAMERA_Z = 9.35;
 const hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
@@ -87,10 +95,14 @@ export class GameScene {
   private readonly tempColor = new THREE.Color();
   private readonly glowColor = new THREE.Color(0xffa21a);
   private readonly glowChannels: THREE.Color[] = [];
+  private readonly obstacleFrustum = new THREE.Frustum();
+  private readonly obstacleBounds = new THREE.Sphere(new THREE.Vector3(), Math.sqrt(3) / 2);
+  private readonly lastObstacleTime: number | null;
   private environmentTexture: THREE.Texture | null = null;
   private playerX = 0;
   private targetPlayerX = 0;
   private playerVelocity = 0;
+  private playerSpinSpeed = PLAYER_IDLE_SPIN_SPEED;
   private hitImpulse = 0;
   private feedbackCombo = -1;
   private comboImpactStart = -Infinity;
@@ -101,6 +113,13 @@ export class GameScene {
   constructor(canvas: HTMLCanvasElement, level: Level) {
     const nav = navigator as Navigator & { deviceMemory?: number };
     const lowPower = (nav.deviceMemory ?? 4) <= 2 || (navigator.hardwareConcurrency ?? 4) <= 4;
+    let lastObstacleBeat = level.obstacles.length - 1;
+    while (lastObstacleBeat >= 0 && level.obstacles[lastObstacleBeat].every((type) => type === ObstacleType.Empty)) {
+      lastObstacleBeat -= 1;
+    }
+    this.lastObstacleTime = lastObstacleBeat < 0
+      ? null
+      : level.song.beatOffsetSeconds + lastObstacleBeat * 60 / level.song.bpm / level.ticksPerBeat;
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: !lowPower,
@@ -140,7 +159,7 @@ export class GameScene {
     this.trailMesh = this.createPlayer();
 
     const steelTexture = this.createSteelTexture();
-    const obstaclePoolSize = (Math.ceil(APPROACH_SECONDS * level.song.bpm / 60) + 2) * LANE_CENTERS.length;
+    const obstaclePoolSize = (Math.ceil(APPROACH_SECONDS * level.song.bpm * level.ticksPerBeat / 60) + 2) * LANE_CENTERS.length;
     this.normalBlocks = this.createInstances(
       new THREE.BoxGeometry(1, 1, 1),
       this.createMetalMaterial({
@@ -397,9 +416,9 @@ export class GameScene {
 
   private createPerspectiveRoad(): void {
     const roadLength = 1500;
-    const roadWidth = 5;
+    const visualRoadWidth = 5.8;
     const road = new THREE.Mesh(
-      new THREE.PlaneGeometry(roadWidth, roadLength),
+      new THREE.PlaneGeometry(visualRoadWidth, roadLength),
       new THREE.MeshBasicMaterial({ color: 0x080504, side: THREE.DoubleSide }),
     );
     road.rotation.x = -Math.PI / 2;
@@ -421,14 +440,14 @@ export class GameScene {
         }),
       );
       glow.rotation.x = -Math.PI / 2;
-      glow.position.set(side * roadWidth / 2, -0.035, 10 - roadLength / 2);
+      glow.position.set(side * visualRoadWidth / 2, -0.035, 10 - roadLength / 2);
       this.scene.add(glow);
 
       const edge = new THREE.Mesh(
         new THREE.BoxGeometry(0.065, 0.04, roadLength),
         this.createGlowMaterial(),
       );
-      edge.position.set(side * roadWidth / 2, 0, 10 - roadLength / 2);
+      edge.position.set(side * visualRoadWidth / 2, 0, 10 - roadLength / 2);
       this.scene.add(edge);
     }
   }
@@ -444,20 +463,20 @@ export class GameScene {
     this.createBackgroundGrid();
 
     this.createPerspectiveRoad();
-    this.rhythmRing.position.z = RING_HOLD_Z;
+    this.rhythmRing.position.z = OBSTACLE_SPAWN_Z;
     this.scene.add(this.rhythmRing);
 
     const circleCenterY = RING_CENTER_Y;
     // 多层主环与频谱环对应参考图中的终点门。
     const ringLayers = [
-      { radius: 20, tube: 0.23, z: -0.3, opacity: 0.9 },
-      { radius: 18.5, tube: 0.36, z: 0, opacity: 1 },
-      { radius: 17.2, tube: 0.13, z: 0.3, opacity: 1 },
-      { radius: 15, tube: 0.18, z: 0.6, opacity: 0.92 },
+      { radius: 14, tube: 0.11, z: -0.3, opacity: 0.9 },
+      { radius: 12.95, tube: 0.28, z: 0, opacity: 1 },
+      { radius: 12.04, tube: 0.1, z: 0.3, opacity: 1 },
     ];
     ringLayers.forEach((layer) => {
       const ringMaterial = this.createGlowMaterial({
-        transparent: true,
+        transparent: false,
+        depthTest: false,
         opacity: layer.opacity,
         fog: false,
         blending: THREE.AdditiveBlending,
@@ -468,26 +487,28 @@ export class GameScene {
         ringMaterial,
       );
       ring.position.set(0, circleCenterY, layer.z);
+      ring.renderOrder = -10;
       this.rhythmRing.add(ring);
     });
 
     const outerSpectrumBars = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(0.075, 1, 0.11),
-      this.createGlowMaterial(),
+      new THREE.BoxGeometry(0.12, 1, 0.11),
+      this.createGlowMaterial({ transparent: false, depthTest: false }),
       OUTER_SPECTRUM_COUNT,
     );
     outerSpectrumBars.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     outerSpectrumBars.frustumCulled = false;
-    outerSpectrumBars.renderOrder = 1;
+    outerSpectrumBars.renderOrder = -10;
     this.rhythmRing.add(outerSpectrumBars);
 
     const innerSpectrumBars = new THREE.InstancedMesh(
       new THREE.BoxGeometry(0.065, 1, 0.1),
-      this.createGlowMaterial(),
+      this.createGlowMaterial({ transparent: false, depthTest: false }),
       INNER_SPECTRUM_COUNT,
     );
     innerSpectrumBars.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     innerSpectrumBars.frustumCulled = false;
+    innerSpectrumBars.renderOrder = -10;
     this.rhythmRing.add(innerSpectrumBars);
 
     const floatingData = Array.from({ length: FLOATING_CUBE_COUNT }, (_, index) => {
@@ -577,76 +598,46 @@ export class GameScene {
   }
 
   private createPlayer(): THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> {
-    const outerRing = new THREE.Mesh(
-      new THREE.TorusGeometry(0.43, 0.11, 8, 32),
-      this.createGlowMaterial({
-        transparent: true,
-        opacity: 0.95,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        fog: false,
-        toneMapped: false,
-      }),
+    const coreMaterial = this.createGlowMaterial({ opacity: 1, side: THREE.DoubleSide });
+    const glowMaterial = this.createGlowMaterial({ opacity: 0.35, side: THREE.DoubleSide });
+    const createSvgLayer = (
+      svg: string,
+      height: number,
+      size = 1,
+      rotation = 0,
+    ): THREE.Group => {
+      const content = new THREE.Group();
+      const addGeometry = (geometry: THREE.BufferGeometry): void => {
+        content.add(new THREE.Mesh(geometry, glowMaterial), new THREE.Mesh(geometry, coreMaterial));
+      };
+      for (const path of new SVGLoader().parse(svg).paths) {
+        const style = path.userData.style as Parameters<typeof SVGLoader.pointsToStroke>[1] & {
+          fill?: string;
+          stroke?: string;
+        };
+        if (style.fill && style.fill !== 'none') addGeometry(new THREE.ShapeGeometry(path.toShapes()));
+        if (style.stroke && style.stroke !== 'none') {
+          path.subPaths.forEach((subPath) => addGeometry(SVGLoader.pointsToStroke(subPath.getPoints(), style)));
+        }
+      }
+      content.position.set(-256, -256, 0);
+      const layer = new THREE.Group();
+      layer.position.z = height;
+      layer.rotation.z = rotation;
+      layer.scale.setScalar(size);
+      layer.add(content);
+      return layer;
+    };
+    const playerArt = new THREE.Group();
+    playerArt.add(
+      createSvgLayer(dartCornersSvg, 0, 0.68, Math.PI / 3),
+      createSvgLayer(dartTriangleSvg, 16, 0.82, Math.PI / 6),
+      createSvgLayer(dartTriangleSvg, 32, 0.82, Math.PI / 2),
+      createSvgLayer(dartBladesSvg, 48),
     );
-    outerRing.rotation.x = Math.PI / 2;
-    this.player.add(outerRing);
-
-    // 三片向外弯折的飞刀轮廓，枢轴在中心，尖端形成明确旋转剪影。
-    const bladeShape = new THREE.Shape();
-    bladeShape.moveTo(0.38, -0.08);
-    bladeShape.bezierCurveTo(0.72, -0.42, 1.24, -0.45, 1.55, -0.15);
-    bladeShape.lineTo(1.16, 0.02);
-    bladeShape.bezierCurveTo(0.91, 0.13, 0.69, 0.27, 0.5, 0.42);
-    bladeShape.bezierCurveTo(0.55, 0.19, 0.48, 0.02, 0.38, -0.08);
-    bladeShape.closePath();
-    const bladeGeometry = new THREE.ExtrudeGeometry(bladeShape, {
-      depth: 0.065,
-      bevelEnabled: true,
-      bevelThickness: 0.035,
-      bevelSize: 0.025,
-      bevelSegments: 1,
-    });
-    bladeGeometry.rotateX(Math.PI / 2);
-    const bladeMaterial = this.createGlowMaterial({
-      transparent: true,
-      opacity: 0.78,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      fog: false,
-      toneMapped: false,
-    });
-    for (let i = 0; i < 3; i += 1) {
-      const blade = new THREE.Mesh(bladeGeometry, bladeMaterial);
-      blade.rotation.y = i * Math.PI * 2 / 3;
-      this.player.add(blade);
-      const glowBlade = new THREE.Mesh(
-        bladeGeometry,
-        this.createGlowMaterial({
-          transparent: true,
-          opacity: 0.42,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-          fog: false,
-          toneMapped: false,
-        }),
-      );
-      glowBlade.scale.set(1.08, 1.8, 1.08);
-      glowBlade.rotation.y = i * Math.PI * 2 / 3;
-      this.player.add(glowBlade);
-    }
-    const energyHalo = new THREE.Mesh(
-      new THREE.TorusGeometry(0.48, 0.2, 8, 32),
-      this.createGlowMaterial({
-        transparent: true,
-        opacity: 0.28,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        fog: false,
-        toneMapped: false,
-      }),
-    );
-    energyHalo.rotation.x = Math.PI / 2;
-    this.player.add(energyHalo);
+    playerArt.scale.setScalar(1 / 512);
+    playerArt.rotation.x = -Math.PI / 2;
+    this.player.add(playerArt);
     const playerLight = new THREE.PointLight(0x48f8ff, 18, 8, 2);
     playerLight.color.copy(this.glowColor);
     this.glowChannels.push(playerLight.color);
@@ -714,7 +705,12 @@ export class GameScene {
       this.player.position.x = this.playerX;
       this.player.position.y = 0.32 + Math.sin(time * 8) * 0.025;
       this.player.rotation.z = THREE.MathUtils.clamp(-this.playerVelocity * 0.013, -0.16, 0.16);
-      this.player.rotation.y -= dt * 34;
+      this.player.rotation.y -= dt * this.playerSpinSpeed;
+      this.playerSpinSpeed = THREE.MathUtils.lerp(
+        this.playerSpinSpeed,
+        PLAYER_IDLE_SPIN_SPEED,
+        Math.min(1, dt * PLAYER_SPIN_RECOVERY),
+      );
       this.updateTrail();
     }
 
@@ -765,11 +761,11 @@ export class GameScene {
   }
 
   private updateSpectrum(time: number, combo: number, duration: number, bpm: number): void {
-    const approach = getRingApproach(time / duration);
+    const approach = getRingApproach(time, duration, this.lastObstacleTime);
     this.rhythmRing.position.set(
       THREE.MathUtils.lerp(0, this.camera.position.x, approach),
       THREE.MathUtils.lerp(0, this.camera.position.y - RING_CENTER_Y, approach),
-      THREE.MathUtils.lerp(RING_HOLD_Z, CAMERA_Z + 2, approach),
+      THREE.MathUtils.lerp(OBSTACLE_SPAWN_Z, CAMERA_Z + 2, approach),
     );
     const beat = 60 / bpm;
     const beatPhase = (time % beat) / beat;
@@ -779,7 +775,7 @@ export class GameScene {
       const angle = (i / OUTER_SPECTRUM_COUNT) * Math.PI * 2;
       const wave = Math.abs(Math.sin(time * 4.7 + i * 0.47));
       const length = 0.9 + wave * 1.7 + beatKick * (0.8 + (i % 5) * 0.1) + comboBoost * 2.2;
-      const radius = 21 + length * 0.5;
+      const radius = 14.7 + length * 0.5;
       this.position.set(Math.cos(angle) * radius, RING_CENTER_Y + Math.sin(angle) * radius, 0.15);
       this.quaternion.setFromEuler(new THREE.Euler(0, 0, angle - Math.PI / 2));
       this.scale.set(2.5, length, 2);
@@ -793,8 +789,8 @@ export class GameScene {
     for (let i = 0; i < INNER_SPECTRUM_COUNT; i += 1) {
       const angle = (i / INNER_SPECTRUM_COUNT) * Math.PI * 2;
       const wave = Math.abs(Math.cos(time * 5.2 + i * 0.39));
-      const length = 0.55 + wave * 1.15 + beatKick * 0.7 + comboBoost * 1.3;
-      const radius = 14.4 - length * 0.5;
+      const length = 0.35 + wave * 0.65 + beatKick * 0.35 + comboBoost * 0.7;
+      const radius = 11.3 - length * 0.5;
       this.position.set(Math.cos(angle) * radius, RING_CENTER_Y + Math.sin(angle) * radius, 0.75);
       this.quaternion.setFromEuler(new THREE.Euler(0, 0, angle - Math.PI / 2));
       this.scale.set(2.2, length, 1.8);
@@ -844,18 +840,24 @@ export class GameScene {
   private updateObstacles(time: number, level: Level, states: ObstacleStateRow[]): void {
     let normalIndex = 0;
     let spikeIndex = 0;
-    const beatDuration = 60 / level.song.bpm;
+    const tickDuration = 60 / level.song.bpm / level.ticksPerBeat;
+    this.camera.updateMatrixWorld();
+    this.obstacleFrustum.setFromProjectionMatrix(
+      this.matrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse),
+    );
     for (let beatIndex = 0; beatIndex < level.obstacles.length; beatIndex += 1) {
-      const delta = beatIndex * beatDuration - time;
+      const delta = level.song.beatOffsetSeconds + beatIndex * tickDuration - time;
       if (delta > APPROACH_SECONDS) break;
-      if (delta < -0.3) continue;
       // 线性匀速接近，绝不在飞盘附近减速或停顿。
       const z = getObstacleZ(delta);
       for (let laneIndex = 0; laneIndex < LANE_CENTERS.length; laneIndex += 1) {
         const lane = laneIndex as LaneIndex;
-        if (states[beatIndex][lane] !== 'pending') continue;
+        if (!shouldRenderObstacle(states[beatIndex][lane])) continue;
         const type = level.obstacles[beatIndex][lane];
         const x = LANE_CENTERS[lane];
+        // InstancedMesh 只能整池剔除；填池前逐个剔除，避免离屏旧障碍占用实例。
+        this.obstacleBounds.center.set(x, 0.5, z);
+        if (!this.obstacleFrustum.intersectsSphere(this.obstacleBounds)) continue;
 
         if (type === ObstacleType.Breakable && normalIndex < this.normalBlocks.count) {
           this.position.set(x, 0.5, z);
@@ -914,6 +916,7 @@ export class GameScene {
 
   burst(x: number, hazard = false): void {
     const count = hazard ? 48 : 22;
+    if (!hazard) this.playerSpinSpeed = PLAYER_HIT_SPIN_SPEED;
     this.hitImpulse = hazard ? 0.2 : 0.075;
     let created = 0;
     for (const particle of this.particleData) {

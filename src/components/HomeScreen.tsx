@@ -5,6 +5,8 @@ interface HomeScreenProps {
 }
 
 export function HomeScreen({ onStart }: HomeScreenProps) {
+  const duration = Math.ceil(DEMO_LEVEL.song.durationSeconds);
+  const durationLabel = `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`;
   return (
     <main className="screen home-screen">
       <div className="home-glow" />
@@ -29,7 +31,7 @@ export function HomeScreen({ onStart }: HomeScreenProps) {
           <span className="now-playing">本次航行</span>
           <strong>{DEMO_LEVEL.song.title}</strong>
           <span>{DEMO_LEVEL.song.artist}</span>
-          <div className="song-meta"><b>{DEMO_LEVEL.song.bpm}</b> BPM <i /> 00:42</div>
+          <div className="song-meta"><b>{DEMO_LEVEL.song.bpm}</b> BPM <i /> {durationLabel}</div>
         </div>
       </section>
 
