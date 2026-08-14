@@ -354,7 +354,7 @@ button {
 .game-hud {
   position: absolute;
   z-index: 3;
-  top: calc(env(safe-area-inset-top, 0px) + 25px);
+  top: calc(env(safe-area-inset-top, 0px) + 10vh + 25px);
   left: 23px;
   right: 23px;
   display: flex;
@@ -391,51 +391,6 @@ button {
 }
 .pause-button i { display: block; width: 3px; height: 14px; background: #fff; }
 .resume-icon { font-size: 13px; margin-left: 2px; }
-
-.combo-block {
-  position: absolute;
-  z-index: 2;
-  top: 37%;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  animation: combo-pop 150ms ease-out;
-}
-.combo-block strong {
-  font: 700 clamp(38px, 11vw, 60px)/0.9 'Barlow Condensed', sans-serif;
-  letter-spacing: -0.03em;
-  text-shadow: 0 0 18px rgb(255 92 52 / 0.35);
-}
-.combo-block span {
-  margin-bottom: 3px;
-  color: #fff;
-  font: 700 11px/1 'Barlow Condensed', sans-serif;
-  letter-spacing: 0.18em;
-}
-.combo-block small {
-  margin-top: 7px;
-  color: #39c6ff;
-  font: 700 8px/1 'Barlow Condensed', sans-serif;
-  letter-spacing: 0.25em;
-}
-@keyframes combo-pop { from { transform: translateX(-50%) scale(1.25); } }
-
-.hit-feedback {
-  position: absolute;
-  z-index: 2;
-  top: 30%;
-  left: 50%;
-  transform: translateX(-50%) skew(-8deg);
-  color: var(--cyan);
-  font: italic 800 15px/1 'Barlow Condensed', sans-serif;
-  letter-spacing: 0.25em;
-  text-shadow: 0 0 13px var(--cyan);
-  animation: feedback 260ms ease-out both;
-}
-.hit-feedback.is-miss { color: var(--pink); text-shadow: 0 0 13px var(--pink); }
-@keyframes feedback { from { opacity: 0; transform: translateX(-50%) translateY(8px) skew(-8deg) scale(0.7); } 30% { opacity: 1; } to { opacity: 0; transform: translateX(-50%) translateY(-10px) skew(-8deg); } }
 
 .progress-wrap {
   position: absolute;

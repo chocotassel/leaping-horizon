@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AudioEngine } from '../audio/AudioEngine';
 import { DEMO_CHART } from '../chart';
 import { GameController } from '../game/GameController';
@@ -16,25 +16,13 @@ export function GameScreen({ onFinish }: GameScreenProps) {
   const [paused, setPaused] = useState(false);
   const [dead, setDead] = useState(false);
   const [runId, setRunId] = useState(0);
-  const [feedback, setFeedback] = useState('READY');
-  const feedbackTimer = useRef<number>(0);
-
-  const showFeedback = useCallback((text: string) => {
-    setFeedback(text);
-    window.clearTimeout(feedbackTimer.current);
-    feedbackTimer.current = window.setTimeout(() => setFeedback(''), 260);
-  }, []);
-
   useEffect(() => {
     if (!canvasRef.current || !stageRef.current) return;
     const controller = new GameController(canvasRef.current, DEMO_CHART, {
       onHud: (score, combo, progress) => setHud({ score, combo, progress }),
-      onHit: (combo) => showFeedback(combo > 1 ? 'PERFECT' : 'SLICE'),
-      onMiss: () => showFeedback('MISS'),
       onDeath: () => {
         setDead(true);
         setPaused(false);
-        showFeedback('CRASH');
       },
       onFinish,
     });
@@ -47,14 +35,12 @@ export function GameScreen({ onFinish }: GameScreenProps) {
     resize();
     window.addEventListener('resize', resize);
     controller.start();
-    window.setTimeout(() => setFeedback(''), 500);
     return () => {
       window.removeEventListener('resize', resize);
-      window.clearTimeout(feedbackTimer.current);
       controller.destroy();
       controllerRef.current = null;
     };
-  }, [onFinish, showFeedback, runId]);
+  }, [onFinish, runId]);
 
   const normalizePointer = (clientX: number) => {
     const rect = stageRef.current?.getBoundingClientRect();
@@ -116,13 +102,6 @@ export function GameScreen({ onFinish }: GameScreenProps) {
       <div className="star-progress" aria-hidden="true">
         <div className="star-line"><i style={{ width: `${hud.progress * 100}%` }} /></div>
         <div className="stars"><span>★</span><span>★</span><span>★</span><span>★</span><span>★</span></div>
-      </div>
-
-      <div className={`hit-feedback ${feedback === 'MISS' || feedback === 'CRASH' ? 'is-miss' : ''}`} key={feedback}>{feedback}</div>
-      <div className="combo-block">
-        <span>COMBO</span>
-        <strong>×{hud.combo}</strong>
-        <small>SCORE ×{Math.min(15, Math.max(1, Math.floor(hud.combo / 8) + 1))}</small>
       </div>
 
       <div className="progress-wrap">

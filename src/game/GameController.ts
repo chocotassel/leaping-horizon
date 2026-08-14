@@ -4,8 +4,6 @@ import { GameScene } from './GameScene';
 
 interface GameCallbacks {
   onHud: (score: number, combo: number, progress: number) => void;
-  onHit: (combo: number, points: number) => void;
-  onMiss: () => void;
   onDeath: () => void;
   onFinish: (result: GameResult) => void;
 }
@@ -105,7 +103,6 @@ export class GameController {
           const points = 100 + Math.min(200, this.combo * 4);
           this.score += points;
           this.scene.burst(notes[i].lane);
-          this.callbacks.onHit(this.combo, points);
           continue;
         }
       }
@@ -113,7 +110,7 @@ export class GameController {
         this.states[i] = 'miss';
         if (notes[i].type === 'normal') {
           this.combo = 0;
-          this.callbacks.onMiss();
+          this.scene.flashMiss(time);
         }
       }
       if (notes[i].time - time > 0.4) break;

@@ -7,7 +7,7 @@ const NORMAL_POOL_SIZE = 22;
 const SPIKE_POOL_SIZE = 10;
 const SPIKES_PER_OBSTACLE = 13;
 const PARTICLE_POOL_SIZE = 96;
-const FLOATING_CUBE_COUNT = 64;
+const FLOATING_CUBE_COUNT = 80;
 const OUTER_SPECTRUM_COUNT = 112;
 const INNER_SPECTRUM_COUNT = 88;
 const SPEED_STREAK_COUNT = 42;
@@ -65,6 +65,12 @@ export class GameScene {
   private readonly floatingEdges: THREE.InstancedMesh;
   private readonly floatingData: FloatingCube[];
   private readonly speedStreaks: THREE.InstancedMesh;
+  private readonly comboCanvas: HTMLCanvasElement;
+  private readonly comboTexture: THREE.CanvasTexture;
+  private readonly comboSprite: THREE.Sprite;
+  private readonly missCanvas: HTMLCanvasElement;
+  private readonly missTexture: THREE.CanvasTexture;
+  private readonly missSprite: THREE.Sprite;
   private readonly clock = new THREE.Clock();
   private readonly matrix = new THREE.Matrix4();
   private readonly position = new THREE.Vector3();
@@ -76,6 +82,9 @@ export class GameScene {
   private targetPlayerX = 0;
   private playerVelocity = 0;
   private hitImpulse = 0;
+  private feedbackCombo = -1;
+  private comboImpactStart = -Infinity;
+  private missImpactStart = -Infinity;
   private crashed = false;
   private disposed = false;
 
@@ -204,6 +213,18 @@ export class GameScene {
       spinX: 0,
       spinY: 0,
     }));
+
+    const comboFeedback = this.createFeedback(640, 480);
+    this.comboCanvas = comboFeedback.canvas;
+    this.comboTexture = comboFeedback.texture;
+    this.comboSprite = comboFeedback.sprite;
+    const missFeedback = this.createFeedback(512, 256);
+    this.missCanvas = missFeedback.canvas;
+    this.missTexture = missFeedback.texture;
+    this.missSprite = missFeedback.sprite;
+    this.drawCombo(0);
+    this.drawMiss();
+    this.missSprite.visible = false;
   }
 
   private createInstances(geometry: THREE.BufferGeometry, material: THREE.Material, count: number): THREE.InstancedMesh {
@@ -213,6 +234,96 @@ export class GameScene {
     mesh.frustumCulled = false;
     this.scene.add(mesh);
     return mesh;
+  }
+
+  private createFeedback(width: number, height: number): {
+    canvas: HTMLCanvasElement;
+    texture: THREE.CanvasTexture;
+    sprite: THREE.Sprite;
+  } {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+      fog: false,
+      toneMapped: false,
+    }));
+    sprite.position.set(0, 55, RING_Z + 40);
+    sprite.renderOrder = 20;
+    this.scene.add(sprite);
+    return { canvas, texture, sprite };
+  }
+
+  private drawCombo(combo: number): void {
+    const context = this.comboCanvas.getContext('2d')!;
+    context.clearRect(0, 0, 640, 480);
+    context.textAlign = 'center';
+    context.textBaseline = 'top';
+    context.fillStyle = '#ffffff';
+    context.shadowColor = 'rgba(255,255,255,0.45)';
+    context.shadowBlur = 8;
+    context.font = "700 64px 'Arial Narrow', sans-serif";
+    context.fillText('C O M B O', 320, 26);
+    context.shadowColor = 'rgba(255,75,155,0.45)';
+    context.shadowBlur = 18;
+    context.font = "700 230px 'Arial Narrow', sans-serif";
+    context.fillText(`× ${combo}`, 320, 112, 580);
+    context.fillStyle = '#39c6ff';
+    context.shadowColor = 'rgba(57,198,255,0.55)';
+    context.shadowBlur = 8;
+    context.font = "700 52px 'Arial Narrow', sans-serif";
+    context.fillText(`S C O R E  ×${Math.min(15, Math.max(1, Math.floor(combo / 8) + 1))}`, 320, 404);
+    this.feedbackCombo = combo;
+    this.comboTexture.needsUpdate = true;
+  }
+
+  private drawMiss(): void {
+    const context = this.missCanvas.getContext('2d')!;
+    context.clearRect(0, 0, 512, 256);
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillStyle = '#ff4b9b';
+    context.shadowColor = '#ff4b9b';
+    context.shadowBlur = 20;
+    context.font = "italic 700 130px 'Arial Narrow', sans-serif";
+    context.fillText('M I S S', 256, 128);
+    this.missTexture.needsUpdate = true;
+  }
+
+  flashMiss(time: number): void {
+    this.missImpactStart = time;
+  }
+
+  private updateFeedback(time: number, combo: number): void {
+    const missProgress = (time - this.missImpactStart) / 0.26;
+    this.missSprite.visible = missProgress >= 0 && missProgress < 1;
+    this.comboSprite.visible = !this.missSprite.visible;
+    if (missProgress >= 0 && missProgress < 1) {
+      const eased = 1 - Math.pow(1 - missProgress, 3);
+      const impact = THREE.MathUtils.lerp(0.55, 1.3, eased);
+      this.missSprite.scale.set(70 * impact, 35 * impact, 1);
+      this.missSprite.material.opacity = missProgress < 0.35
+        ? THREE.MathUtils.lerp(0.2, 1, missProgress / 0.35)
+        : (1 - missProgress) / 0.65;
+      return;
+    }
+
+    if (combo !== this.feedbackCombo) {
+      if (combo > this.feedbackCombo && combo > 0) this.comboImpactStart = time;
+      this.drawCombo(combo);
+    }
+    const comboProgress = THREE.MathUtils.clamp((time - this.comboImpactStart) / 0.22, 0, 1);
+    const impact = THREE.MathUtils.lerp(0.62, 1, 1 - Math.pow(1 - comboProgress, 3));
+    this.comboSprite.scale.set(80 * impact, 60 * impact, 1);
+    this.comboSprite.material.opacity = 1;
   }
 
   private createSteelTexture(): THREE.CanvasTexture {
@@ -305,10 +416,10 @@ export class GameScene {
     const circleCenterY = RING_CENTER_Y;
     // 多层圆环沿 Z 轴错开，形成有真实纵深的霓虹隧道入口。
     const ringLayers = [
-      { radius: 116, tube: 3.8, z: RING_Z - 12, color: 0x04365a, opacity: 0.9 },
-      { radius: 111, tube: 2.6, z: RING_Z - 3, color: 0xd8ffff, opacity: 1 },
-      { radius: 106, tube: 1.8, z: RING_Z + 6, color: 0x00eaff, opacity: 1 },
-      { radius: 96, tube: 1.2, z: RING_Z + 14, color: 0xa34dff, opacity: 1 },
+      { radius: 138, tube: 3.8, z: RING_Z - 12, color: 0x04365a, opacity: 0.9 },
+      { radius: 132, tube: 2.6, z: RING_Z - 3, color: 0xd8ffff, opacity: 1 },
+      { radius: 126, tube: 1.8, z: RING_Z + 6, color: 0x00eaff, opacity: 1 },
+      { radius: 114, tube: 1.2, z: RING_Z + 14, color: 0xa34dff, opacity: 1 },
     ];
     ringLayers.forEach((layer) => {
       const ringMaterial = new THREE.MeshBasicMaterial({
@@ -328,7 +439,7 @@ export class GameScene {
     });
 
     const tunnelWall = new THREE.Mesh(
-      new THREE.CylinderGeometry(109, 96, 30, lowPower ? 48 : 72, 1, true),
+      new THREE.CylinderGeometry(130, 114, 30, lowPower ? 48 : 72, 1, true),
       new THREE.MeshBasicMaterial({
         color: 0x037f99,
         transparent: true,
@@ -364,12 +475,13 @@ export class GameScene {
 
     const floatingData = Array.from({ length: FLOATING_CUBE_COUNT }, (_, index) => {
       const side = index % 2 === 0 ? -1 : 1;
-      const depthBand = Math.floor(index / 2) % 16;
+      const depthIndex = Math.floor(index / 2);
+      const depthBand = depthIndex % 32;
       return {
-        x: side * (4.35 + ((index * 7) % 10) * 0.4),
-        y: 3.7 + ((index * 13) % 17) * 0.48,
-        z: 6 - depthBand * 2.65 - (index % 3) * 0.4,
-        size: 0.24 + ((index * 5) % 8) * 0.085,
+        x: side * (5.2 + depthBand * 1.1 + ((depthIndex * 5) % 7) * 0.35),
+        y: depthIndex < 32 ? 0.6 + ((index * 13) % 21) * 1.1 : 0.6 + ((depthIndex - 32) % 4) * 1.4,
+        z: 2 - depthBand * 3.4 - (index % 3) * 0.4,
+        size: 0.28 + ((index * 5) % 9) * 0.1,
         phase: index * 0.73,
       };
     });
@@ -597,6 +709,7 @@ export class GameScene {
     }
 
     this.updateSpectrum(time, combo);
+    this.updateFeedback(time, combo);
     this.updateFloatingCubes(time);
     this.updateSpeedStreaks(time);
     this.updateObstacles(time, chart, states);
@@ -640,7 +753,7 @@ export class GameScene {
       const angle = (i / OUTER_SPECTRUM_COUNT) * Math.PI * 2;
       const wave = Math.abs(Math.sin(time * 4.7 + i * 0.47));
       const length = 3.2 + wave * 7.2 + beatKick * (3.8 + (i % 5) * 0.4) + comboBoost * 10;
-      const radius = 119 + length * 0.5;
+      const radius = 142 + length * 0.5;
       this.position.set(Math.cos(angle) * radius, RING_CENTER_Y + Math.sin(angle) * radius, RING_Z + 3);
       this.quaternion.setFromEuler(new THREE.Euler(0, 0, angle - Math.PI / 2));
       this.scale.set(8, length, 10);
@@ -651,13 +764,13 @@ export class GameScene {
     this.outerSpectrumBars.instanceMatrix.needsUpdate = true;
     if (this.outerSpectrumBars.instanceColor) this.outerSpectrumBars.instanceColor.needsUpdate = true;
 
-    // 内圈位于更远的 Z 平面，主环会真实遮挡内圈竖条。
+    // 内圈略靠近镜头，避免频谱竖条被主环完全遮住。
     for (let i = 0; i < INNER_SPECTRUM_COUNT; i += 1) {
       const angle = (i / INNER_SPECTRUM_COUNT) * Math.PI * 2;
       const wave = Math.abs(Math.cos(time * 5.2 + i * 0.39));
       const length = 2.2 + wave * 4.8 + beatKick * 2.8 + comboBoost * 5;
-      const radius = 93 - length * 0.5;
-      this.position.set(Math.cos(angle) * radius, RING_CENTER_Y + Math.sin(angle) * radius, RING_Z - 8);
+      const radius = 109 - length * 0.5;
+      this.position.set(Math.cos(angle) * radius, RING_CENTER_Y + Math.sin(angle) * radius, RING_Z + 20);
       this.quaternion.setFromEuler(new THREE.Euler(0, 0, angle - Math.PI / 2));
       this.scale.set(7, length, 9);
       this.matrix.compose(this.position, this.quaternion, this.scale);
@@ -858,6 +971,10 @@ export class GameScene {
       materials.forEach((material) => material.dispose());
     });
     this.renderer.dispose();
+    this.comboTexture.dispose();
+    this.comboSprite.material.dispose();
+    this.missTexture.dispose();
+    this.missSprite.material.dispose();
     this.environmentTexture?.dispose();
   }
 }
