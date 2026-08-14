@@ -10,6 +10,7 @@ interface GameCallbacks {
 
 const HIT_WINDOW = 0.25;
 const LANE_X = 1.35;
+const DRAG_SENSITIVITY = 2.4;
 
 export class GameController {
   private readonly scene: GameScene;
@@ -25,6 +26,7 @@ export class GameController {
   private finished = false;
   private dead = false;
   private pointerId: number | null = null;
+  private lastPointerX = 0;
   private lastHudUpdate = 0;
 
   constructor(canvas: HTMLCanvasElement, chart: SongChart, callbacks: GameCallbacks) {
@@ -45,9 +47,12 @@ export class GameController {
   }
 
   setPointer(pointerId: number, normalizedX: number): void {
-    if (this.pointerId === null || this.pointerId === pointerId) {
+    if (this.pointerId === null) {
       this.pointerId = pointerId;
-      this.scene.setPlayerNormalized(normalizedX);
+      this.lastPointerX = normalizedX;
+    } else if (this.pointerId === pointerId) {
+      this.scene.movePlayerNormalized((normalizedX - this.lastPointerX) * DRAG_SENSITIVITY);
+      this.lastPointerX = normalizedX;
     }
   }
 

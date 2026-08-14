@@ -17,6 +17,7 @@ const APPROACH_SECONDS = 1.55;
 const OBSTACLE_SPAWN_Z = -64;
 const RING_Z = -420;
 const RING_CENTER_Y = 0;
+const PLAYER_LIMIT_X = 2.92;
 const hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
 
 interface Particle {
@@ -686,8 +687,12 @@ export class GameScene {
     this.renderer.setSize(width, height, false);
   }
 
-  setPlayerNormalized(normalizedX: number): void {
-    this.targetPlayerX = THREE.MathUtils.clamp(normalizedX, -1, 1) * 2.92;
+  movePlayerNormalized(normalizedDeltaX: number): void {
+    this.targetPlayerX = THREE.MathUtils.clamp(
+      this.targetPlayerX + normalizedDeltaX * PLAYER_LIMIT_X,
+      -PLAYER_LIMIT_X,
+      PLAYER_LIMIT_X,
+    );
   }
 
   getPlayerX(): number {
@@ -723,7 +728,7 @@ export class GameScene {
 
   private updateTrail(): void {
     for (let i = this.trailHistory.length - 1; i > 0; i -= 1) {
-      this.trailHistory[i] += (this.trailHistory[i - 1] - this.trailHistory[i]) * 0.24;
+      this.trailHistory[i] += (this.trailHistory[i - 1] - this.trailHistory[i]) * 0.5;
     }
     this.trailHistory[0] = this.playerX;
     const positions = this.trailMesh.geometry.getAttribute('position') as THREE.BufferAttribute;
