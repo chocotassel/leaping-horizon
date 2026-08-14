@@ -1,4 +1,4 @@
-import { DEMO_CHART } from '../chart';
+import { DEMO_LEVEL } from '../chart';
 
 interface HomeScreenProps {
   onStart: () => void;
@@ -27,9 +27,9 @@ export function HomeScreen({ onStart }: HomeScreenProps) {
         </div>
         <div className="song-info">
           <span className="now-playing">本次航行</span>
-          <strong>{DEMO_CHART.title}</strong>
-          <span>{DEMO_CHART.artist}</span>
-          <div className="song-meta"><b>{DEMO_CHART.bpm}</b> BPM <i /> 00:42</div>
+          <strong>{DEMO_LEVEL.song.title}</strong>
+          <span>{DEMO_LEVEL.song.artist}</span>
+          <div className="song-meta"><b>{DEMO_LEVEL.song.bpm}</b> BPM <i /> 00:42</div>
         </div>
       </section>
 

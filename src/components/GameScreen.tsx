@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AudioEngine } from '../audio/AudioEngine';
-import { DEMO_CHART } from '../chart';
+import { DEMO_LEVEL } from '../chart';
 import { GameController } from '../game/GameController';
 import type { GameResult } from '../types';
 
@@ -18,7 +18,7 @@ export function GameScreen({ onFinish }: GameScreenProps) {
   const [runId, setRunId] = useState(0);
   useEffect(() => {
     if (!canvasRef.current || !stageRef.current) return;
-    const controller = new GameController(canvasRef.current, DEMO_CHART, {
+    const controller = new GameController(canvasRef.current, DEMO_LEVEL, {
       onHud: (score, combo, progress) => setHud({ score, combo, progress }),
       onDeath: () => {
         setDead(true);

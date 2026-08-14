@@ -1,21 +1,40 @@
-export type Lane = -2 | -1 | 0 | 1 | 2;
-export type ObstacleType = 'normal' | 'spike';
+export const LANE_CENTERS = [-2, -1, 0, 1, 2] as const;
+export type LaneIndex = 0 | 1 | 2 | 3 | 4;
 
-export interface ChartNote {
-  time: number;
-  lane: Lane;
-  type: ObstacleType;
+export enum ObstacleType {
+  Empty = 0,
+  Breakable = 1,
+  Spike = 2,
 }
 
-export interface SongChart {
+export type ObstacleRow = [
+  ObstacleType,
+  ObstacleType,
+  ObstacleType,
+  ObstacleType,
+  ObstacleType,
+];
+
+export interface Song {
   title: string;
   artist: string;
   bpm: number;
-  duration: number;
-  notes: ChartNote[];
+  durationSeconds: number;
 }
 
-export type NoteState = 'pending' | 'hit' | 'miss';
+export interface Level {
+  song: Song;
+  obstacles: ObstacleRow[];
+}
+
+export type ObstacleState = 'pending' | 'hit' | 'miss';
+export type ObstacleStateRow = [
+  ObstacleState | null,
+  ObstacleState | null,
+  ObstacleState | null,
+  ObstacleState | null,
+  ObstacleState | null,
+];
 
 export interface GameResult {
   score: number;

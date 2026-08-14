@@ -41,11 +41,10 @@ button {
 
 .portrait-frame {
   position: relative;
-  width: min(100vw, calc(100vh * 0.68));
-  width: min(100vw, calc(100dvh * 0.68));
-  height: 100vh;
-  height: 100dvh;
-  max-height: calc(100vw / 0.48);
+  width: min(100vw, calc(100vh * 0.461));
+  width: min(100vw, calc(100dvh * 0.461));
+  height: min(100vh, calc(100vw / 0.461));
+  height: min(100dvh, calc(100vw / 0.461));
   overflow: hidden;
   background: var(--deep);
   box-shadow: 0 0 70px rgb(0 0 0 / 0.8);
@@ -638,12 +637,6 @@ button {
 }
 
 @media (orientation: landscape) {
-  .portrait-frame {
-    width: min(56.25vh, 100vw);
-    width: min(56.25dvh, 100vw);
-    height: 100vh;
-    height: 100dvh;
-  }
   .home-screen { padding-left: 6vh; padding-right: 6vh; }
   .brand-row { margin-top: 4.5vh; }
   .hero-copy { margin-top: 5.5vh; }
