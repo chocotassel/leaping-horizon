@@ -34,6 +34,8 @@ const PLAYER_HIT_SPIN_SPEED = 48;
 const PLAYER_SPIN_RECOVERY = 4;
 const CAMERA_Y = 6.8;
 const CAMERA_Z = 9.35;
+const DESIGN_ASPECT = 9 / 16;
+const PLAYER_BOTTOM_RATIO = 0.32;
 const hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
 
 interface Particle {
@@ -678,8 +680,14 @@ export class GameScene {
 
   resize(width: number, height: number): void {
     if (!width || !height) return;
+    this.camera.clearViewOffset();
     this.camera.aspect = width / height;
+    this.camera.zoom = Math.max(1, DESIGN_ASPECT / this.camera.aspect);
     this.camera.updateProjectionMatrix();
+    this.camera.updateMatrixWorld();
+    const playerNdcY = this.position.set(0, 0.32, PLAYER_Z).project(this.camera).y;
+    const targetNdcY = PLAYER_BOTTOM_RATIO * 2 - 1;
+    this.camera.setViewOffset(width, height, 0, (targetNdcY - playerNdcY) * height / 2, width, height);
     this.renderer.setSize(width, height, false);
   }
 

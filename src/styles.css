@@ -41,10 +41,10 @@ button {
 
 .portrait-frame {
   position: relative;
-  width: min(100vw, calc(100vh * 0.461));
-  width: min(100vw, calc(100dvh * 0.461));
-  height: min(100vh, calc(100vw / 0.461));
-  height: min(100dvh, calc(100vw / 0.461));
+  width: min(100vw, 56.25vh);
+  width: min(100vw, 56.25dvh);
+  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   background: var(--deep);
   box-shadow: 0 0 70px rgb(0 0 0 / 0.8);
