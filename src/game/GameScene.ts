@@ -773,11 +773,15 @@ export class GameScene {
     for (let i = 0; i < OUTER_SPECTRUM_COUNT; i += 1) {
       const position = i / OUTER_SPECTRUM_COUNT;
       const angle = position * Math.PI * 2;
-      const frequencyPosition = 1 - Math.abs(position * 2 - 1);
+      const frequencyPosition = Math.abs(Math.sin(angle));
       const bin = 2 + Math.floor(frequencyPosition * (maxBin - 2));
-      const energy = (spectrum[bin - 1] + spectrum[bin] * 2 + spectrum[bin + 1]) / (255 * 4);
+      const energy = (
+        spectrum[bin - 2] + spectrum[bin - 1] * 2 + spectrum[bin] * 3
+        + spectrum[bin + 1] * 2 + spectrum[bin + 2]
+      ) / (255 * 9);
       const response = Math.pow(Math.max(0, energy - averageEnergy - 0.035), 0.72);
-      const length = 0.62 + response * (6.8 + beatKick * 1.4) + comboBoost;
+      const variation = 1 + Math.sin(angle * 3 + time * 0.16) * 0.035 + Math.sin(angle * 7 - 1.1) * 0.022;
+      const length = (1.05 + response * (3.3 + beatKick * 0.55) + comboBoost * 0.35) * variation;
       const radius = 14.7 + length * 0.5;
       this.position.set(Math.cos(angle) * radius, RING_CENTER_Y + Math.sin(angle) * radius, 0.15);
       this.quaternion.setFromEuler(new THREE.Euler(0, 0, angle - Math.PI / 2));
@@ -792,11 +796,15 @@ export class GameScene {
     for (let i = 0; i < INNER_SPECTRUM_COUNT; i += 1) {
       const position = i / INNER_SPECTRUM_COUNT;
       const angle = position * Math.PI * 2;
-      const frequencyPosition = 1 - Math.abs(position * 2 - 1);
+      const frequencyPosition = Math.abs(Math.sin(angle));
       const bin = 2 + Math.floor(frequencyPosition * (maxBin - 2));
-      const energy = (spectrum[bin - 1] + spectrum[bin] * 2 + spectrum[bin + 1]) / (255 * 4);
+      const energy = (
+        spectrum[bin - 2] + spectrum[bin - 1] * 2 + spectrum[bin] * 3
+        + spectrum[bin + 1] * 2 + spectrum[bin + 2]
+      ) / (255 * 9);
       const response = Math.pow(Math.max(0, energy - averageEnergy - 0.035), 0.78);
-      const length = 0.28 + response * 2.1 + comboBoost * 0.4;
+      const variation = 1 + Math.sin(angle * 3 + time * 0.16 + 0.7) * 0.025 + Math.sin(angle * 5 + 0.4) * 0.018;
+      const length = (0.48 + response * 1.15 + comboBoost * 0.16) * variation;
       const radius = 11.3 - length * 0.5;
       this.position.set(Math.cos(angle) * radius, RING_CENTER_Y + Math.sin(angle) * radius, 0.75);
       this.quaternion.setFromEuler(new THREE.Euler(0, 0, angle - Math.PI / 2));
