@@ -8,7 +8,7 @@ import {
   type ObstacleStateRow,
 } from '../types';
 import { GameScene } from './GameScene';
-import { hasPassedPlayer, overlapsPlayer } from './physics';
+import { overlapsPlayer } from './physics';
 
 interface GameCallbacks {
   onHud: (score: number, combo: number, progress: number) => void;
@@ -105,8 +105,9 @@ export class GameController {
         const lane = laneIndex as LaneIndex;
         const type = this.level.obstacles[beatIndex][lane];
         if (type === ObstacleType.Empty || this.states[beatIndex][lane] !== 'pending') continue;
+        if (secondsUntilBeat > 0) continue;
         const targetX = LANE_CENTERS[lane];
-        if (overlapsPlayer(this.scene.getPlayerX(), targetX, secondsUntilBeat)) {
+        if (overlapsPlayer(this.scene.getPlayerX(), targetX)) {
           if (type === ObstacleType.Spike) {
             this.states[beatIndex][lane] = 'hit';
             this.dead = true;
@@ -125,12 +126,10 @@ export class GameController {
           this.scene.burst(targetX);
           continue;
         }
-        if (hasPassedPlayer(secondsUntilBeat)) {
-          this.states[beatIndex][lane] = 'miss';
-          if (type === ObstacleType.Breakable) {
-            this.combo = 0;
-            this.scene.flashMiss(time);
-          }
+        this.states[beatIndex][lane] = 'miss';
+        if (type === ObstacleType.Breakable) {
+          this.combo = 0;
+          this.scene.flashMiss(time);
         }
       }
     }
