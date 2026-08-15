@@ -28,7 +28,9 @@ const SPIKES_PER_OBSTACLE = 5;
 const HIT_PARTICLES_PER_BURST = 22;
 const HIT_PARTICLE_LIFETIME_SECONDS = 0.72;
 const MIN_PARTICLE_POOL_SIZE = 96;
-const FLOATING_CUBE_COUNT = 80;
+const FLOATING_CUBE_COUNT = 48;
+const FLOATING_CUBE_SPEED = 5.4;
+const FLOATING_CUBE_NEAR_Z = PLAYER_Z + 0.4;
 const OUTER_SPECTRUM_COUNT = 112;
 const INNER_SPECTRUM_COUNT = 88;
 const SPEED_STREAK_COUNT = 42;
@@ -37,6 +39,11 @@ const PLAYER_LIMIT_X = 2;
 const PLAYER_IDLE_SPIN_SPEED = 1.5;
 const PLAYER_HIT_SPIN_SPEED = 48;
 const PLAYER_SPIN_RECOVERY = 4;
+const TRAIL_SEGMENT_COUNT = 26;
+const TRAIL_LENGTH = 9.8;
+const TRAIL_HEAD_Z_OFFSET = 0.66;
+const TRAIL_HEAD_Y_OFFSET = 0.06;
+const TRAIL_SURFACE_Y = 0.025;
 const CAMERA_Y = 6.8;
 const CAMERA_Z = 9.35;
 const DESIGN_ASPECT = 9 / 16;
@@ -75,7 +82,7 @@ export class GameScene {
   private readonly player = new THREE.Group();
   private readonly rhythmRing = new THREE.Group();
   private readonly trailMesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
-  private readonly trailHistory = new Float32Array(22);
+  private readonly trailHistory = new Float32Array(TRAIL_SEGMENT_COUNT);
   private readonly normalBlocks: THREE.InstancedMesh;
   private readonly normalBands: THREE.InstancedMesh;
   private readonly spikeBases: THREE.InstancedMesh;
@@ -520,14 +527,19 @@ export class GameScene {
 
     const floatingData = Array.from({ length: FLOATING_CUBE_COUNT }, (_, index) => {
       const side = index % 2 === 0 ? -1 : 1;
-      const depthIndex = Math.floor(index / 2);
-      const upper = depthIndex % 4 === 0;
+      const pairIndex = Math.floor(index / 2);
+      const verticalBand = (pairIndex * 5 + (side > 0 ? 2 : 0)) % 6;
+      const verticalJitter = ((((pairIndex + (side > 0 ? 7 : 0)) * 13) % 11) / 10 - 0.5) * 1.2;
+      const horizontalJitter = ((pairIndex * 17 + (side > 0 ? 5 : 0)) % 13) / 12;
+      const depthRatio = (pairIndex * 0.61803398875 + (side > 0 ? 0.31 : 0)) % 1;
       const randomSize = ((index * 29) % 17) / 16;
+      const heightScale = THREE.MathUtils.lerp(1, 0.76, verticalBand / 5);
       return {
-        x: side * (((depthIndex * 7) % 5) * 0.35),
-        y: upper ? 16 + ((depthIndex * 11) % 7) * 1.6 : 0.35 + ((depthIndex * 13) % 4) * 0.7,
-        z: 6 - depthIndex * 2.8,
-        size: upper ? 0.18 + randomSize * 0.4 : 0.35 + randomSize * 0.72,
+        // 世界空间中的道路两侧景物：固定横向/高度，靠纵深移动产生向后掠过的视差。
+        x: side * THREE.MathUtils.lerp(4.2, 14, horizontalJitter),
+        y: THREE.MathUtils.lerp(0.6, 18, verticalBand / 5) + verticalJitter,
+        z: THREE.MathUtils.lerp(OBSTACLE_SPAWN_Z, FLOATING_CUBE_NEAR_Z, depthRatio),
+        size: (0.34 + randomSize * 0.74) * heightScale,
         phase: index * 0.73,
       };
     });
@@ -545,7 +557,8 @@ export class GameScene {
     );
     floatingCubes.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     floatingCubes.frustumCulled = false;
-    floatingCubes.renderOrder = -15;
+    // 圆环禁用深度测试，因此装饰方块需要在圆环之后绘制才能处于其上层。
+    floatingCubes.renderOrder = -5;
     this.scene.add(floatingCubes);
 
     const speedStreaks = new THREE.InstancedMesh(
@@ -568,14 +581,41 @@ export class GameScene {
   }
 
   private createBackgroundGrid(): void {
+    const gridBottomY = 3;
+    const gridTopY = 112;
+    const gridStep = 11.2;
+    const gridFadeEndY = 36;
     const vertices: number[] = [];
-    for (let x = -56; x <= 56; x += 5.6) vertices.push(x, 3, -120, x, 76, -120);
-    for (let y = 3; y <= 76; y += 5.6) vertices.push(-56, y, -120, 56, y, -120);
+    const colors: number[] = [];
+    const addVertex = (x: number, y: number): void => {
+      const fade = THREE.MathUtils.smoothstep(y, gridBottomY, gridFadeEndY);
+      vertices.push(x, y, -120);
+      colors.push(fade, fade, fade);
+    };
+
+    // 纵线拆成小段，才能让底部透明度沿高度平滑插值到 0。
+    for (let x = -56; x <= 56; x += gridStep) {
+      for (let y = gridBottomY; y < gridTopY; y += gridStep) {
+        addVertex(x, y);
+        addVertex(x, Math.min(y + gridStep, gridTopY));
+      }
+    }
+    for (let y = gridBottomY; y <= gridTopY; y += gridStep) {
+      addVertex(-56, y);
+      addVertex(56, y);
+    }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     const grid = new THREE.LineSegments(
       geometry,
-      this.createGlowLineMaterial({ transparent: true, opacity: 0.16, fog: false, depthWrite: false }),
+      this.createGlowLineMaterial({
+        transparent: true,
+        opacity: 0.16,
+        vertexColors: true,
+        fog: false,
+        depthWrite: false,
+      }),
     );
     grid.renderOrder = -20;
     this.camera.add(grid);
@@ -647,12 +687,24 @@ export class GameScene {
     this.scene.add(this.player);
 
     const trailSegments = this.trailHistory.length;
-    const positions = new Float32Array(trailSegments * 2 * 3);
-    const colors = new Float32Array(trailSegments * 2 * 3);
+    // 四列顶点构成柔光边缘 + 高亮内芯，比单色三角片更像连续的能量尾焰。
+    const verticesPerSegment = 4;
+    const positions = new Float32Array(trailSegments * verticesPerSegment * 3);
+    const colors = new Float32Array(trailSegments * verticesPerSegment * 3);
     const indices: number[] = [];
     for (let segment = 0; segment < trailSegments - 1; segment += 1) {
-      const a = segment * 2;
-      indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+      const current = segment * verticesPerSegment;
+      const next = current + verticesPerSegment;
+      for (let band = 0; band < verticesPerSegment - 1; band += 1) {
+        indices.push(
+          current + band,
+          next + band,
+          current + band + 1,
+          current + band + 1,
+          next + band,
+          next + band + 1,
+        );
+      }
     }
     const trailGeometry = new THREE.BufferGeometry();
     trailGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -661,7 +713,7 @@ export class GameScene {
     const trailMaterial = new THREE.MeshBasicMaterial({
       vertexColors: true,
       transparent: true,
-      opacity: 0.88,
+      opacity: 0.94,
       side: THREE.DoubleSide,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
@@ -740,23 +792,49 @@ export class GameScene {
     for (let segment = 0; segment < this.trailHistory.length; segment += 1) {
       const progress = segment / (this.trailHistory.length - 1);
       const centerX = this.trailHistory[segment];
-      // 光片从中心圆环后缘收束发出，向后逐渐展开和淡出。
-      const width = 0.12 + progress * 0.68;
-      const z = PLAYER_Z + 0.05 + progress * 9.4;
-      const intensity = Math.pow(1 - progress, 0.72);
-      positions.setXYZ(segment * 2, centerX - width, 0.025, z);
-      positions.setXYZ(segment * 2 + 1, centerX + width, 0.025, z);
+      const widthProgress = 1 - Math.pow(1 - progress, 1.45);
+      const outerWidth = THREE.MathUtils.lerp(0.035, 0.78, widthProgress);
+      const coreWidth = outerWidth * THREE.MathUtils.lerp(0.42, 0.18, progress);
+      const settle = THREE.MathUtils.smoothstep(progress, 0, 0.28);
+      const y = THREE.MathUtils.lerp(
+        this.player.position.y + TRAIL_HEAD_Y_OFFSET,
+        TRAIL_SURFACE_Y,
+        settle,
+      );
+      const z = PLAYER_Z + TRAIL_HEAD_Z_OFFSET + progress * TRAIL_LENGTH;
+      const intensity = Math.pow(1 - progress, 1.22);
+      const vertex = segment * 4;
+
+      positions.setXYZ(vertex, centerX - outerWidth, y, z);
+      positions.setXYZ(vertex + 1, centerX - coreWidth, y + 0.003, z);
+      positions.setXYZ(vertex + 2, centerX + coreWidth, y + 0.003, z);
+      positions.setXYZ(vertex + 3, centerX + outerWidth, y, z);
+
+      const edgeIntensity = intensity * 0.2;
+      const coreIntensity = intensity * THREE.MathUtils.lerp(1.9, 0.75, progress);
       colors.setXYZ(
-        segment * 2,
-        this.glowColor.r * intensity * 0.65,
-        this.glowColor.g * intensity * 0.65,
-        this.glowColor.b * intensity * 0.65,
+        vertex,
+        this.glowColor.r * edgeIntensity,
+        this.glowColor.g * edgeIntensity,
+        this.glowColor.b * edgeIntensity,
       );
       colors.setXYZ(
-        segment * 2 + 1,
-        this.glowColor.r * intensity * 1.35,
-        this.glowColor.g * intensity * 1.35,
-        this.glowColor.b * intensity * 1.35,
+        vertex + 1,
+        this.glowColor.r * coreIntensity,
+        this.glowColor.g * coreIntensity,
+        this.glowColor.b * coreIntensity,
+      );
+      colors.setXYZ(
+        vertex + 2,
+        this.glowColor.r * coreIntensity,
+        this.glowColor.g * coreIntensity,
+        this.glowColor.b * coreIntensity,
+      );
+      colors.setXYZ(
+        vertex + 3,
+        this.glowColor.r * edgeIntensity,
+        this.glowColor.g * edgeIntensity,
+        this.glowColor.b * edgeIntensity,
       );
     }
     positions.needsUpdate = true;
@@ -825,14 +903,17 @@ export class GameScene {
   }
 
   private updateFloatingCubes(time: number): void {
+    const nearZ = FLOATING_CUBE_NEAR_Z;
+    const farZ = OBSTACLE_SPAWN_Z;
+    const travelDistance = nearZ - farZ;
     for (let i = 0; i < this.floatingData.length; i += 1) {
       const cube = this.floatingData[i];
-      const z = 6 - ((time * 2.1 + 6 - cube.z) % 112);
-      const depth = 6 - z;
-      const upper = cube.y > 12;
-      const x = Math.sign(cube.x || (i % 2 === 0 ? -1 : 1))
-        * ((upper ? 6.4 + depth * 0.22 : 3 + depth * 0.09) + Math.abs(cube.x));
-      this.position.set(x, cube.y + depth * (upper ? 0.055 : 0.012) + Math.sin(time * 0.55 + cube.phase) * 0.18, z);
+      const z = farZ + ((time * FLOATING_CUBE_SPEED + cube.z - farZ) % travelDistance);
+      this.position.set(
+        cube.x + Math.sin(time * 0.38 + cube.phase) * 0.16,
+        Math.max(0.25, cube.y + Math.sin(time * 0.55 + cube.phase) * 0.18),
+        z,
+      );
       this.quaternion.setFromEuler(new THREE.Euler(time * 0.18 + cube.phase, time * 0.24 + cube.phase * 0.7, cube.phase));
       this.scale.setScalar(cube.size);
       this.matrix.compose(this.position, this.quaternion, this.scale);
