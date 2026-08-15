@@ -40,7 +40,7 @@ export class GameController {
     this.audio = new AudioEngine(level.song.durationSeconds, level.song.bpm, level.song.audioUrl);
     this.level = level;
     this.callbacks = callbacks;
-    this.states = level.obstacles.map((row) => row.map((type) => (
+    this.states = level.events.map((event) => event.obstacles.map((type) => (
       type === ObstacleType.Empty ? null : 'pending'
     )) as ObstacleStateRow);
   }
@@ -98,18 +98,18 @@ export class GameController {
   };
 
   private judgeObstacles(time: number): void {
-    const tickDuration = 60 / this.level.song.bpm / this.level.ticksPerBeat;
-    for (let beatIndex = 0; beatIndex < this.level.obstacles.length; beatIndex += 1) {
-      const secondsUntilBeat = this.level.song.beatOffsetSeconds + beatIndex * tickDuration - time;
+    for (let eventIndex = 0; eventIndex < this.level.events.length; eventIndex += 1) {
+      const event = this.level.events[eventIndex];
+      const secondsUntilBeat = event.timeSeconds - time;
       for (let laneIndex = 0; laneIndex < LANE_CENTERS.length; laneIndex += 1) {
         const lane = laneIndex as LaneIndex;
-        const type = this.level.obstacles[beatIndex][lane];
-        if (type === ObstacleType.Empty || this.states[beatIndex][lane] !== 'pending') continue;
+        const type = event.obstacles[lane];
+        if (type === ObstacleType.Empty || this.states[eventIndex][lane] !== 'pending') continue;
         if (secondsUntilBeat > 0) continue;
         const targetX = LANE_CENTERS[lane];
         if (overlapsPlayer(this.scene.getPlayerX(), targetX)) {
           if (type === ObstacleType.Spike) {
-            this.states[beatIndex][lane] = 'hit';
+            this.states[eventIndex][lane] = 'hit';
             this.dead = true;
             this.combo = 0;
             this.scene.crash(targetX);
@@ -117,7 +117,7 @@ export class GameController {
             this.callbacks.onDeath();
             return;
           }
-          this.states[beatIndex][lane] = 'hit';
+          this.states[eventIndex][lane] = 'hit';
           this.combo += 1;
           this.maxCombo = Math.max(this.maxCombo, this.combo);
           this.hits += 1;
@@ -126,7 +126,7 @@ export class GameController {
           this.scene.burst(targetX);
           continue;
         }
-        this.states[beatIndex][lane] = 'miss';
+        this.states[eventIndex][lane] = 'miss';
         if (type === ObstacleType.Breakable) {
           this.combo = 0;
           this.scene.flashMiss(time);
@@ -142,8 +142,8 @@ export class GameController {
       score: this.score,
       maxCombo: this.maxCombo,
       hits: this.hits,
-      total: this.level.obstacles.reduce(
-        (total, row) => total + row.filter((type) => type === ObstacleType.Breakable).length,
+      total: this.level.events.reduce(
+        (total, event) => total + event.obstacles.filter((type) => type === ObstacleType.Breakable).length,
         0,
       ),
     });

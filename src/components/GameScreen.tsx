@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { AudioEngine } from '../audio/AudioEngine';
-import { DEMO_LEVEL } from '../chart';
 import { GameController } from '../game/GameController';
-import type { GameResult } from '../types';
+import type { GameResult, Level } from '../types';
 
 interface GameScreenProps {
+  level: Level;
   onFinish: (result: GameResult) => void;
 }
 
-export function GameScreen({ onFinish }: GameScreenProps) {
+export function GameScreen({ level, onFinish }: GameScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<GameController | null>(null);
@@ -18,7 +18,7 @@ export function GameScreen({ onFinish }: GameScreenProps) {
   const [runId, setRunId] = useState(0);
   useEffect(() => {
     if (!canvasRef.current || !stageRef.current) return;
-    const controller = new GameController(canvasRef.current, DEMO_LEVEL, {
+    const controller = new GameController(canvasRef.current, level, {
       onHud: (score, combo, progress) => setHud({ score, combo, progress }),
       onDeath: () => {
         setDead(true);
@@ -40,7 +40,7 @@ export function GameScreen({ onFinish }: GameScreenProps) {
       controller.destroy();
       controllerRef.current = null;
     };
-  }, [onFinish, runId]);
+  }, [level, onFinish, runId]);
 
   const normalizePointer = (clientX: number) => {
     const rect = stageRef.current?.getBoundingClientRect();

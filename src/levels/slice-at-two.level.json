@@ -1,4552 +1,1886 @@
 {
-  "id": "slice-at-two",
-  "version": 2,
-  "ticksPerBeat": 2,
+  "id": "slice-at-two-preference-fusion",
+  "version": 3,
   "song": {
     "title": "Slice at Two",
     "artist": "NEON SYSTEM",
     "audioUrl": "/audio/slice-at-two.mp3",
     "bpm": 116,
-    "beatOffsetSeconds": 0.3879,
     "durationSeconds": 164.84
   },
   "generation": {
-    "algorithm": "strong-beat-sustained-lane-path-v4",
-    "confidence": 1,
-    "noteCount": 96,
-    "onsetNoteCount": 84,
-    "accentNoteCount": 12,
-    "sustainGuideCount": 43,
-    "guideRowCount": 266,
-    "strongBeatQuantile": 0.85,
-    "minImpactStrength": 0.809,
-    "sustainEnergyRatio": 0.72,
-    "maxSustainTicks": 2,
-    "maxOnsetOffsetMs": 48,
-    "spikeCount": 439,
-    "spikeRows": {
-      "single": 298,
-      "double": 51,
-      "triple": 13
+    "algorithm": "preference-fusion",
+    "displayName": "偏好融合（推荐）",
+    "description": "标准正则化分类器从成熟检测器候选中选择更像你标注的音乐事件；时间仍取原始音频峰。",
+    "noteCount": 153,
+    "sourceEventCount": 155,
+    "timingPolicy": "All algorithm event times are detector peaks in seconds. No BPM grid, snapping, or gap filling is used.",
+    "metrics": {
+      "at50ms": {
+        "toleranceMs": 50,
+        "matched": 25,
+        "precision": 0.1613,
+        "recall": 0.1613,
+        "f1": 0.1613,
+        "meanAbsoluteErrorMs": 22.6,
+        "p90AbsoluteErrorMs": 39.8
+      },
+      "at80ms": {
+        "toleranceMs": 80,
+        "matched": 36,
+        "precision": 0.2323,
+        "recall": 0.2323,
+        "f1": 0.2323,
+        "meanAbsoluteErrorMs": 36.5,
+        "p90AbsoluteErrorMs": 72.4
+      },
+      "at120ms": {
+        "toleranceMs": 120,
+        "matched": 45,
+        "precision": 0.2903,
+        "recall": 0.2903,
+        "f1": 0.2903,
+        "meanAbsoluteErrorMs": 49.6,
+        "p90AbsoluteErrorMs": 99
+      }
     }
   },
-  "accents": [
+  "events": [
     {
-      "label": "pizza",
-      "tick": 160,
-      "timeSeconds": 41.767,
-      "intensity": 1,
-      "durationTicks": 2
+      "timeSeconds": 3.13469,
+      "obstacles": [
+        2,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.716,
+      "source": "preference-fusion"
     },
     {
-      "label": "pizza",
-      "tick": 176,
-      "timeSeconds": 45.905,
-      "intensity": 1,
-      "durationTicks": 3
+      "timeSeconds": 5.2,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.671,
+      "source": "preference-fusion"
     },
     {
-      "label": "pizza",
-      "tick": 208,
-      "timeSeconds": 54.181,
-      "intensity": 1,
-      "durationTicks": 3
+      "timeSeconds": 5.86304,
+      "obstacles": [
+        2,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.571,
+      "source": "preference-fusion"
     },
     {
-      "label": "pizza",
-      "tick": 352,
-      "timeSeconds": 91.422,
-      "intensity": 1,
-      "durationTicks": 2
+      "timeSeconds": 5.99075,
+      "obstacles": [
+        0,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.598,
+      "source": "preference-fusion"
     },
     {
-      "label": "pizza",
-      "tick": 368,
-      "timeSeconds": 95.56,
-      "intensity": 1,
-      "durationTicks": 3
+      "timeSeconds": 7.28,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.641,
+      "source": "preference-fusion"
     },
     {
-      "label": "pizza",
-      "tick": 400,
-      "timeSeconds": 103.836,
-      "intensity": 1,
-      "durationTicks": 3
+      "timeSeconds": 9.33442,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.659,
+      "source": "preference-fusion"
     },
     {
-      "label": "pizza",
-      "tick": 512,
-      "timeSeconds": 132.802,
-      "intensity": 1,
-      "durationTicks": 3
+      "timeSeconds": 9.99619,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.571,
+      "source": "preference-fusion"
     },
     {
-      "label": "pizza",
-      "tick": 528,
-      "timeSeconds": 136.94,
-      "intensity": 1,
-      "durationTicks": 3
+      "timeSeconds": 11.4,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.675,
+      "source": "preference-fusion"
     },
     {
-      "label": "pizza",
-      "tick": 560,
-      "timeSeconds": 145.216,
-      "intensity": 1,
-      "durationTicks": 3
+      "timeSeconds": 12.03564,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.561,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 13.48,
+      "obstacles": [
+        0,
+        0,
+        1,
+        0,
+        2
+      ],
+      "strength": 0.639,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 15.54,
+      "obstacles": [
+        2,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.647,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 17.29753,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.575,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 17.62,
+      "obstacles": [
+        2,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.677,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 19.6673,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.67,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 21.74,
+      "obstacles": [
+        2,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.686,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 22.53497,
+      "obstacles": [
+        2,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.568,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 23.82,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.741,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 25.88,
+      "obstacles": [
+        0,
+        0,
+        1,
+        0,
+        2
+      ],
+      "strength": 0.696,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 26.04626,
+      "obstacles": [
+        0,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.58,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 27.95683,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.667,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 30.00018,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.607,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 30.21681,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "strength": 0.567,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 30.73926,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.573,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 32.08,
+      "obstacles": [
+        0,
+        0,
+        1,
+        0,
+        2
+      ],
+      "strength": 0.7,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 34.16,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.723,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 36.22,
+      "obstacles": [
+        2,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.667,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 36.49016,
+      "obstacles": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.583,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 38.3,
+      "obstacles": [
+        0,
+        0,
+        1,
+        0,
+        2
+      ],
+      "strength": 0.646,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 40.36,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.694,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 41.14576,
+      "obstacles": [
+        2,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.573,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 42.44,
+      "obstacles": [
+        2,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.674,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 42.58914,
+      "obstacles": [
+        0,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.56,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 44.5,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.657,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 46.55601,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.633,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 48.64,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.616,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 50.72,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.646,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 50.86058,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "strength": 0.58,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 52.14041,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.602,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 52.52354,
+      "obstacles": [
+        2,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.609,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 52.78,
+      "obstacles": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.712,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 53.97478,
+      "obstacles": [
+        2,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.562,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 54.19521,
+      "obstacles": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.567,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 54.82231,
+      "obstacles": [
+        2,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.624,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 56.0657,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.596,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 56.92,
+      "obstacles": [
+        2,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.64,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 58.98,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.661,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 61.05687,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.631,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 63.12,
+      "obstacles": [
+        0,
+        0,
+        1,
+        0,
+        2
+      ],
+      "strength": 0.64,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 65.19002,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.618,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 65.35256,
+      "obstacles": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.561,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 66.84618,
+      "obstacles": [
+        2,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.564,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 66.97389,
+      "obstacles": [
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.578,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 67.26,
+      "obstacles": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.698,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 67.39185,
+      "obstacles": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.564,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 69.32,
+      "obstacles": [
+        2,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.686,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 69.49454,
+      "obstacles": [
+        0,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.57,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 71.37814,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.649,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 73.45633,
+      "obstacles": [
+        2,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.641,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 74.2458,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.58,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 74.37351,
+      "obstacles": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.611,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 74.62893,
+      "obstacles": [
+        0,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.617,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 75.52,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.698,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 75.79228,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "strength": 0.567,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 76.22185,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.564,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 76.44009,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        0
+      ],
+      "strength": 0.587,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 77.30158,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.606,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 77.58948,
+      "obstacles": [
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.642,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 79.65605,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.656,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 80.81705,
+      "obstacles": [
+        2,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.564,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 81.72,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.709,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 83.7776,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.708,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 83.9244,
+      "obstacles": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.585,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 84.56707,
+      "obstacles": [
+        2,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.58,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 85.85578,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.615,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 86.12281,
+      "obstacles": [
+        0,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.567,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 87.63055,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.563,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 87.87436,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        0
+      ],
+      "strength": 0.628,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 88.14139,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "strength": 0.57,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 88.70023,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.576,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 89.98,
+      "obstacles": [
+        0,
+        0,
+        1,
+        0,
+        2
+      ],
+      "strength": 0.635,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 91.67238,
+      "obstacles": [
+        2,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.576,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 91.82432,
+      "obstacles": [
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.566,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 92.06,
+      "obstacles": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.629,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 94.12,
+      "obstacles": [
+        0,
+        0,
+        1,
+        0,
+        2
+      ],
+      "strength": 0.608,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 94.41234,
+      "obstacles": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.57,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 94.83259,
+      "obstacles": [
+        2,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.583,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 96.18,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.642,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 97.37774,
+      "obstacles": [
+        0,
+        0,
+        1,
+        0,
+        2
+      ],
+      "strength": 0.587,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 98.26,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.626,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 100.32,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.625,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 101.071,
+      "obstacles": [
+        2,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.577,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 102.13297,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.6,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 102.38,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "strength": 0.648,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 103.6771,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.58,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 104.44,
+      "obstacles": [
+        2,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.688,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 104.63783,
+      "obstacles": [
+        0,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.566,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 105.12834,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.582,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 106.52,
+      "obstacles": [
+        2,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.645,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 107.29941,
+      "obstacles": [
+        2,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.587,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 107.42712,
+      "obstacles": [
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.615,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 108.58,
+      "obstacles": [
+        2,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.683,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 110.01615,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.573,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 110.37701,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.609,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 110.64,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        0
+      ],
+      "strength": 0.732,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 112.72,
+      "obstacles": [
+        2,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.658,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 112.89766,
+      "obstacles": [
+        0,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.566,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 114.78,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.665,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 116.54576,
+      "obstacles": [
+        2,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.568,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 116.84,
+      "obstacles": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.666,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 117.02177,
+      "obstacles": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.569,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 117.60355,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.6,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 118.89778,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.7,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 119.0548,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "strength": 0.564,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 119.78751,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.592,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 120.98,
+      "obstacles": [
+        2,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.623,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 123.04,
+      "obstacles": [
+        2,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.67,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 125.09751,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.667,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 125.27127,
+      "obstacles": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.582,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 127.15247,
+      "obstacles": [
+        2,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.661,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 127.31591,
+      "obstacles": [
+        0,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.567,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 129.22,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.69,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 129.85978,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.561,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 133.32898,
+      "obstacles": [
+        2,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.652,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 134.06516,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.572,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 135.14014,
+      "obstacles": [
+        2,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.594,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 135.4,
+      "obstacles": [
+        0,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.672,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 135.66259,
+      "obstacles": [
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.606,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 136.33596,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.563,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 137.46,
+      "obstacles": [
+        2,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.603,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 138.87855,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.589,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 139.52,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.675,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 141.58,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.654,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 141.70966,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        0
+      ],
+      "strength": 0.561,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 142.32499,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.568,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 142.7795,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.568,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 143.02331,
+      "obstacles": [
+        0,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.571,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 143.34795,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.56,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 143.64,
+      "obstacles": [
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.662,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 144.43973,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.577,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 144.86886,
+      "obstacles": [
+        0,
+        0,
+        1,
+        0,
+        2
+      ],
+      "strength": 0.585,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 145.7,
+      "obstacles": [
+        2,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.589,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 147.49315,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.578,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 147.76,
+      "obstacles": [
+        0,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.636,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 149.82,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.613,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 151.23156,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.562,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 151.61469,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.563,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 151.86,
+      "obstacles": [
+        0,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.656,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 153.92,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.636,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 154.10521,
+      "obstacles": [
+        0,
+        1,
+        0,
+        0,
+        0
+      ],
+      "strength": 0.581,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 155.98,
+      "obstacles": [
+        1,
+        0,
+        0,
+        0,
+        2
+      ],
+      "strength": 0.604,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 158.04,
+      "obstacles": [
+        2,
+        0,
+        1,
+        0,
+        0
+      ],
+      "strength": 0.666,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 160.1,
+      "obstacles": [
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "strength": 0.708,
+      "source": "preference-fusion"
+    },
+    {
+      "timeSeconds": 162.15655,
+      "obstacles": [
+        2,
+        0,
+        0,
+        0,
+        1
+      ],
+      "strength": 0.666,
+      "source": "preference-fusion"
     }
-  ],
-  "obstacles": [
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      1,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      0,
-      1,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      1,
-      0,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      1,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      1,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      1,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      1,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      2,
-      0,
-      1
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      1,
-      0,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      0,
-      1,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      0,
-      1,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      1,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      2,
-      0,
-      1
-    ],
-    [
-      2,
-      2,
-      2,
-      0,
-      1
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      1,
-      0,
-      0,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      1,
-      0,
-      2,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      0,
-      1,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      2,
-      0,
-      1
-    ],
-    [
-      2,
-      2,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      1,
-      0,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      0,
-      0,
-      1
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      1,
-      0,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      0,
-      1,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      1
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      1,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      1,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      0,
-      1,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      1
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      1,
-      0,
-      0,
-      2
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      1,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      1,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      1,
-      0,
-      2,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      2,
-      0,
-      1
-    ],
-    [
-      2,
-      2,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      1,
-      0,
-      2,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      0,
-      1,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      0,
-      1,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      1,
-      0,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      1,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      0,
-      1,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      0,
-      1,
-      0
-    ],
-    [
-      0,
-      0,
-      1,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      1,
-      0,
-      0,
-      2,
-      2
-    ],
-    [
-      0,
-      1,
-      0,
-      2,
-      2
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      1,
-      0,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      0,
-      1,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      1,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      1,
-      0,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      1,
-      0,
-      2,
-      2
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      0,
-      1,
-      0
-    ],
-    [
-      2,
-      2,
-      0,
-      0,
-      1
-    ],
-    [
-      2,
-      0,
-      0,
-      1,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      1,
-      0,
-      0,
-      2
-    ],
-    [
-      1,
-      0,
-      0,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      0,
-      1,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      0,
-      1,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      1
-    ],
-    [
-      2,
-      2,
-      0,
-      0,
-      1
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      1
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      2,
-      0,
-      1
-    ],
-    [
-      2,
-      2,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      2,
-      0,
-      1
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      0,
-      1,
-      0
-    ],
-    [
-      0,
-      0,
-      1,
-      0,
-      2
-    ],
-    [
-      0,
-      1,
-      0,
-      2,
-      2
-    ],
-    [
-      1,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      1,
-      0,
-      2,
-      2
-    ],
-    [
-      2,
-      0,
-      1,
-      0,
-      0
-    ],
-    [
-      0,
-      1,
-      0,
-      2,
-      2
-    ],
-    [
-      1,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      1,
-      0,
-      0,
-      2,
-      2
-    ],
-    [
-      1,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      1,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      1,
-      0,
-      2,
-      2,
-      2
-    ],
-    [
-      1,
-      0,
-      2,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      2,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      1,
-      0,
-      2,
-      2
-    ],
-    [
-      2,
-      0,
-      1,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      1
-    ],
-    [
-      2,
-      0,
-      0,
-      1,
-      0
-    ],
-    [
-      0,
-      0,
-      1,
-      0,
-      2
-    ],
-    [
-      0,
-      1,
-      0,
-      0,
-      2
-    ],
-    [
-      1,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      1,
-      0,
-      0,
-      2
-    ],
-    [
-      2,
-      0,
-      1,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      1,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      1
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      1,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      1,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      2,
-      0,
-      1
-    ],
-    [
-      2,
-      2,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      2,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      1
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      1,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      1,
-      0,
-      0,
-      2
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      1,
-      0,
-      0,
-      2
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      1
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      1,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      1,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      1,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      1,
-      0
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      1
-    ],
-    [
-      2,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      2
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0
-    ]
   ]
 }

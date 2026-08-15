@@ -19,44 +19,35 @@ export interface Song {
   title: string;
   artist: string;
   audioUrl: string;
+  /** BPM is retained for background visuals only. It never determines event time. */
   bpm: number;
-  beatOffsetSeconds: number;
   durationSeconds: number;
 }
 
+export interface LevelEvent {
+  timeSeconds: number;
+  obstacles: ObstacleRow;
+  strength?: number;
+  source?: string;
+}
+
+export interface LevelGeneration {
+  algorithm: string;
+  noteCount: number;
+  confidence?: number;
+  [key: string]: unknown;
+}
+
+/**
+ * Level v3 stores every row at its measured audio time. There is deliberately
+ * no ticksPerBeat or beatOffset: gameplay events cannot be snapped to a grid.
+ */
 export interface Level {
   id: string;
-  version: number;
-  ticksPerBeat: number;
+  version: 3;
   song: Song;
-  generation: {
-    algorithm: string;
-    confidence: number;
-    noteCount: number;
-    onsetNoteCount: number;
-    accentNoteCount: number;
-    sustainGuideCount: number;
-    guideRowCount: number;
-    strongBeatQuantile: number;
-    minImpactStrength: number;
-    sustainEnergyRatio: number;
-    maxSustainTicks: number;
-    maxOnsetOffsetMs: number;
-    spikeCount: number;
-    spikeRows: {
-      single: number;
-      double: number;
-      triple: number;
-    };
-  };
-  accents: Array<{
-    label: string;
-    tick: number;
-    timeSeconds: number;
-    intensity: number;
-    durationTicks: number;
-  }>;
-  obstacles: ObstacleRow[];
+  generation: LevelGeneration;
+  events: LevelEvent[];
 }
 
 export type ObstacleState = 'pending' | 'hit' | 'miss';

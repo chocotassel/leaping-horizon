@@ -5,11 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "mark:beats": "vite --host 0.0.0.0 --open /beat-marker.html",
+    "lab:rhythm": "vite --host 0.0.0.0 --open /rhythm-lab.html",
+    "setup:rhythm": "powershell -ExecutionPolicy Bypass -File scripts/setup-rhythm-env.ps1",
     "build": "tsc -b && vite build",
+    "analyze:rhythm": "node scripts/generate-level.mjs",
+    "build:rhythm-levels": "node scripts/build-rhythm-levels.mjs",
     "generate:level": "node scripts/generate-level.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "test:level": "node scripts/level-check.mjs",
-    "test:physics": "tsc src/game/physics.ts --ignoreConfig --target ES2020 --module ESNext --moduleResolution Bundler --outDir /tmp/leaping-horizon-physics-check --skipLibCheck && node scripts/physics-check.mjs",
+    "test:physics": "tsc src/game/physics.ts --ignoreConfig --target ES2020 --module ESNext --moduleResolution Bundler --outDir node_modules/.cache/leaping-horizon-physics-check --skipLibCheck && node scripts/physics-check.mjs",
     "typecheck": "tsc -b"
   },
   "dependencies": {
@@ -21,7 +26,6 @@
     "vite": "latest"
   },
   "devDependencies": {
-    "@audio/beat": "^2.1.2",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "@types/three": "latest"

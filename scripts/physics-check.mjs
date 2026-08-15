@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 
-const source = await readFile('/tmp/leaping-horizon-physics-check/physics.js', 'utf8');
+const source = await readFile(resolve('node_modules/.cache/leaping-horizon-physics-check/physics.js'), 'utf8');
 const physics = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 assert.equal(physics.overlapsPlayer(0, 0), true);

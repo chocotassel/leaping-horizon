@@ -213,6 +213,26 @@ button {
   filter: blur(12px);
 }
 
+.song-algorithm {
+  display: block;
+  margin-top: 5px;
+  color: var(--cyan);
+  font-size: 9px;
+  letter-spacing: 0.05em;
+}
+
+.rhythm-lab-link {
+  position: relative;
+  z-index: 2;
+  align-self: center;
+  margin: 10px 0 0;
+  color: #8290aa;
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.rhythm-lab-link:hover { color: var(--cyan); }
+
 .album-art {
   position: relative;
   flex: 0 0 clamp(74px, 20vw, 94px);

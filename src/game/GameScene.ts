@@ -11,6 +11,7 @@ import {
   type Level,
   type ObstacleStateRow,
 } from '../types';
+import { getMaxEventRowsInWindow } from '../chart';
 import {
   APPROACH_SECONDS,
   getObstacleZ,
@@ -114,13 +115,9 @@ export class GameScene {
   constructor(canvas: HTMLCanvasElement, level: Level) {
     const nav = navigator as Navigator & { deviceMemory?: number };
     const lowPower = (nav.deviceMemory ?? 4) <= 2 || (navigator.hardwareConcurrency ?? 4) <= 4;
-    let lastObstacleBeat = level.obstacles.length - 1;
-    while (lastObstacleBeat >= 0 && level.obstacles[lastObstacleBeat].every((type) => type === ObstacleType.Empty)) {
-      lastObstacleBeat -= 1;
-    }
-    this.lastObstacleTime = lastObstacleBeat < 0
-      ? null
-      : level.song.beatOffsetSeconds + lastObstacleBeat * 60 / level.song.bpm / level.ticksPerBeat;
+    this.lastObstacleTime = level.events.length
+      ? level.events[level.events.length - 1].timeSeconds
+      : null;
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: !lowPower,
@@ -159,7 +156,10 @@ export class GameScene {
     this.trailMesh = this.createPlayer();
 
     const steelTexture = this.createSteelTexture();
-    const obstaclePoolSize = (Math.ceil(APPROACH_SECONDS * level.song.bpm * level.ticksPerBeat / 60) + 2) * LANE_CENTERS.length;
+    const obstaclePoolSize = Math.max(
+      LANE_CENTERS.length,
+      (getMaxEventRowsInWindow(level, APPROACH_SECONDS) + 2) * LANE_CENTERS.length,
+    );
     this.normalBlocks = this.createInstances(
       new THREE.BoxGeometry(1, 1, 1),
       this.createMetalMaterial({
@@ -856,20 +856,20 @@ export class GameScene {
   private updateObstacles(time: number, level: Level, states: ObstacleStateRow[]): void {
     let normalIndex = 0;
     let spikeIndex = 0;
-    const tickDuration = 60 / level.song.bpm / level.ticksPerBeat;
     this.camera.updateMatrixWorld();
     this.obstacleFrustum.setFromProjectionMatrix(
       this.matrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse),
     );
-    for (let beatIndex = 0; beatIndex < level.obstacles.length; beatIndex += 1) {
-      const delta = level.song.beatOffsetSeconds + beatIndex * tickDuration - time;
+    for (let eventIndex = 0; eventIndex < level.events.length; eventIndex += 1) {
+      const event = level.events[eventIndex];
+      const delta = event.timeSeconds - time;
       if (delta > APPROACH_SECONDS) break;
       // 线性匀速接近，绝不在飞盘附近减速或停顿。
       const z = getObstacleZ(delta);
       for (let laneIndex = 0; laneIndex < LANE_CENTERS.length; laneIndex += 1) {
         const lane = laneIndex as LaneIndex;
-        if (!shouldRenderObstacle(states[beatIndex][lane])) continue;
-        const type = level.obstacles[beatIndex][lane];
+        if (!shouldRenderObstacle(states[eventIndex][lane])) continue;
+        const type = event.obstacles[lane];
         const x = LANE_CENTERS[lane];
         // InstancedMesh 只能整池剔除；填池前逐个剔除，避免离屏旧障碍占用实例。
         this.obstacleBounds.center.set(x, 0.5, z);

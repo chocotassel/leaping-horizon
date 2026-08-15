@@ -1,11 +1,12 @@
-import { DEMO_LEVEL } from '../chart';
+import type { Level } from '../types';
 
 interface HomeScreenProps {
+  level: Level;
   onStart: () => void;
 }
 
-export function HomeScreen({ onStart }: HomeScreenProps) {
-  const duration = Math.ceil(DEMO_LEVEL.song.durationSeconds);
+export function HomeScreen({ level, onStart }: HomeScreenProps) {
+  const duration = Math.ceil(level.song.durationSeconds);
   const durationLabel = `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`;
   return (
     <main className="screen home-screen">
@@ -29,9 +30,10 @@ export function HomeScreen({ onStart }: HomeScreenProps) {
         </div>
         <div className="song-info">
           <span className="now-playing">本次航行</span>
-          <strong>{DEMO_LEVEL.song.title}</strong>
-          <span>{DEMO_LEVEL.song.artist}</span>
-          <div className="song-meta"><b>{DEMO_LEVEL.song.bpm}</b> BPM <i /> {durationLabel}</div>
+          <strong>{level.song.title}</strong>
+          <span>{level.song.artist}</span>
+          <div className="song-meta"><b>{level.song.bpm}</b> BPM <i /> {durationLabel}</div>
+          <small className="song-algorithm">{String(level.generation.displayName ?? level.generation.algorithm)} · {level.generation.noteCount} 个事件</small>
         </div>
       </section>
 
@@ -39,6 +41,7 @@ export function HomeScreen({ onStart }: HomeScreenProps) {
         <span className="play-icon">▶</span>
         开始航行
       </button>
+      <a className="rhythm-lab-link" href="/rhythm-lab.html">试听并比较生成算法</a>
       <p className="touch-tip"><span>↔</span> 单指左右滑动操控</p>
     </main>
   );
