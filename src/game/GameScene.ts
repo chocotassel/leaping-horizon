@@ -28,9 +28,12 @@ const SPIKES_PER_OBSTACLE = 5;
 const HIT_PARTICLES_PER_BURST = 22;
 const HIT_PARTICLE_LIFETIME_SECONDS = 0.72;
 const MIN_PARTICLE_POOL_SIZE = 96;
-const FLOATING_CUBE_COUNT = 48;
+const CAMERA_Y = 6.8;
+const CAMERA_Z = 9.35;
+const FLOATING_CUBE_COUNT = 64;
 const FLOATING_CUBE_SPEED = 5.4;
-const FLOATING_CUBE_NEAR_Z = PLAYER_Z + 0.4;
+// 穿过相机后再循环，避免仍在画面内时突然重置到远处。
+const FLOATING_CUBE_NEAR_Z = CAMERA_Z + 2;
 const OUTER_SPECTRUM_COUNT = 112;
 const INNER_SPECTRUM_COUNT = 88;
 const SPEED_STREAK_COUNT = 42;
@@ -44,8 +47,6 @@ const TRAIL_LENGTH = 9.8;
 const TRAIL_HEAD_Z_OFFSET = 0.66;
 const TRAIL_HEAD_Y_OFFSET = 0.06;
 const TRAIL_SURFACE_Y = 0.025;
-const CAMERA_Y = 6.8;
-const CAMERA_Z = 9.35;
 const DESIGN_ASPECT = 9 / 16;
 const PLAYER_BOTTOM_RATIO = 0.32;
 const hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
@@ -528,16 +529,20 @@ export class GameScene {
     const floatingData = Array.from({ length: FLOATING_CUBE_COUNT }, (_, index) => {
       const side = index % 2 === 0 ? -1 : 1;
       const pairIndex = Math.floor(index / 2);
-      const verticalBand = (pairIndex * 5 + (side > 0 ? 2 : 0)) % 6;
-      const verticalJitter = ((((pairIndex + (side > 0 ? 7 : 0)) * 13) % 11) / 10 - 0.5) * 1.2;
+      const heightSeed = ((pairIndex * 11 + (side > 0 ? 7 : 0)) % 31) / 30;
+      const heightRatio = Math.pow(heightSeed, 2.6);
+      const verticalJitter = ((((pairIndex + (side > 0 ? 7 : 0)) * 13) % 11) / 10 - 0.5)
+        * THREE.MathUtils.lerp(0.5, 1.1, heightRatio);
       const horizontalJitter = ((pairIndex * 17 + (side > 0 ? 5 : 0)) % 13) / 12;
       const depthRatio = (pairIndex * 0.61803398875 + (side > 0 ? 0.31 : 0)) % 1;
       const randomSize = ((index * 29) % 17) / 16;
-      const heightScale = THREE.MathUtils.lerp(1, 0.76, verticalBand / 5);
+      const lateralMin = THREE.MathUtils.lerp(3.7, 11.5, heightRatio);
+      const lateralMax = THREE.MathUtils.lerp(9.5, 18, heightRatio);
+      const heightScale = THREE.MathUtils.lerp(1, 0.68, heightRatio);
       return {
         // 世界空间中的道路两侧景物：固定横向/高度，靠纵深移动产生向后掠过的视差。
-        x: side * THREE.MathUtils.lerp(4.2, 14, horizontalJitter),
-        y: THREE.MathUtils.lerp(0.6, 18, verticalBand / 5) + verticalJitter,
+        x: side * THREE.MathUtils.lerp(lateralMin, lateralMax, horizontalJitter),
+        y: Math.max(0.35, THREE.MathUtils.lerp(0.5, 17, heightRatio) + verticalJitter),
         z: THREE.MathUtils.lerp(OBSTACLE_SPAWN_Z, FLOATING_CUBE_NEAR_Z, depthRatio),
         size: (0.34 + randomSize * 0.74) * heightScale,
         phase: index * 0.73,
@@ -909,13 +914,15 @@ export class GameScene {
     for (let i = 0; i < this.floatingData.length; i += 1) {
       const cube = this.floatingData[i];
       const z = farZ + ((time * FLOATING_CUBE_SPEED + cube.z - farZ) % travelDistance);
+      const depthProgress = (z - farZ) / travelDistance;
+      const emergence = THREE.MathUtils.smoothstep(depthProgress, 0.08, 0.34);
       this.position.set(
         cube.x + Math.sin(time * 0.38 + cube.phase) * 0.16,
         Math.max(0.25, cube.y + Math.sin(time * 0.55 + cube.phase) * 0.18),
         z,
       );
       this.quaternion.setFromEuler(new THREE.Euler(time * 0.18 + cube.phase, time * 0.24 + cube.phase * 0.7, cube.phase));
-      this.scale.setScalar(cube.size);
+      this.scale.setScalar(cube.size * emergence);
       this.matrix.compose(this.position, this.quaternion, this.scale);
       this.floatingCubes.setMatrixAt(i, this.matrix);
       this.floatingCubes.setColorAt(i, this.tempColor.setHex(i % 5 === 0 ? 0x35271f : i % 3 === 0 ? 0x211b18 : 0x171514));

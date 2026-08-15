@@ -412,17 +412,6 @@ button {
 }
 
 .score-block { display: flex; flex-direction: column; }
-.game-difficulty {
-  align-self: center;
-  margin-top: 8px;
-  padding: 5px 9px;
-  border: 1px solid rgb(71 246 255 / .24);
-  color: #9fabbf;
-  background: rgb(8 13 27 / .52);
-  font: 700 8px/1 'Barlow Condensed', sans-serif;
-  letter-spacing: .12em;
-  backdrop-filter: blur(5px);
-}
 .score-block span {
   color: #e1cc3a;
   font: 700 9px/1 'Barlow Condensed', sans-serif;

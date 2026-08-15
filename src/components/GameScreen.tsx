@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AudioEngine } from '../audio/AudioEngine';
 import { GameController } from '../game/GameController';
-import { getDifficultyOption, type GameResult, type Level } from '../types';
+import { type GameResult, type Level } from '../types';
 
 interface GameScreenProps {
   level: Level;
@@ -9,7 +9,6 @@ interface GameScreenProps {
 }
 
 export function GameScreen({ level, onFinish }: GameScreenProps) {
-  const difficulty = getDifficultyOption(level.generation.difficulty);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<GameController | null>(null);
@@ -95,7 +94,6 @@ export function GameScreen({ level, onFinish }: GameScreenProps) {
           <strong>{String(hud.score).padStart(6, '0')}</strong>
           <span>SCORE</span>
         </div>
-        <span className="game-difficulty">{difficulty.label} · {difficulty.shortLabel}</span>
         <button className="pause-button" type="button" aria-label={paused ? '继续游戏' : '暂停游戏'} onPointerDown={togglePause}>
           {paused ? <span className="resume-icon">▶</span> : <><i /><i /></>}
         </button>
