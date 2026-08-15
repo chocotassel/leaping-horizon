@@ -8,6 +8,7 @@ import {
   type ObstacleStateRow,
 } from '../types';
 import { GameScene } from './GameScene';
+import type { SceneColorSchemeId } from './colorSchemes';
 import { overlapsPlayer } from './physics';
 
 interface GameCallbacks {
@@ -58,8 +59,12 @@ export class GameController {
     this.scene.resize(width, height);
   }
 
-  setGlowColor(color: string | number): void {
-    this.scene.setGlowColor(color);
+  setColorScheme(colorSchemeId: SceneColorSchemeId): void {
+    this.scene.setColorScheme(colorSchemeId);
+  }
+
+  getColorSchemeId(): SceneColorSchemeId {
+    return this.scene.getColorSchemeId();
   }
 
   setPointer(pointerId: number, normalizedX: number): void {

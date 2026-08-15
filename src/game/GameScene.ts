@@ -13,6 +13,12 @@ import {
 } from '../types';
 import { getMaxEventRowsInWindow } from '../chart';
 import {
+  DEFAULT_SCENE_COLOR_SCHEME_ID,
+  SCENE_COLOR_SCHEMES,
+  type SceneColorScheme,
+  type SceneColorSchemeId,
+} from './colorSchemes';
+import {
   APPROACH_SECONDS,
   getObstacleZ,
   getRingApproach,
@@ -23,7 +29,8 @@ import {
   shouldRenderObstacle,
 } from './physics';
 
-const NORMAL_BANDS_PER_OBSTACLE = 5;
+const NORMAL_PANEL_BANDS = 5;
+const NORMAL_EDGES_PER_OBSTACLE = 12;
 const SPIKES_PER_OBSTACLE = 5;
 const HIT_PARTICLES_PER_BURST = 22;
 const HIT_PARTICLE_LIFETIME_SECONDS = 0.72;
@@ -49,6 +56,22 @@ const TRAIL_HEAD_Y_OFFSET = 0.06;
 const TRAIL_SURFACE_Y = 0.025;
 const DESIGN_ASPECT = 9 / 16;
 const PLAYER_BOTTOM_RATIO = 0.32;
+const NORMAL_EDGE_THICKNESS = 0.075;
+const NORMAL_EDGE_LENGTH = 1.08;
+const NORMAL_EDGE_TRANSFORMS = [
+  [-0.5, 0, -0.5, NORMAL_EDGE_THICKNESS, NORMAL_EDGE_LENGTH, NORMAL_EDGE_THICKNESS],
+  [-0.5, 0, 0.5, NORMAL_EDGE_THICKNESS, NORMAL_EDGE_LENGTH, NORMAL_EDGE_THICKNESS],
+  [0.5, 0, -0.5, NORMAL_EDGE_THICKNESS, NORMAL_EDGE_LENGTH, NORMAL_EDGE_THICKNESS],
+  [0.5, 0, 0.5, NORMAL_EDGE_THICKNESS, NORMAL_EDGE_LENGTH, NORMAL_EDGE_THICKNESS],
+  [0, -0.5, -0.5, NORMAL_EDGE_LENGTH, NORMAL_EDGE_THICKNESS, NORMAL_EDGE_THICKNESS],
+  [0, -0.5, 0.5, NORMAL_EDGE_LENGTH, NORMAL_EDGE_THICKNESS, NORMAL_EDGE_THICKNESS],
+  [0, 0.5, -0.5, NORMAL_EDGE_LENGTH, NORMAL_EDGE_THICKNESS, NORMAL_EDGE_THICKNESS],
+  [0, 0.5, 0.5, NORMAL_EDGE_LENGTH, NORMAL_EDGE_THICKNESS, NORMAL_EDGE_THICKNESS],
+  [-0.5, -0.5, 0, NORMAL_EDGE_THICKNESS, NORMAL_EDGE_THICKNESS, NORMAL_EDGE_LENGTH],
+  [-0.5, 0.5, 0, NORMAL_EDGE_THICKNESS, NORMAL_EDGE_THICKNESS, NORMAL_EDGE_LENGTH],
+  [0.5, -0.5, 0, NORMAL_EDGE_THICKNESS, NORMAL_EDGE_THICKNESS, NORMAL_EDGE_LENGTH],
+  [0.5, 0.5, 0, NORMAL_EDGE_THICKNESS, NORMAL_EDGE_THICKNESS, NORMAL_EDGE_LENGTH],
+] as const;
 const hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
 
 interface Particle {
@@ -76,6 +99,23 @@ interface FloatingCube {
   phase: number;
 }
 
+type SceneColorRole = 'primary' | 'ringCore' | 'hazard';
+
+function getDecorativeMetalColor(index: number): number {
+  return index % 5 === 0 ? 0x35271f : index % 3 === 0 ? 0x211b18 : 0x171514;
+}
+
+function colorToCss(color: number): string {
+  return `#${color.toString(16).padStart(6, '0')}`;
+}
+
+function mixColors(from: number, to: number, amount: number): string {
+  const mixChannel = (shift: number): number => Math.round(
+    ((from >> shift) & 0xff) * (1 - amount) + ((to >> shift) & 0xff) * amount,
+  );
+  return `rgb(${mixChannel(16)}, ${mixChannel(8)}, ${mixChannel(0)})`;
+}
+
 export class GameScene {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
@@ -85,7 +125,7 @@ export class GameScene {
   private readonly trailMesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
   private readonly trailHistory = new Float32Array(TRAIL_SEGMENT_COUNT);
   private readonly normalBlocks: THREE.InstancedMesh;
-  private readonly normalBands: THREE.InstancedMesh;
+  private readonly normalEdges: THREE.InstancedMesh;
   private readonly spikeBases: THREE.InstancedMesh;
   private readonly spikeCones: THREE.InstancedMesh;
   private readonly particles: THREE.InstancedMesh;
@@ -107,12 +147,21 @@ export class GameScene {
   private readonly quaternion = new THREE.Quaternion();
   private readonly scale = new THREE.Vector3(1, 1, 1);
   private readonly tempColor = new THREE.Color();
-  private readonly glowColor = new THREE.Color(0xffa21a);
-  private readonly glowChannels: THREE.Color[] = [];
+  private readonly glowColor = new THREE.Color(SCENE_COLOR_SCHEMES[DEFAULT_SCENE_COLOR_SCHEME_ID].primary);
+  private readonly ringCoreColor = new THREE.Color(SCENE_COLOR_SCHEMES[DEFAULT_SCENE_COLOR_SCHEME_ID].ringCore);
+  private readonly hazardColor = new THREE.Color(SCENE_COLOR_SCHEMES[DEFAULT_SCENE_COLOR_SCHEME_ID].hazard);
+  private readonly primaryChannels: THREE.Color[] = [];
+  private readonly ringCoreChannels: THREE.Color[] = [];
+  private readonly hazardChannels: THREE.Color[] = [];
+  private readonly obstacleEdgeChannels: THREE.Color[] = [];
+  private readonly hazardSurfaceChannels: THREE.Color[] = [];
   private readonly obstacleFrustum = new THREE.Frustum();
   private readonly obstacleBounds = new THREE.Sphere(new THREE.Vector3(), Math.sqrt(3) / 2);
   private readonly lastObstacleTime: number | null;
   private environmentTexture: THREE.Texture | null = null;
+  private obstaclePanelTexture: THREE.CanvasTexture | null = null;
+  private colorScheme: SceneColorScheme = SCENE_COLOR_SCHEMES[DEFAULT_SCENE_COLOR_SCHEME_ID];
+  private colorSchemeId: SceneColorSchemeId = DEFAULT_SCENE_COLOR_SCHEME_ID;
   private playerX = 0;
   private targetPlayerX = 0;
   private playerVelocity = 0;
@@ -155,7 +204,7 @@ export class GameScene {
     keyLight.position.set(-4, 8, 7);
     this.scene.add(keyLight);
     const rimLight = new THREE.DirectionalLight(this.glowColor, 2.8);
-    this.glowChannels.push(rimLight.color);
+    this.primaryChannels.push(rimLight.color);
     rimLight.position.set(6, 3, -8);
     this.scene.add(rimLight);
 
@@ -168,49 +217,63 @@ export class GameScene {
     this.trailMesh = this.createPlayer();
 
     const steelTexture = this.createSteelTexture();
+    const obstaclePanelTexture = this.createObstaclePanelTexture();
     const obstaclePoolSize = Math.max(
       LANE_CENTERS.length,
       (getMaxEventRowsInWindow(level, APPROACH_SECONDS) + 2) * LANE_CENTERS.length,
     );
+    const normalBlockMaterial = this.createMetalMaterial({
+      color: 0xffffff,
+      map: obstaclePanelTexture,
+      emissiveMap: obstaclePanelTexture,
+      metalness: 0.94,
+      roughness: 0.3,
+      emissiveIntensity: 0.58,
+      envMapIntensity: 2.6,
+    });
     this.normalBlocks = this.createInstances(
       new THREE.BoxGeometry(1, 1, 1),
-      this.createMetalMaterial({
-        map: steelTexture,
-        metalness: 0.98,
-        roughness: 0.2,
-        emissiveIntensity: 0.18,
-        envMapIntensity: 2.8,
-      }),
+      normalBlockMaterial,
       obstaclePoolSize,
     );
-    this.normalBands = this.createInstances(
-      new THREE.BoxGeometry(0.86, 0.08, 0.025),
-      this.createMetalMaterial({
-        metalness: 0.92,
-        roughness: 0.18,
-        emissiveIntensity: 1.2,
-      }),
-      obstaclePoolSize * NORMAL_BANDS_PER_OBSTACLE,
+    const normalEdgeMaterial = this.createMetalMaterial({
+      color: this.colorScheme.obstacle.edge,
+      metalness: 1,
+      roughness: 0.22,
+      emissiveIntensity: 0.42,
+      envMapIntensity: 3,
+    });
+    this.obstacleEdgeChannels.push(normalEdgeMaterial.color);
+    this.normalEdges = this.createInstances(
+      new THREE.BoxGeometry(1, 1, 1),
+      normalEdgeMaterial,
+      obstaclePoolSize * NORMAL_EDGES_PER_OBSTACLE,
     );
 
+    const spikeBaseMaterial = this.createMetalMaterial({
+      color: this.colorScheme.hazard,
+      map: steelTexture,
+      metalness: 0.98,
+      roughness: 0.22,
+      emissiveIntensity: 0.2,
+      envMapIntensity: 2.5,
+    }, 'hazard');
+    this.hazardSurfaceChannels.push(spikeBaseMaterial.color);
     this.spikeBases = this.createInstances(
       new THREE.BoxGeometry(1, 0.08, 1),
-      this.createMetalMaterial({
-        map: steelTexture,
-        metalness: 0.98,
-        roughness: 0.22,
-        emissiveIntensity: 0.2,
-        envMapIntensity: 2.5,
-      }),
+      spikeBaseMaterial,
       obstaclePoolSize,
     );
+    const spikeConeMaterial = this.createMetalMaterial({
+      color: this.colorScheme.hazard,
+      metalness: 0.98,
+      roughness: 0.14,
+      emissiveIntensity: 0.95,
+    }, 'hazard');
+    this.hazardSurfaceChannels.push(spikeConeMaterial.color);
     this.spikeCones = this.createInstances(
       new THREE.ConeGeometry(0.2, 0.9, 4),
-      this.createMetalMaterial({
-        metalness: 0.98,
-        roughness: 0.14,
-        emissiveIntensity: 0.95,
-      }),
+      spikeConeMaterial,
       obstaclePoolSize * SPIKES_PER_OBSTACLE,
     );
 
@@ -262,7 +325,23 @@ export class GameScene {
     return mesh;
   }
 
-  private createGlowMaterial(parameters: THREE.MeshBasicMaterialParameters = {}): THREE.MeshBasicMaterial {
+  private getRoleColor(role: SceneColorRole): THREE.Color {
+    if (role === 'ringCore') return this.ringCoreColor;
+    if (role === 'hazard') return this.hazardColor;
+    return this.glowColor;
+  }
+
+  private getRoleChannels(role: SceneColorRole): THREE.Color[] {
+    if (role === 'ringCore') return this.ringCoreChannels;
+    if (role === 'hazard') return this.hazardChannels;
+    return this.primaryChannels;
+  }
+
+  private createGlowMaterial(
+    parameters: THREE.MeshBasicMaterialParameters = {},
+    role: SceneColorRole = 'primary',
+  ): THREE.MeshBasicMaterial {
+    const roleColor = this.getRoleColor(role);
     const material = new THREE.MeshBasicMaterial({
       transparent: true,
       depthWrite: false,
@@ -270,38 +349,63 @@ export class GameScene {
       fog: false,
       toneMapped: false,
       ...parameters,
-      color: this.glowColor,
+      color: roleColor,
     });
-    this.glowChannels.push(material.color);
+    this.getRoleChannels(role).push(material.color);
     return material;
   }
 
-  private createMetalMaterial(parameters: THREE.MeshStandardMaterialParameters): THREE.MeshStandardMaterial {
+  private createMetalMaterial(
+    parameters: THREE.MeshStandardMaterialParameters,
+    role: SceneColorRole = 'primary',
+  ): THREE.MeshStandardMaterial {
+    const roleColor = this.getRoleColor(role);
     const material = new THREE.MeshStandardMaterial({
       color: 0x383838,
       metalness: 0.96,
       roughness: 0.2,
       ...parameters,
-      emissive: this.glowColor,
+      emissive: roleColor,
     });
-    this.glowChannels.push(material.emissive);
+    this.getRoleChannels(role).push(material.emissive);
     return material;
   }
 
-  private createGlowLineMaterial(parameters: THREE.LineBasicMaterialParameters = {}): THREE.LineBasicMaterial {
+  private createGlowLineMaterial(
+    parameters: THREE.LineBasicMaterialParameters = {},
+    role: SceneColorRole = 'primary',
+  ): THREE.LineBasicMaterial {
+    const roleColor = this.getRoleColor(role);
     const material = new THREE.LineBasicMaterial({
       transparent: true,
       blending: THREE.AdditiveBlending,
       ...parameters,
-      color: this.glowColor,
+      color: roleColor,
     });
-    this.glowChannels.push(material.color);
+    this.getRoleChannels(role).push(material.color);
     return material;
   }
 
-  setGlowColor(color: THREE.ColorRepresentation): void {
-    this.glowColor.set(color);
-    this.glowChannels.forEach((channel) => channel.copy(this.glowColor));
+  setColorScheme(colorSchemeId: SceneColorSchemeId): void {
+    const scheme = SCENE_COLOR_SCHEMES[colorSchemeId];
+    this.colorSchemeId = colorSchemeId;
+    this.colorScheme = scheme;
+    this.glowColor.set(scheme.primary);
+    this.ringCoreColor.set(scheme.ringCore);
+    this.hazardColor.set(scheme.hazard);
+    this.primaryChannels.forEach((channel) => channel.copy(this.glowColor));
+    this.ringCoreChannels.forEach((channel) => channel.copy(this.ringCoreColor));
+    this.hazardChannels.forEach((channel) => channel.copy(this.hazardColor));
+    this.obstacleEdgeChannels.forEach((channel) => channel.set(scheme.obstacle.edge));
+    this.hazardSurfaceChannels.forEach((channel) => channel.set(scheme.hazard));
+    if (this.obstaclePanelTexture) {
+      this.paintObstaclePanelTexture(this.obstaclePanelTexture.image as HTMLCanvasElement, scheme);
+      this.obstaclePanelTexture.needsUpdate = true;
+    }
+  }
+
+  getColorSchemeId(): SceneColorSchemeId {
+    return this.colorSchemeId;
   }
 
   private createFeedback(width: number, height: number): {
@@ -430,6 +534,51 @@ export class GameScene {
     return texture;
   }
 
+  private createObstaclePanelTexture(): THREE.CanvasTexture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    this.paintObstaclePanelTexture(canvas, this.colorScheme);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = true;
+    texture.anisotropy = Math.min(4, this.renderer.capabilities.getMaxAnisotropy());
+    this.obstaclePanelTexture = texture;
+    return texture;
+  }
+
+  private paintObstaclePanelTexture(canvas: HTMLCanvasElement, scheme: SceneColorScheme): void {
+    const context = canvas.getContext('2d')!;
+
+    const base = context.createLinearGradient(0, 0, 256, 0);
+    base.addColorStop(0, colorToCss(scheme.obstacle.panelDark));
+    base.addColorStop(0.28, colorToCss(scheme.obstacle.panelLight));
+    base.addColorStop(0.52, mixColors(scheme.obstacle.panelDark, scheme.obstacle.panelLight, 0.3));
+    base.addColorStop(0.78, mixColors(scheme.obstacle.panelLight, 0xffffff, 0.08));
+    base.addColorStop(1, colorToCss(scheme.obstacle.panelDark));
+    context.fillStyle = base;
+    context.fillRect(0, 0, 256, 256);
+
+    // 深浅条纹交替，切换配色时直接重绘 CanvasTexture。
+    for (let stripe = 0; stripe < NORMAL_PANEL_BANDS; stripe += 1) {
+      const y = 18 + stripe * 48;
+      const stripeColor = stripe % 2 === 0
+        ? scheme.obstacle.stripeLight
+        : scheme.obstacle.stripeDark;
+      const band = context.createLinearGradient(0, y, 0, y + 30);
+      band.addColorStop(0, mixColors(stripeColor, scheme.obstacle.panelDark, 0.38));
+      band.addColorStop(0.18, mixColors(stripeColor, 0xffffff, 0.14));
+      band.addColorStop(0.52, colorToCss(stripeColor));
+      band.addColorStop(0.84, mixColors(stripeColor, scheme.obstacle.panelDark, 0.24));
+      band.addColorStop(1, mixColors(stripeColor, 0xffffff, 0.08));
+      context.fillStyle = band;
+      context.fillRect(9, y, 238, 30);
+    }
+  }
+
   private createPerspectiveRoad(): void {
     const roadLength = 1500;
     const visualRoadWidth = 5.8;
@@ -496,7 +645,7 @@ export class GameScene {
         fog: false,
         blending: THREE.AdditiveBlending,
         toneMapped: false,
-      });
+      }, 'ringCore');
       const ring = new THREE.Mesh(
         new THREE.TorusGeometry(layer.radius, layer.tube, lowPower ? 6 : 10, lowPower ? 64 : 96),
         ringMaterial,
@@ -682,7 +831,7 @@ export class GameScene {
     this.player.add(playerArt);
     const playerLight = new THREE.PointLight(0x48f8ff, 18, 8, 2);
     playerLight.color.copy(this.glowColor);
-    this.glowChannels.push(playerLight.color);
+    this.primaryChannels.push(playerLight.color);
     playerLight.position.y = 0.7;
     this.player.add(playerLight);
     const playerSize = new THREE.Box3().setFromObject(this.player).getSize(new THREE.Vector3());
@@ -925,7 +1074,7 @@ export class GameScene {
       this.scale.setScalar(cube.size * emergence);
       this.matrix.compose(this.position, this.quaternion, this.scale);
       this.floatingCubes.setMatrixAt(i, this.matrix);
-      this.floatingCubes.setColorAt(i, this.tempColor.setHex(i % 5 === 0 ? 0x35271f : i % 3 === 0 ? 0x211b18 : 0x171514));
+      this.floatingCubes.setColorAt(i, this.tempColor.setHex(getDecorativeMetalColor(i)));
     }
     this.floatingCubes.instanceMatrix.needsUpdate = true;
     if (this.floatingCubes.instanceColor) this.floatingCubes.instanceColor.needsUpdate = true;
@@ -977,11 +1126,12 @@ export class GameScene {
           this.scale.set(1, 1, 1);
           this.matrix.compose(this.position, this.quaternion, this.scale);
           this.normalBlocks.setMatrixAt(normalIndex, this.matrix);
-          // 五条压筋嵌在朝向相机的一面，装饰不超出 1×1×1 格子。
-          for (let stripe = 0; stripe < NORMAL_BANDS_PER_OBSTACLE; stripe += 1) {
-            this.position.set(x, 0.18 + stripe * 0.16, z + 0.487);
+          for (let edgeIndex = 0; edgeIndex < NORMAL_EDGE_TRANSFORMS.length; edgeIndex += 1) {
+            const [offsetX, offsetY, offsetZ, scaleX, scaleY, scaleZ] = NORMAL_EDGE_TRANSFORMS[edgeIndex];
+            this.position.set(x + offsetX, 0.5 + offsetY, z + offsetZ);
+            this.scale.set(scaleX, scaleY, scaleZ);
             this.matrix.compose(this.position, this.quaternion, this.scale);
-            this.normalBands.setMatrixAt(normalIndex * NORMAL_BANDS_PER_OBSTACLE + stripe, this.matrix);
+            this.normalEdges.setMatrixAt(normalIndex * NORMAL_EDGES_PER_OBSTACLE + edgeIndex, this.matrix);
           }
           normalIndex += 1;
         } else if (type === ObstacleType.Spike && spikeIndex < this.spikeBases.count) {
@@ -1010,8 +1160,8 @@ export class GameScene {
     }
     for (let i = normalIndex; i < this.normalBlocks.count; i += 1) {
       this.normalBlocks.setMatrixAt(i, hiddenMatrix);
-      for (let stripe = 0; stripe < NORMAL_BANDS_PER_OBSTACLE; stripe += 1) {
-        this.normalBands.setMatrixAt(i * NORMAL_BANDS_PER_OBSTACLE + stripe, hiddenMatrix);
+      for (let edgeIndex = 0; edgeIndex < NORMAL_EDGES_PER_OBSTACLE; edgeIndex += 1) {
+        this.normalEdges.setMatrixAt(i * NORMAL_EDGES_PER_OBSTACLE + edgeIndex, hiddenMatrix);
       }
     }
     for (let i = spikeIndex; i < this.spikeBases.count; i += 1) {
@@ -1021,7 +1171,7 @@ export class GameScene {
       }
     }
     this.normalBlocks.instanceMatrix.needsUpdate = true;
-    this.normalBands.instanceMatrix.needsUpdate = true;
+    this.normalEdges.instanceMatrix.needsUpdate = true;
     this.spikeBases.instanceMatrix.needsUpdate = true;
     this.spikeCones.instanceMatrix.needsUpdate = true;
   }
