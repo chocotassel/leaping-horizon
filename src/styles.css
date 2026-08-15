@@ -222,16 +222,46 @@ button {
 }
 
 .rhythm-lab-link {
-  position: relative;
-  z-index: 2;
-  align-self: center;
-  margin: 10px 0 0;
   color: #8290aa;
   font-size: 11px;
   text-decoration: none;
 }
 
 .rhythm-lab-link:hover { color: var(--cyan); }
+
+.home-tool-links {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-self: center;
+  gap: 16px;
+  margin: 10px 0 0;
+}
+
+.flow-mode-label {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  align-items: center;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--cyan);
+  background: linear-gradient(90deg, rgb(53 228 237 / .08), transparent);
+}
+
+.flow-mode-label small {
+  grid-row: 1 / 3;
+  color: var(--cyan);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .13em;
+  writing-mode: vertical-rl;
+}
+
+.flow-mode-label strong { font-size: 12px; }
+.flow-mode-label span { color: #77859b; font-size: 9px; }
 
 .album-art {
   position: relative;
@@ -382,6 +412,17 @@ button {
 }
 
 .score-block { display: flex; flex-direction: column; }
+.game-difficulty {
+  align-self: center;
+  margin-top: 8px;
+  padding: 5px 9px;
+  border: 1px solid rgb(71 246 255 / .24);
+  color: #9fabbf;
+  background: rgb(8 13 27 / .52);
+  font: 700 8px/1 'Barlow Condensed', sans-serif;
+  letter-spacing: .12em;
+  backdrop-filter: blur(5px);
+}
 .score-block span {
   color: #e1cc3a;
   font: 700 9px/1 'Barlow Condensed', sans-serif;
@@ -615,6 +656,17 @@ button {
 .hit-summary b { color: #b6c0d2; font: 600 11px/1 'Barlow Condensed', sans-serif; }
 .hit-summary div { grid-column: 1 / -1; height: 3px; background: rgb(112 143 178 / 0.15); }
 .hit-summary i { display: block; height: 100%; background: linear-gradient(90deg, var(--pink), var(--cyan)); }
+.dodge-summary {
+  z-index: 1;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  color: #77849a;
+  font-size: 9px;
+  letter-spacing: .12em;
+}
+.dodge-summary b { color: #ff6b83; font: 600 11px/1 'Barlow Condensed', sans-serif; }
 
 .result-actions {
   z-index: 2;

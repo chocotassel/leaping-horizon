@@ -39,6 +39,11 @@ export function ResultScreen({ result, onReplay, onHome }: ResultScreenProps) {
         <b>{result.hits} / {result.total}</b>
         <div><i style={{ width: `${accuracy}%` }} /></div>
       </section>
+      {result.totalDodges > 0 && (
+        <section className="dodge-summary">
+          <span>成功躲避</span><b>{result.dodges} / {result.totalDodges}</b>
+        </section>
+      )}
 
       <div className="result-actions">
         <button className="primary-button" type="button" onClick={onReplay}><span>↻</span>再次航行</button>

@@ -7,7 +7,7 @@ export default defineConfig({
     target: 'es2017',
     cssCodeSplit: true,
     rollupOptions: {
-      input: ['index.html', 'beat-marker.html', 'rhythm-lab.html'],
+      input: ['index.html', 'beat-marker.html', 'rhythm-lab.html', 'pattern-lab.html'],
       output: {
         manualChunks(id) {
           return id.includes('node_modules/three') ? 'three' : undefined;

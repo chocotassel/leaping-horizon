@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
@@ -42,7 +43,53 @@ interface RhythmTrack {
   events: RhythmEvent[];
 }
 
+interface MusicalStructurePhrase {
+  id: string;
+  familyId: string;
+  familyKind?: string;
+  startSeconds: number;
+  endSeconds: number;
+  startBarIndex: number;
+  barCount: number;
+  similarityToPrototype?: number;
+}
+
+interface MusicalStructureSection {
+  id: string;
+  startSeconds: number;
+  endSeconds: number;
+  startBarIndex: number;
+  barCount: number;
+  boundarySupport?: number;
+}
+
+interface MusicalStructure {
+  algorithm: string;
+  timingPolicy: string;
+  beatsPerBar: number;
+  barsPerPhrase: number;
+  sections: MusicalStructureSection[];
+  phrases: MusicalStructurePhrase[];
+  families: Array<{
+    id: string;
+    kind: string;
+    phraseIds: string[];
+    occurrenceCount: number;
+    confidence?: number;
+  }>;
+  overlappingPhrases?: MusicalStructurePhrase[];
+  overlappingPhraseFamilies?: Array<{
+    id: string;
+    kind: string;
+    phraseIds: string[];
+    occurrenceCount: number;
+    confidence?: number;
+  }>;
+  analysis?: { available?: boolean };
+}
+
 interface RhythmAnalysis {
+  generatedAt?: string;
   timingPolicy: string;
   primaryTrackId: string;
   song: {
@@ -71,11 +118,26 @@ interface RhythmAnalysis {
     minimumGapMs?: number;
     timingPolicy?: string;
   };
+  musicalStructure?: MusicalStructure;
   tracks: RhythmTrack[];
 }
 
-const levels = (levelCollection as unknown as { levels: Record<string, Level> }).levels;
+type ReviewVerdict = 'keep' | 'reject' | 'missing';
+
+interface ReviewFeedback {
+  id: string;
+  verdict: ReviewVerdict;
+  trackId: string;
+  trackName: string;
+  tapTimeSeconds: number;
+  eventTimeSeconds?: number;
+  createdAt: string;
+}
+
+const levels = (levelCollection as unknown as { levels: { flow: Record<string, Level> } }).levels.flow;
 const WINDOW_SECONDS = 5;
+const FEEDBACK_STORAGE_KEY = 'neon-slice:rhythm-review:v1';
+const STRUCTURE_COLORS = ['#39e8ee', '#ff5ca8', '#ffc857', '#8d7dff', '#5ee58d', '#ff7a59', '#74a7ff', '#d875ff'];
 
 function formatTime(value: number): string {
   const safe = Number.isFinite(value) ? Math.max(0, value) : 0;
@@ -88,19 +150,47 @@ function percent(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
 
+function structureColor(familyId: string): string {
+  let hash = 0;
+  for (const character of familyId) hash = (Math.imul(hash, 31) + character.charCodeAt(0)) >>> 0;
+  return STRUCTURE_COLORS[hash % STRUCTURE_COLORS.length];
+}
+
+function readStoredFeedback(): ReviewFeedback[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const value = JSON.parse(window.localStorage.getItem(FEEDBACK_STORAGE_KEY) ?? '[]') as unknown;
+    return Array.isArray(value) ? value.filter((item): item is ReviewFeedback => (
+      typeof item === 'object' && item !== null
+      && typeof (item as ReviewFeedback).id === 'string'
+      && ['keep', 'reject', 'missing'].includes((item as ReviewFeedback).verdict)
+      && Number.isFinite((item as ReviewFeedback).tapTimeSeconds)
+    )) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function RhythmLabApp() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const feedbackInputRef = useRef<HTMLInputElement>(null);
   const clickContextRef = useRef<AudioContext | null>(null);
   const previousAudioTimeRef = useRef(0);
   const [analysis, setAnalysis] = useState<RhythmAnalysis | null>(null);
-  const [activeTrackId, setActiveTrackId] = useState('preference-fusion');
+  const [activeTrackId, setActiveTrackId] = useState('beat-this');
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [clickEnabled, setClickEnabled] = useState(true);
   const [showReference, setShowReference] = useState(true);
   const [pulse, setPulse] = useState(0);
   const [loadError, setLoadError] = useState('');
+  const [feedback, setFeedback] = useState<ReviewFeedback[]>(readStoredFeedback);
+  const [feedbackNotice, setFeedbackNotice] = useState('播放时听到不合适的点，可以直接记录。');
+
+  useEffect(() => {
+    window.localStorage.setItem(FEEDBACK_STORAGE_KEY, JSON.stringify(feedback));
+  }, [feedback]);
 
   useEffect(() => {
     let cancelled = false;
@@ -129,6 +219,37 @@ export function RhythmLabApp() {
     [analysis],
   );
   const activeLevel = activeTrack ? levels[activeTrack.id] : undefined;
+  const primaryTrack = analysis?.tracks.find((track) => track.id === analysis.primaryTrackId);
+  const activeFeedback = useMemo(
+    () => feedback.filter((item) => item.trackId === activeTrack?.id),
+    [activeTrack?.id, feedback],
+  );
+  const currentPhrase = useMemo(() => analysis?.musicalStructure?.phrases.find((phrase, index, phrases) => (
+    currentTime >= phrase.startSeconds
+    && (currentTime < phrase.endSeconds || (index === phrases.length - 1 && currentTime <= phrase.endSeconds))
+  )), [analysis?.musicalStructure?.phrases, currentTime]);
+  const currentSection = useMemo(() => analysis?.musicalStructure?.sections.find((section, index, sections) => (
+    currentTime >= section.startSeconds
+    && (currentTime < section.endSeconds || (index === sections.length - 1 && currentTime <= section.endSeconds))
+  )), [analysis?.musicalStructure?.sections, currentTime]);
+  const siblingPhrases = useMemo(() => (
+    currentPhrase
+      ? analysis?.musicalStructure?.phrases.filter((phrase) => phrase.familyId === currentPhrase.familyId) ?? []
+      : []
+  ), [analysis?.musicalStructure?.phrases, currentPhrase]);
+  const exactRepeatGroups = useMemo(() => {
+    const structure = analysis?.musicalStructure;
+    if (!structure?.overlappingPhrases?.length) return [];
+    const phraseById = new Map(structure.overlappingPhrases.map((phrase) => [phrase.id, phrase]));
+    return (structure.overlappingPhraseFamilies ?? [])
+      .filter((family) => family.occurrenceCount > 1 && (family.confidence ?? 0) >= 0.88)
+      .map((family) => ({
+        ...family,
+        occurrences: family.phraseIds
+          .map((id: string) => phraseById.get(id))
+          .filter((phrase): phrase is MusicalStructurePhrase => phrase !== undefined),
+      }));
+  }, [analysis?.musicalStructure]);
 
   const playClick = useCallback((confidence: number) => {
     if (!clickEnabled) return;
@@ -213,6 +334,44 @@ export function RhythmLabApp() {
     context.fillStyle = '#0a0e18';
     context.fillRect(0, 0, width, height);
 
+    const structure = analysis.musicalStructure;
+    if (structure?.analysis?.available !== false) {
+      for (const phrase of structure?.phrases ?? []) {
+        const left = phrase.startSeconds / analysis.song.durationSeconds * width;
+        const right = phrase.endSeconds / analysis.song.durationSeconds * width;
+        context.globalAlpha = phrase.id === currentPhrase?.id ? 0.22 : 0.1;
+        context.fillStyle = structureColor(phrase.familyId);
+        context.fillRect(left, 0, Math.max(ratio, right - left), height);
+        if (right - left >= 34 * ratio) {
+          context.globalAlpha = 0.72;
+          context.fillStyle = structureColor(phrase.familyId);
+          context.font = `${Math.max(8, 8 * ratio)}px ui-monospace, Consolas, monospace`;
+          context.fillText(phrase.familyId, left + 4 * ratio, 11 * ratio);
+        }
+      }
+      context.globalAlpha = 0.65;
+      context.strokeStyle = '#f4f7ff';
+      context.lineWidth = Math.max(1, ratio * 0.75);
+      for (const section of structure?.sections ?? []) {
+        const x = section.startSeconds / analysis.song.durationSeconds * width;
+        context.beginPath();
+        context.moveTo(x, 0);
+        context.lineTo(x, height);
+        context.stroke();
+      }
+      for (let groupIndex = 0; groupIndex < exactRepeatGroups.length; groupIndex += 1) {
+        const group = exactRepeatGroups[groupIndex];
+        context.globalAlpha = 0.9;
+        context.fillStyle = structureColor(`repeat-${group.id}`);
+        for (const occurrence of group.occurrences) {
+          const left = occurrence.startSeconds / analysis.song.durationSeconds * width;
+          const right = occurrence.endSeconds / analysis.song.durationSeconds * width;
+          context.fillRect(left, height - (groupIndex + 1) * 5 * ratio, Math.max(ratio, right - left), 3 * ratio);
+        }
+      }
+      context.globalAlpha = 1;
+    }
+
     const peaks = analysis.waveform.peaks;
     context.strokeStyle = '#2d374a';
     context.lineWidth = Math.max(1, ratio);
@@ -248,10 +407,16 @@ export function RhythmLabApp() {
       context.stroke();
     }
     context.globalAlpha = 1;
+    for (const item of activeFeedback) {
+      const markerTime = item.eventTimeSeconds ?? item.tapTimeSeconds;
+      const x = markerTime / analysis.song.durationSeconds * width;
+      context.fillStyle = item.verdict === 'keep' ? '#43e29c' : item.verdict === 'reject' ? '#ff627f' : '#ffc857';
+      context.fillRect(x - ratio * 2, height * 0.78, ratio * 4, height * 0.22);
+    }
     const playhead = currentTime / analysis.song.durationSeconds * width;
     context.fillStyle = '#fff';
     context.fillRect(playhead - ratio, 0, ratio * 2, height);
-  }, [activeTrack, analysis, currentTime, humanTrack, showReference]);
+  }, [activeFeedback, activeTrack, analysis, currentPhrase?.id, currentTime, exactRepeatGroups, humanTrack, showReference]);
 
   useEffect(() => {
     drawTimeline();
@@ -287,6 +452,84 @@ export function RhythmLabApp() {
     seek((event.clientX - rect.left) / rect.width * analysis.song.durationSeconds);
   };
 
+  const recordFeedback = useCallback((verdict: ReviewVerdict) => {
+    if (!analysis || !activeTrack) return;
+    const tapTime = audioRef.current?.currentTime ?? currentTime;
+    let eventTime: number | undefined;
+    if (verdict !== 'missing') {
+      const recent = activeTrack.events
+        .filter((event) => event.timeSeconds >= tapTime - 0.65 && event.timeSeconds <= tapTime + 0.08)
+        .sort((left, right) => Math.abs(left.timeSeconds - tapTime) - Math.abs(right.timeSeconds - tapTime))[0];
+      if (!recent) {
+        setFeedbackNotice('刚才附近没有这个方案的事件；如果是漏点，请点“这里漏了一个”。');
+        return;
+      }
+      eventTime = recent.timeSeconds;
+    }
+
+    const entry: ReviewFeedback = {
+      id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
+      verdict,
+      trackId: activeTrack.id,
+      trackName: activeTrack.name,
+      tapTimeSeconds: Number(tapTime.toFixed(5)),
+      ...(eventTime === undefined ? {} : { eventTimeSeconds: eventTime }),
+      createdAt: new Date().toISOString(),
+    };
+    setFeedback((items) => {
+      const withoutPreviousVerdict = eventTime === undefined ? items : items.filter((item) => !(
+        item.trackId === activeTrack.id
+        && item.eventTimeSeconds !== undefined
+        && Math.abs(item.eventTimeSeconds - eventTime) < 0.02
+      ));
+      return [...withoutPreviousVerdict, entry];
+    });
+    setFeedbackNotice(verdict === 'keep'
+      ? `已保留 ${formatTime(eventTime ?? tapTime)} 的事件`
+      : verdict === 'reject'
+        ? `已排除 ${formatTime(eventTime ?? tapTime)} 的事件`
+        : `已记录 ${formatTime(tapTime)} 的漏点`);
+  }, [activeTrack, analysis, currentTime]);
+
+  const downloadFeedback = useCallback(() => {
+    if (!analysis || !feedback.length) return;
+    const payload = {
+      schemaVersion: 1,
+      kind: 'rhythm-human-review',
+      songId: 'slice-at-two',
+      songTitle: analysis.song.title,
+      generatedAt: new Date().toISOString(),
+      sourceAnalysisGeneratedAt: analysis.generatedAt ?? null,
+      feedback,
+    };
+    const url = URL.createObjectURL(new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'slice-at-two.review-feedback.json';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    setFeedbackNotice(`已导出 ${feedback.length} 条反馈；放入 data/annotations 后可重新训练。`);
+  }, [analysis, feedback]);
+
+  const importFeedback = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+    if (!file) return;
+    try {
+      const payload = JSON.parse(await file.text()) as { feedback?: ReviewFeedback[] };
+      if (!Array.isArray(payload.feedback)) throw new Error('文件中没有 feedback 数组');
+      const imported = payload.feedback.filter((item) => (
+        typeof item.id === 'string'
+        && ['keep', 'reject', 'missing'].includes(item.verdict)
+        && Number.isFinite(item.tapTimeSeconds)
+      ));
+      setFeedback(imported);
+      setFeedbackNotice(`已导入 ${imported.length} 条反馈。`);
+    } catch (error) {
+      setFeedbackNotice(`导入失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, []);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -302,6 +545,12 @@ export function RhythmLabApp() {
         seek(currentTime + 5);
       } else if (event.key.toLowerCase() === 'c') {
         setClickEnabled((value) => !value);
+      } else if (event.key.toLowerCase() === 'k') {
+        recordFeedback('keep');
+      } else if (event.key.toLowerCase() === 'x') {
+        recordFeedback('reject');
+      } else if (event.key.toLowerCase() === 'm') {
+        recordFeedback('missing');
       } else if (/^[1-9]$/.test(event.key) && analysis) {
         const track = analysis.tracks[Number(event.key) - 1];
         if (track) setActiveTrackId(track.id);
@@ -309,7 +558,7 @@ export function RhythmLabApp() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [analysis, currentTime, seek, togglePlayback]);
+  }, [analysis, currentTime, recordFeedback, seek, togglePlayback]);
 
   const nearbyEvents = useMemo(() => activeLevel?.events.filter((event) => (
     event.timeSeconds >= currentTime - 0.35 && event.timeSeconds <= currentTime + WINDOW_SECONDS
@@ -333,7 +582,7 @@ export function RhythmLabApp() {
           <h1>节奏算法试听室</h1>
           <span>听同一段音乐，切换算法，直接感受障碍会在什么时候抵达。</span>
         </div>
-        <nav><a href="/beat-marker.html">重新标注</a><a href="/">返回游戏</a></nav>
+        <nav><a href="/pattern-lab.html">画谱面想法</a><a href="/beat-marker.html">重新标注</a><a href="/">返回游戏</a></nav>
       </header>
 
       <section className="lab-model-strip" aria-label="模型运行状态">
@@ -396,7 +645,39 @@ export function RhythmLabApp() {
           <div className="lab-legend">
             <span><i style={{ background: activeTrack.color }} />{activeTrack.name}</span>
             {showReference && activeTrack.id !== 'human-reference' && <span><i className="is-reference" />人工标注参考</span>}
+            {analysis.musicalStructure?.analysis?.available !== false && <span><i className="is-section" />白线：结构换段 · 色块：重复乐句家族</span>}
           </div>
+
+          {analysis.musicalStructure?.phrases.length ? (
+            <div className="lab-structure-strip" aria-label="音乐结构与重复乐句">
+              {analysis.musicalStructure.phrases.map((phrase) => (
+                <button
+                  key={phrase.id}
+                  type="button"
+                  className={phrase.id === currentPhrase?.id ? 'is-current' : ''}
+                  style={{ '--phrase-color': structureColor(phrase.familyId), flexGrow: phrase.barCount } as CSSProperties}
+                  title={`${phrase.familyId} · ${phrase.barCount} 小节 · ${formatTime(phrase.startSeconds)}`}
+                  onClick={() => seek(phrase.startSeconds)}
+                >
+                  <b>{phrase.familyId}</b><small>{phrase.barCount} 小节</small>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {exactRepeatGroups.length ? (
+            <div className="lab-repeat-groups" aria-label="精确重复旋律">
+              {exactRepeatGroups.map((group) => (
+                <div key={group.id} style={{ '--repeat-color': structureColor(`repeat-${group.id}`) } as CSSProperties}>
+                  <strong>{group.id} 重复句</strong>
+                  <span>{group.occurrences.map((occurrence, index) => (
+                    <button key={occurrence.id} type="button" onClick={() => seek(occurrence.startSeconds)}>
+                      {index + 1} · {formatTime(occurrence.startSeconds)}
+                    </button>
+                  ))}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           <div className="lab-controls">
             <button type="button" onClick={() => seek(currentTime - 5)}>−5s</button>
@@ -410,6 +691,31 @@ export function RhythmLabApp() {
             <span>接下来</span>
             {nextEvents.map((event) => <button key={event.timeSeconds} type="button" onClick={() => seek(event.timeSeconds - 0.5)}>{formatTime(event.timeSeconds)}</button>)}
           </div>
+
+          <section className="lab-feedback" aria-label="人工复核反馈">
+            <div className="lab-feedback-heading">
+              <div><strong>边听边纠正</strong><span>评价刚听到的算法点，或补记一个漏点</span></div>
+              <b>{feedback.length} 条已保存</b>
+            </div>
+            <div className="lab-feedback-actions">
+              <button type="button" className="is-keep" onClick={() => recordFeedback('keep')}>✓ 保留刚才的点 <kbd>K</kbd></button>
+              <button type="button" className="is-reject" onClick={() => recordFeedback('reject')}>× 刚才不该有 <kbd>X</kbd></button>
+              <button type="button" className="is-missing" onClick={() => recordFeedback('missing')}>＋ 这里漏了一个 <kbd>M</kbd></button>
+            </div>
+            <div className="lab-feedback-status" aria-live="polite"><span>{feedbackNotice}</span><small>当前方案已有 {activeFeedback.length} 条</small></div>
+            <div className="lab-feedback-tools">
+              <button type="button" disabled={!feedback.length} onClick={() => setFeedback((items) => items.slice(0, -1))}>撤销上一条</button>
+              <button type="button" onClick={() => feedbackInputRef.current?.click()}>导入反馈</button>
+              <button type="button" disabled={!feedback.length} onClick={downloadFeedback}>导出训练文件</button>
+              <button type="button" disabled={!feedback.length} onClick={() => {
+                if (window.confirm(`确定清空这 ${feedback.length} 条反馈吗？`)) {
+                  setFeedback([]);
+                  setFeedbackNotice('反馈已清空。');
+                }
+              }}>清空</button>
+              <input ref={feedbackInputRef} type="file" accept="application/json,.json" hidden onChange={(event) => void importFeedback(event)} />
+            </div>
+          </section>
         </section>
 
         <aside className="lab-inspector">
@@ -432,17 +738,35 @@ export function RhythmLabApp() {
           <div className="lab-diagnostic good">
             <b>{analysis.labels.markersWithoutCandidateWithin150ms.length}</b><span>个点击附近完全没有音频候选</span>
           </div>
+          <div className="lab-diagnostic review">
+            <b>{feedback.length}</b><span>条试听复核保存在本机，可导出加入下一轮训练</span>
+          </div>
+
+          {analysis.musicalStructure?.analysis?.available !== false && currentPhrase ? (
+            <div className="lab-structure-inspector">
+              <span>当前音乐结构</span>
+              <strong style={{ color: structureColor(currentPhrase.familyId) }}>{currentPhrase.familyId} · {currentPhrase.barCount} 小节</strong>
+              <p>{currentSection ? `位于结构段 ${currentSection.id}；` : ''}相同家族会复用同一套核心障碍路线。</p>
+              <div>
+                {siblingPhrases.map((phrase, index) => (
+                  <button key={phrase.id} type="button" onClick={() => seek(phrase.startSeconds)}>
+                    {index + 1} · {formatTime(phrase.startSeconds)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <div className="lab-recommendation">
             <span>当前默认</span>
-            <strong>偏好融合</strong>
-            <p>它只负责从现成模型事件中选择；不会移动事件，也不会补成等间隔节拍。</p>
+            <strong>{primaryTrack?.name ?? 'Beat This!'}</strong>
+            <p>这是你试听后选择的主方案。它使用模型识别到的实际拍点峰值，不会补成固定 BPM 网格。</p>
           </div>
         </aside>
       </div>
 
       <footer className="lab-footer">
-        <span><kbd>Space</kbd> 播放 / 暂停</span><span><kbd>1–6</kbd> 切换方案</span><span><kbd>← →</kbd> 前后 5 秒</span><span><kbd>C</kbd> 提示音</span>
+        <span><kbd>Space</kbd> 播放 / 暂停</span><span><kbd>1–6</kbd> 切换方案</span><span><kbd>← →</kbd> 前后 5 秒</span><span><kbd>K / X / M</kbd> 保留 / 排除 / 漏点</span><span><kbd>C</kbd> 提示音</span>
       </footer>
     </main>
   );

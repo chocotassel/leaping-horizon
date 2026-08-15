@@ -25,9 +25,12 @@ import librosa
 import numpy as np
 import soundfile as sf
 from sklearn.linear_model import LogisticRegression
+from sklearn.cluster import AgglomerativeClustering
+from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.model_selection import GroupKFold
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+from scipy.sparse import diags
 
 
 SAMPLE_RATE = 22_050
@@ -36,6 +39,7 @@ N_FFT = 1_024
 MIN_OUTPUT_GAP_SECONDS = 0.12
 TRAINING_MATCH_SECONDS = 0.12
 SOURCE_MATCH_SECONDS = 0.09
+REVIEW_MATCH_SECONDS = 0.18
 COLORS = {
     "human-reference": "#f4f7ff",
     "legacy-grid": "#7c879c",
@@ -44,6 +48,13 @@ COLORS = {
     "beat-this": "#ffc857",
     "preference-fusion": "#ff4f9a",
 }
+
+STRUCTURE_BARS_PER_PHRASE = 8
+STRUCTURE_OVERLAP_STRIDE_BARS = 4
+STRUCTURE_SAME_FAMILY_SIMILARITY = 0.84
+STRUCTURE_RELATED_VARIANT_SIMILARITY = 0.78
+STRUCTURE_OVERLAP_EXACT_SIMILARITY = 0.88
+STRUCTURE_OVERLAP_RELATED_SIMILARITY = 0.82
 
 
 @dataclass(frozen=True)
@@ -80,6 +91,20 @@ def load_labels(path: Path) -> list[float]:
     else:
         raw = [marker.get("timeSeconds") for marker in payload.get("markers", [])]
     return sorted(float(value) for value in raw if isinstance(value, (int, float)) and math.isfinite(value))
+
+
+def load_review_feedback(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    feedback = payload.get("feedback", [])
+    if not isinstance(feedback, list):
+        raise ValueError(f"Feedback file must contain an array: {path}")
+    return [
+        item
+        for item in feedback
+        if isinstance(item, dict) and item.get("verdict") in {"keep", "reject", "missing"}
+    ]
 
 
 def load_legacy_times(path: Path) -> list[float]:
@@ -292,6 +317,683 @@ def run_beat_this(wav_path: Path) -> tuple[list[DetectorEvent], list[DetectorEve
         return [], [], metadata
 
 
+def _safe_cosine_matrix(vectors: Sequence[np.ndarray]) -> np.ndarray:
+    """Return a finite cosine matrix, including sensible zero-vector diagonals."""
+    if not vectors:
+        return np.empty((0, 0), dtype=np.float64)
+    matrix = np.asarray(vectors, dtype=np.float64)
+    matrix = np.nan_to_num(matrix, nan=0.0, posinf=0.0, neginf=0.0)
+    similarities = cosine_similarity(matrix)
+    similarities = np.clip(np.nan_to_num(similarities, nan=0.0), -1.0, 1.0)
+    np.fill_diagonal(similarities, 1.0)
+    return similarities
+
+
+def _temporal_means(
+    feature: np.ndarray,
+    frame_times: np.ndarray,
+    start_time: float,
+    end_time: float,
+    bin_count: int,
+) -> np.ndarray:
+    """Average frame features into time-relative bins without moving any event."""
+    feature = np.asarray(feature, dtype=np.float64)
+    if feature.ndim == 1:
+        feature = feature[np.newaxis, :]
+    boundaries = np.linspace(start_time, end_time, bin_count + 1)
+    result = np.zeros((bin_count, feature.shape[0]), dtype=np.float64)
+    for bin_index in range(bin_count):
+        left = int(np.searchsorted(frame_times, boundaries[bin_index], side="left"))
+        right = int(np.searchsorted(frame_times, boundaries[bin_index + 1], side="left"))
+        left = min(max(left, 0), feature.shape[1] - 1)
+        right = min(max(right, left + 1), feature.shape[1])
+        result[bin_index] = np.mean(feature[:, left:right], axis=1)
+    return np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def _row_l2_normalize(values: np.ndarray) -> np.ndarray:
+    values = np.asarray(values, dtype=np.float64)
+    norms = np.linalg.norm(values, axis=1, keepdims=True)
+    return values / np.maximum(norms, 1e-9)
+
+
+def _robust_feature_scale(values: np.ndarray) -> np.ndarray:
+    """Feature-wise robust scaling used only for similarity, never for timing."""
+    values = np.asarray(values, dtype=np.float64)
+    median = np.median(values, axis=0, keepdims=True)
+    lower = np.percentile(values, 25, axis=0, keepdims=True)
+    upper = np.percentile(values, 75, axis=0, keepdims=True)
+    return np.clip((values - median) / np.maximum(upper - lower, 1e-6), -4.0, 4.0)
+
+
+def _timeline_from_beat_this(
+    beat_events: Sequence[DetectorEvent],
+    downbeat_events: Sequence[DetectorEvent],
+    duration: float,
+) -> tuple[list[dict], list[dict], int]:
+    beat_times = sorted({float(event.time) for event in beat_events if 0 <= event.time <= duration})
+    downbeat_times = sorted({float(event.time) for event in downbeat_events if 0 <= event.time <= duration})
+    if len(downbeat_times) < 2:
+        return [], [], 4
+
+    downbeat_intervals = np.diff(downbeat_times)
+    typical_bar_duration = float(np.median(downbeat_intervals))
+    bar_ends = downbeat_times[1:] + [min(duration, downbeat_times[-1] + typical_bar_duration)]
+
+    provisional_assignments: list[list[int]] = [[] for _ in downbeat_times]
+    beat_records: list[dict] = []
+    for beat_index, beat_time in enumerate(beat_times):
+        # A detector peak a few milliseconds before its matching downbeat still
+        # belongs to the following bar. This is an association tolerance only;
+        # the original time is kept verbatim in the output.
+        bar_index = int(np.searchsorted(downbeat_times, beat_time + 0.04, side="right") - 1)
+        if bar_index < 0 or bar_index >= len(downbeat_times) or beat_time >= bar_ends[bar_index] + 0.04:
+            bar_index_or_none: int | None = None
+        else:
+            bar_index_or_none = bar_index
+            provisional_assignments[bar_index].append(beat_index)
+        is_downbeat = any(abs(beat_time - downbeat) <= 0.04 for downbeat in downbeat_times)
+        beat_records.append({
+            "index": beat_index,
+            "timeSeconds": round_number(beat_time),
+            "isDownbeat": is_downbeat,
+            "barIndex": bar_index_or_none,
+            "beatInBar": None,
+        })
+
+    complete_counts = [
+        len(indices)
+        for indices, end_time in zip(provisional_assignments[:-1], bar_ends[:-1])
+        if indices and end_time <= duration
+    ]
+    if complete_counts:
+        counts, frequencies = np.unique(complete_counts, return_counts=True)
+        beats_per_bar = int(counts[int(np.argmax(frequencies))])
+        beats_per_bar = min(max(beats_per_bar, 2), 12)
+    else:
+        beats_per_bar = 4
+
+    bars: list[dict] = []
+    for bar_index, (start_time, end_time, beat_indices) in enumerate(
+        zip(downbeat_times, bar_ends, provisional_assignments)
+    ):
+        ordered = sorted(beat_indices, key=lambda index: beat_times[index])
+        for beat_in_bar, beat_index in enumerate(ordered, start=1):
+            beat_records[beat_index]["beatInBar"] = beat_in_bar
+        bars.append({
+            "index": bar_index,
+            "startSeconds": round_number(start_time),
+            "endSeconds": round_number(end_time),
+            "downbeatTimeSeconds": round_number(start_time),
+            "beatIndices": ordered,
+            "beatCount": len(ordered),
+        })
+    return beat_records, bars, beats_per_bar
+
+
+def _agglomerative_labels(
+    similarity: np.ndarray,
+    threshold: float,
+    linkage: str = "average",
+) -> np.ndarray:
+    count = similarity.shape[0]
+    if count <= 1:
+        return np.zeros(count, dtype=np.int32)
+    distance = np.clip(1.0 - similarity, 0.0, 2.0)
+    np.fill_diagonal(distance, 0.0)
+    model = AgglomerativeClustering(
+        n_clusters=None,
+        metric="precomputed",
+        linkage=linkage,
+        distance_threshold=1.0 - threshold,
+    )
+    return model.fit_predict(distance)
+
+
+def _family_name(index: int) -> str:
+    # A..Z, AA..AZ is ample for song-scale structural units.
+    name = ""
+    value = index
+    while True:
+        name = chr(ord("A") + value % 26) + name
+        value = value // 26 - 1
+        if value < 0:
+            return name
+
+
+def _assign_phrase_families(
+    phrases: list[dict],
+    combined_similarity: np.ndarray,
+    same_threshold: float,
+    related_threshold: float,
+    family_prefix: str = "F",
+    linkage: str = "average",
+) -> tuple[list[dict], list[dict]]:
+    if not phrases:
+        return [], []
+    labels = _agglomerative_labels(combined_similarity, same_threshold, linkage)
+    label_members: dict[int, list[int]] = {}
+    for phrase_index, label in enumerate(labels):
+        label_members.setdefault(int(label), []).append(phrase_index)
+
+    recurring_groups = sorted(
+        (members for members in label_members.values() if len(members) > 1),
+        key=lambda members: members[0],
+    )
+    singleton_groups = sorted(
+        (members for members in label_members.values() if len(members) == 1),
+        key=lambda members: members[0],
+    )
+    ordered_groups = recurring_groups + singleton_groups
+
+    families: list[dict] = []
+    phrase_to_family: dict[int, str] = {}
+    for family_index, members in enumerate(ordered_groups):
+        recurring = len(members) > 1
+        identifier = (
+            f"{family_prefix}{_family_name(family_index)}"
+            if recurring
+            else f"{family_prefix}U{members[0] + 1:02d}"
+        )
+        if recurring:
+            internal_means = [
+                float(np.mean([combined_similarity[index, other] for other in members if other != index]))
+                for index in members
+            ]
+            prototype = members[int(np.argmax(internal_means))]
+            confidence = float(np.mean([
+                combined_similarity[left, right]
+                for offset, left in enumerate(members)
+                for right in members[offset + 1 :]
+            ]))
+            kind = "repeated"
+        else:
+            prototype = members[0]
+            best_other = max(
+                (combined_similarity[prototype, other] for other in range(len(phrases)) if other != prototype),
+                default=0.0,
+            )
+            confidence = float(max(0.0, 1.0 - best_other))
+            kind = "unique-low-confidence"
+        for member in members:
+            phrase_to_family[member] = identifier
+            phrases[member]["familyId"] = identifier
+            phrases[member]["familyKind"] = kind
+            phrases[member]["familyConfidence"] = round_number(confidence, 4)
+            phrases[member]["similarityToPrototype"] = round_number(
+                combined_similarity[member, prototype], 4
+            )
+        families.append({
+            "id": identifier,
+            "kind": kind,
+            "prototypePhraseIndex": prototype,
+            "phraseIndices": members,
+            "phraseIds": [phrases[index]["id"] for index in members],
+            "occurrenceCount": len(members),
+            "confidence": round_number(confidence, 4),
+            "relatedFamilyIds": [],
+        })
+
+    family_by_id = {family["id"]: family for family in families}
+    links: list[dict] = []
+    for left in range(len(phrases)):
+        for right in range(left + 1, len(phrases)):
+            similarity = float(combined_similarity[left, right])
+            left_family = phrase_to_family[left]
+            right_family = phrase_to_family[right]
+            same_family = left_family == right_family and len(family_by_id[left_family]["phraseIndices"]) > 1
+            if same_family:
+                relationship = "same-family"
+            elif similarity >= related_threshold:
+                relationship = "related-variant"
+                if right_family not in family_by_id[left_family]["relatedFamilyIds"]:
+                    family_by_id[left_family]["relatedFamilyIds"].append(right_family)
+                if left_family not in family_by_id[right_family]["relatedFamilyIds"]:
+                    family_by_id[right_family]["relatedFamilyIds"].append(left_family)
+            else:
+                continue
+            links.append({
+                "sourcePhraseId": phrases[left]["id"],
+                "targetPhraseId": phrases[right]["id"],
+                "sourcePhraseIndex": left,
+                "targetPhraseIndex": right,
+                "relationship": relationship,
+                "similarity": round_number(similarity, 4),
+            })
+    return families, links
+
+
+def _phrase_features(
+    bars: Sequence[dict],
+    start_bar: int,
+    bar_count: int,
+    frame_times: np.ndarray,
+    chroma_cens: np.ndarray,
+    mfcc_scaled: np.ndarray,
+    onset_curve: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    chroma_parts: list[np.ndarray] = []
+    timbre_parts: list[np.ndarray] = []
+    rhythm_parts: list[np.ndarray] = []
+    for bar in bars[start_bar : start_bar + bar_count]:
+        start_time = float(bar["startSeconds"])
+        end_time = float(bar["endSeconds"])
+        chroma_bins = _temporal_means(chroma_cens, frame_times, start_time, end_time, 4)
+        chroma_parts.append(_row_l2_normalize(np.maximum(chroma_bins, 0.0)).reshape(-1))
+        timbre_bins = _temporal_means(mfcc_scaled, frame_times, start_time, end_time, 2)
+        timbre_parts.append(timbre_bins.reshape(-1))
+        onset_bins = _temporal_means(onset_curve, frame_times, start_time, end_time, 16)
+        rhythm_parts.append(_row_l2_normalize(np.maximum(onset_bins.T, 0.0)).reshape(-1))
+    return (
+        np.concatenate(chroma_parts),
+        np.concatenate(timbre_parts),
+        np.concatenate(rhythm_parts),
+    )
+
+
+def _make_phrase_units(
+    bars: list[dict],
+    frame_times: np.ndarray,
+    chroma_cens: np.ndarray,
+    mfcc_scaled: np.ndarray,
+    onset_curve: np.ndarray,
+    starts: Sequence[int],
+    prefix: str,
+) -> tuple[list[dict], dict[str, np.ndarray]]:
+    phrases: list[dict] = []
+    harmony_vectors: list[np.ndarray] = []
+    timbre_vectors: list[np.ndarray] = []
+    rhythm_vectors: list[np.ndarray] = []
+    for phrase_index, start_bar in enumerate(starts):
+        end_bar = start_bar + STRUCTURE_BARS_PER_PHRASE
+        if end_bar > len(bars):
+            continue
+        harmony, timbre, rhythm = _phrase_features(
+            bars,
+            start_bar,
+            STRUCTURE_BARS_PER_PHRASE,
+            frame_times,
+            chroma_cens,
+            mfcc_scaled,
+            onset_curve,
+        )
+        harmony_vectors.append(harmony)
+        timbre_vectors.append(timbre)
+        rhythm_vectors.append(rhythm)
+        intensities = [float(bar.get("intensity", 0.0)) for bar in bars[start_bar:end_bar]]
+        phrases.append({
+            "index": phrase_index,
+            "id": f"{prefix}-{phrase_index + 1:02d}",
+            "startSeconds": bars[start_bar]["startSeconds"],
+            "endSeconds": bars[end_bar - 1]["endSeconds"],
+            "startBarIndex": start_bar,
+            "endBarIndex": end_bar,
+            "barCount": STRUCTURE_BARS_PER_PHRASE,
+            "intensity": round_number(float(np.mean(intensities)), 4),
+        })
+    return phrases, {
+        "harmony": _safe_cosine_matrix(harmony_vectors),
+        # Centered MFCC vectors may have negative cosine; map it to [0, 1].
+        "timbre": (_safe_cosine_matrix(timbre_vectors) + 1.0) / 2.0,
+        "rhythm": _safe_cosine_matrix(rhythm_vectors),
+    }
+
+
+def _combined_phrase_similarity(components: dict[str, np.ndarray]) -> np.ndarray:
+    if not components["harmony"].size:
+        return np.empty((0, 0), dtype=np.float64)
+    combined = (
+        0.50 * components["harmony"]
+        + 0.20 * components["timbre"]
+        + 0.30 * components["rhythm"]
+    )
+    combined = np.clip(combined, 0.0, 1.0)
+    np.fill_diagonal(combined, 1.0)
+    return combined
+
+
+def _multi_scale_sections(
+    bars: list[dict],
+    bar_feature_matrix: np.ndarray,
+) -> tuple[list[dict], list[dict], dict[int, float]]:
+    bar_count = len(bars)
+    if bar_count < 4:
+        return [], [], {}
+    # Four-bar context suppresses one-bar fills and makes the clustering listen
+    # for musical sentences. Boundaries remain the original downbeat timestamps.
+    context_bars = 4 if bar_count >= 16 else 1
+    unit_starts = list(range(0, bar_count, context_bars))
+    context_features = []
+    for start_bar in unit_starts:
+        block = bar_feature_matrix[start_bar : min(start_bar + context_bars, bar_count)]
+        if len(block) < context_bars:
+            block = np.pad(block, ((0, context_bars - len(block)), (0, 0)), mode="edge")
+        context_features.append(block.reshape(-1))
+    scaled = _robust_feature_scale(np.asarray(context_features, dtype=np.float64))
+    unit_count = len(unit_starts)
+    connectivity = diags(
+        [np.ones(unit_count - 1), np.ones(unit_count - 1)],
+        offsets=[-1, 1],
+        shape=(unit_count, unit_count),
+        format="csr",
+    )
+    # Use phrase-scale resolutions. Very coarse 2/3-cluster cuts dominated the
+    # vote with a single giant middle section on this song and obscured the
+    # repeated 8/16-bar form that the chart generator needs to preserve.
+    cluster_counts = sorted({count for count in (6, 8, 10, 12, 14, 16, 18) if count < unit_count})
+    boundary_votes: dict[int, int] = {}
+    scales: list[dict] = []
+    for cluster_count in cluster_counts:
+        labels = AgglomerativeClustering(
+            n_clusters=cluster_count,
+            linkage="ward",
+            connectivity=connectivity,
+        ).fit_predict(scaled)
+        boundary_units = [index for index in range(1, unit_count) if labels[index] != labels[index - 1]]
+        boundaries = [unit_starts[index] for index in boundary_units]
+        for boundary in boundaries:
+            boundary_votes[boundary] = boundary_votes.get(boundary, 0) + 1
+        scales.append({
+            "clusterCount": cluster_count,
+            "contextBars": context_bars,
+            "boundaryBarIndices": boundaries,
+            "boundaryTimesSeconds": [bars[index]["startSeconds"] for index in boundaries],
+        })
+
+    support = {
+        boundary: votes / len(cluster_counts)
+        for boundary, votes in boundary_votes.items()
+    }
+    # Keep consensus boundaries, and suppress adjacent one-bar duplicates by
+    # retaining the higher-supported downbeat. No boundary time is synthesized.
+    minimum_support = 3 / max(1, len(cluster_counts))
+    candidates = sorted(
+        (boundary for boundary, value in support.items() if value >= minimum_support),
+        key=lambda boundary: (boundary, -support[boundary]),
+    )
+    selected: list[int] = []
+    for boundary in candidates:
+        if selected and boundary - selected[-1] < 3:
+            if support[boundary] > support[selected[-1]]:
+                selected[-1] = boundary
+            continue
+        selected.append(boundary)
+    # A low-confidence phrase boundary is preferable to a 20+ bar monolith:
+    # long regions erase musical-stage identity. Fallbacks are still detector
+    # downbeats and are marked with zero agglomerative support.
+    fallback_stride = STRUCTURE_BARS_PER_PHRASE
+    changed = True
+    while changed:
+        changed = False
+        current_edges = [0] + sorted(selected) + [bar_count]
+        for left, right in zip(current_edges, current_edges[1:]):
+            if right - left <= 16:
+                continue
+            fallback = min(
+                (
+                    boundary
+                    for boundary in range(fallback_stride, bar_count, fallback_stride)
+                    if left + 4 <= boundary <= right - 4
+                ),
+                key=lambda boundary: abs(boundary - (left + right) / 2),
+                default=None,
+            )
+            if fallback is not None and fallback not in selected:
+                selected.append(fallback)
+                selected.sort()
+                support.setdefault(fallback, 0.0)
+                changed = True
+                break
+    section_edges = [0] + selected + [bar_count]
+    sections: list[dict] = []
+    for section_index, (start_bar, end_bar) in enumerate(zip(section_edges, section_edges[1:])):
+        if end_bar <= start_bar:
+            continue
+        sections.append({
+            "index": section_index,
+            "id": f"S{section_index + 1:02d}",
+            "startSeconds": bars[start_bar]["startSeconds"],
+            "endSeconds": bars[end_bar - 1]["endSeconds"],
+            "startBarIndex": start_bar,
+            "endBarIndex": end_bar,
+            "barCount": end_bar - start_bar,
+            "boundarySupport": round_number(support.get(start_bar, 1.0), 3),
+            "intensity": round_number(
+                float(np.mean([bar.get("intensity", 0.0) for bar in bars[start_bar:end_bar]])),
+                4,
+            ),
+        })
+    return sections, scales, support
+
+
+def build_musical_structure(
+    y: np.ndarray,
+    harmonic: np.ndarray,
+    curves: dict[str, np.ndarray],
+    beat_events: Sequence[DetectorEvent],
+    downbeat_events: Sequence[DetectorEvent],
+    duration: float,
+) -> dict:
+    """Build bar/phrase identity on top of unmodified Beat This! timestamps."""
+    beat_records, bars, beats_per_bar = _timeline_from_beat_this(
+        beat_events,
+        downbeat_events,
+        duration,
+    )
+    base = {
+        "algorithm": "beat-this-downbeats+librosa-cens-mfcc-onset+agglomerative-v1",
+        "timingPolicy": (
+            "Beat and downbeat times are copied from Beat This! detector peaks. "
+            "All internal bar, phrase, and section boundaries reference those downbeats; "
+            "only the final open bar may end at the decoded song duration. "
+            "no BPM grid, snapping, interpolation, or event-time quantization is used."
+        ),
+        "beatsPerBar": beats_per_bar,
+        "barsPerPhrase": STRUCTURE_BARS_PER_PHRASE,
+        "beats": beat_records,
+        "downbeats": [
+            {
+                "index": bar["index"],
+                "timeSeconds": bar["downbeatTimeSeconds"],
+                "barIndex": bar["index"],
+            }
+            for bar in bars
+        ],
+        "bars": bars,
+        "sections": [],
+        "phrases": [],
+        "families": [],
+        "similarityMatrix": [],
+        "phraseLinks": [],
+        "overlappingPhrases": [],
+        "overlappingPhraseFamilies": [],
+        "analysis": {
+            "available": False,
+            "reason": "Beat This! did not provide enough downbeats for structure analysis.",
+        },
+    }
+    if len(bars) < STRUCTURE_BARS_PER_PHRASE or not beat_events:
+        return base
+
+    print("Analysing repeated musical structure on Beat This! downbeats...")
+    chroma_cens = librosa.feature.chroma_cens(
+        y=harmonic,
+        sr=SAMPLE_RATE,
+        hop_length=HOP_LENGTH,
+    )
+    mfcc = librosa.feature.mfcc(
+        y=y,
+        sr=SAMPLE_RATE,
+        n_mfcc=13,
+        n_fft=2_048,
+        hop_length=HOP_LENGTH,
+    )
+    mfcc_scaled = _robust_feature_scale(mfcc.T).T
+    onset_curve = np.asarray(curves.get("mix", np.zeros(mfcc.shape[1])), dtype=np.float64)
+    rms = librosa.feature.rms(y=y, frame_length=N_FFT, hop_length=HOP_LENGTH, center=True)[0]
+    frame_count = min(chroma_cens.shape[1], mfcc.shape[1], len(onset_curve), len(rms))
+    chroma_cens = chroma_cens[:, :frame_count]
+    mfcc_scaled = mfcc_scaled[:, :frame_count]
+    onset_curve = onset_curve[:frame_count]
+    rms = rms[:frame_count]
+    frame_times = librosa.frames_to_time(
+        np.arange(frame_count),
+        sr=SAMPLE_RATE,
+        hop_length=HOP_LENGTH,
+    )
+
+    raw_bar_features: list[np.ndarray] = []
+    raw_intensities: list[float] = []
+    for bar in bars:
+        start_time = float(bar["startSeconds"])
+        end_time = float(bar["endSeconds"])
+        chroma_mean = _temporal_means(chroma_cens, frame_times, start_time, end_time, 1).reshape(-1)
+        mfcc_bins = _temporal_means(mfcc_scaled, frame_times, start_time, end_time, 2)
+        onset_bins = _temporal_means(onset_curve, frame_times, start_time, end_time, 16).reshape(-1)
+        onset_bins = onset_bins / max(np.linalg.norm(onset_bins), 1e-9)
+        intensity = float(_temporal_means(rms, frame_times, start_time, end_time, 1)[0, 0])
+        raw_intensities.append(intensity)
+        raw_bar_features.append(np.concatenate([
+            chroma_mean / max(np.linalg.norm(chroma_mean), 1e-9),
+            mfcc_bins.reshape(-1),
+            onset_bins,
+            np.asarray([intensity]),
+        ]))
+    normalized_intensities = normalize_curve(np.asarray(raw_intensities))
+    for bar, intensity in zip(bars, normalized_intensities):
+        bar["intensity"] = round_number(intensity, 4)
+
+    sections, scales, boundary_support = _multi_scale_sections(
+        bars,
+        np.asarray(raw_bar_features, dtype=np.float64),
+    )
+    core_starts = list(range(0, len(bars) - STRUCTURE_BARS_PER_PHRASE + 1, STRUCTURE_BARS_PER_PHRASE))
+    phrases, components = _make_phrase_units(
+        bars,
+        frame_times,
+        chroma_cens,
+        mfcc_scaled,
+        onset_curve,
+        core_starts,
+        "phrase",
+    )
+    combined = _combined_phrase_similarity(components)
+    families, core_links = _assign_phrase_families(
+        phrases,
+        combined,
+        STRUCTURE_SAME_FAMILY_SIMILARITY,
+        STRUCTURE_RELATED_VARIANT_SIMILARITY,
+        "F",
+    )
+
+    section_by_bar: dict[int, int] = {}
+    for section in sections:
+        for bar_index in range(section["startBarIndex"], section["endBarIndex"]):
+            section_by_bar[bar_index] = section["index"]
+    for phrase in phrases:
+        phrase["sectionIndex"] = section_by_bar.get(phrase["startBarIndex"])
+
+    overlap_starts = list(range(
+        0,
+        len(bars) - STRUCTURE_BARS_PER_PHRASE + 1,
+        STRUCTURE_OVERLAP_STRIDE_BARS,
+    ))
+    overlapping_phrases, overlap_components = _make_phrase_units(
+        bars,
+        frame_times,
+        chroma_cens,
+        mfcc_scaled,
+        onset_curve,
+        overlap_starts,
+        "overlap",
+    )
+    overlap_combined = _combined_phrase_similarity(overlap_components)
+    # Complete linkage makes an overlap family safe for exact obstacle reuse:
+    # every pair in the family must clear the strict threshold. Softer matches
+    # remain related-variant links and never inherit the same family/template.
+    overlapping_families, overlap_links = _assign_phrase_families(
+        overlapping_phrases,
+        overlap_combined,
+        STRUCTURE_OVERLAP_EXACT_SIMILARITY,
+        STRUCTURE_OVERLAP_RELATED_SIMILARITY,
+        "OF",
+        "complete",
+    )
+    repeating_overlap_ids = {
+        family["id"]
+        for family in overlapping_families
+        if family["occurrenceCount"] > 1
+    }
+    overlapping_families = [
+        family for family in overlapping_families if family["id"] in repeating_overlap_ids
+    ]
+
+    def matrix_payload(matrix: np.ndarray) -> list[list[float]]:
+        return [[round_number(value, 4) for value in row] for row in matrix]
+
+    base.update({
+        "bars": bars,
+        "sections": sections,
+        "phrases": phrases,
+        "families": families,
+        "similarityMatrix": matrix_payload(combined),
+        "phraseLinks": [
+            {**link, "scope": "non-overlapping-8-bar"} for link in core_links
+        ] + [
+            {**link, "scope": "overlapping-8-bar-stride-4"} for link in overlap_links
+        ],
+        "overlappingPhrases": overlapping_phrases,
+        "overlappingPhraseFamilies": overlapping_families,
+        "analysis": {
+            "available": True,
+            "features": {
+                "harmony": "librosa chroma_cens, four local time bins per bar",
+                "timbre": "13 librosa MFCCs, robust-scaled, two local time bins per bar",
+                "microRhythm": "librosa onset strength, 16 locally normalized phase bins per bar",
+                "similarityWeights": {"harmony": 0.5, "timbre": 0.2, "microRhythm": 0.3},
+            },
+            "recurrence": {
+                "metric": "cosine affinity over locally normalized 8-bar descriptors",
+                "matrixField": "similarityMatrix",
+                "diagonalPolicy": "self-similarity is 1.0",
+            },
+            "familyThresholds": {
+                "sameFamilyMinimumSimilarity": STRUCTURE_SAME_FAMILY_SIMILARITY,
+                "relatedVariantMinimumSimilarity": STRUCTURE_RELATED_VARIANT_SIMILARITY,
+                "uniquePolicy": "Singletons are retained as unique-low-confidence instead of forced into a repeated family.",
+            },
+            "multiScaleAgglomerative": {
+                "method": "Ward agglomerative clustering with temporal-chain connectivity",
+                "scales": scales,
+                "boundarySupport": [
+                    {
+                        "barIndex": bar_index,
+                        "timeSeconds": bars[bar_index]["startSeconds"],
+                        "support": round_number(value, 3),
+                    }
+                    for bar_index, value in sorted(boundary_support.items())
+                ],
+                "sectionBoundaryMinimumSupport": round_number(3 / max(1, len(scales)), 3),
+                "maximumSectionBarsBeforeDownbeatFallback": 16,
+            },
+            "overlappingWindow": {
+                "barsPerWindow": STRUCTURE_BARS_PER_PHRASE,
+                "strideBars": STRUCTURE_OVERLAP_STRIDE_BARS,
+                "exactFamilyMinimumPairwiseSimilarity": STRUCTURE_OVERLAP_EXACT_SIMILARITY,
+                "relatedVariantMinimumSimilarity": STRUCTURE_OVERLAP_RELATED_SIMILARITY,
+                "familyLinkage": "complete",
+                "purpose": "Detect repeated melody identities that begin midway through a non-overlapping phrase unit.",
+            },
+            "similarityComponents": {
+                "harmony": matrix_payload(components["harmony"]),
+                "timbre": matrix_payload(components["timbre"]),
+                "microRhythm": matrix_payload(components["rhythm"]),
+            },
+        },
+    })
+    return base
+
+
 def nearest_event_value(time: float, events: Sequence[DetectorEvent], radius: float) -> float:
     best = 0.0
     for event in events:
@@ -379,6 +1081,7 @@ def train_preference_model(
     detectors: dict[str, list[DetectorEvent]],
     curves: dict[str, np.ndarray],
     labels: Sequence[float],
+    review_feedback: Sequence[dict],
 ) -> tuple[list[dict], dict]:
     detector_features = sorted(detectors)
     curve_features = ["rms_rise", "chroma_novelty"]
@@ -409,11 +1112,36 @@ def train_preference_model(
             continue
         positive_candidates.add(candidate_index)
         matched_labels.add(label_index)
-    targets = [1 if index in positive_candidates else 0 for index in range(len(candidates))]
+    # Explicit listening-room feedback overrides the original one-pass tap label
+    # for its nearest detector candidate. Later entries win, matching the UI's
+    # ability to change a verdict without silently duplicating it.
+    review_candidate_targets: dict[int, int] = {}
+    matched_review_count = 0
+    review_verdict_counts = {"keep": 0, "reject": 0, "missing": 0}
+    for item in review_feedback:
+        verdict = item.get("verdict")
+        review_verdict_counts[verdict] += 1
+        reference = item.get("eventTimeSeconds")
+        if not isinstance(reference, (int, float)) or not math.isfinite(reference):
+            reference = item.get("tapTimeSeconds")
+        if not isinstance(reference, (int, float)) or not math.isfinite(reference) or not candidates:
+            continue
+        candidate_index = min(range(len(candidates)), key=lambda index: abs(candidates[index]["time"] - reference))
+        if abs(candidates[candidate_index]["time"] - reference) <= REVIEW_MATCH_SECONDS:
+            review_candidate_targets[candidate_index] = 0 if verdict == "reject" else 1
+            matched_review_count += 1
+
+    targets = [
+        review_candidate_targets.get(index, 1 if index in positive_candidates else 0)
+        for index in range(len(candidates))
+    ]
     for index, candidate in enumerate(candidates):
         distance = min((abs(candidate["time"] - label) for label in labels), default=math.inf)
         is_positive = index in positive_candidates
-        weights.append(1.8 if is_positive else (1.25 if distance <= 0.75 else 0.7))
+        if index in review_candidate_targets:
+            weights.append(4.0)
+        else:
+            weights.append(1.8 if is_positive else (1.25 if distance <= 0.75 else 0.7))
 
     x = np.asarray(matrix, dtype=np.float64)
     y = np.asarray(targets, dtype=np.int32)
@@ -514,6 +1242,9 @@ def train_preference_model(
         "candidateCount": len(candidates),
         "positiveCandidateCount": int(np.sum(y)),
         "matchedHumanLabelCount": len(matched_labels),
+        "reviewFeedbackCount": len(review_feedback),
+        "matchedReviewFeedbackCount": matched_review_count,
+        "reviewVerdictCounts": review_verdict_counts,
         "blockedCrossValidationFolds": fold_count,
         "oofSelectedThreshold": round_number(best_threshold, 3),
         "refitCalibratedThreshold": round_number(final_threshold, 3),
@@ -576,6 +1307,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--audio", type=Path, default=ROOT / "public/audio/slice-at-two.mp3")
     parser.add_argument("--labels", type=Path, default=ROOT / "data/annotations/slice-at-two.human-beats.json")
     parser.add_argument(
+        "--feedback",
+        type=Path,
+        default=ROOT / "data/annotations/slice-at-two.review-feedback.json",
+        help="Optional feedback exported by the rhythm listening room.",
+    )
+    parser.add_argument(
         "--legacy-level",
         type=Path,
         default=ROOT / "data/baselines/slice-at-two.legacy-times.json",
@@ -590,6 +1327,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     labels = load_labels(args.labels)
+    review_feedback = load_review_feedback(args.feedback)
     legacy_times = load_legacy_times(args.legacy_level)
     print(f"Loading {args.audio}...")
     y, sample_rate = librosa.load(args.audio, sr=SAMPLE_RATE, mono=True)
@@ -632,8 +1370,17 @@ def main() -> None:
             if downbeat_events:
                 detectors["downbeat"] = downbeat_events
 
+    musical_structure = build_musical_structure(
+        y,
+        harmonic,
+        curves,
+        beat_events,
+        downbeat_events,
+        duration,
+    )
+
     candidates = merge_candidates(detectors)
-    fusion, training = train_preference_model(candidates, detectors, curves, labels)
+    fusion, training = train_preference_model(candidates, detectors, curves, labels, review_feedback)
 
     librosa_selected = nms_detector_events(librosa_display_events, MIN_OUTPUT_GAP_SECONDS)
     basic_pitch_display_events = nms_detector_events(
@@ -681,17 +1428,33 @@ def main() -> None:
             labels,
         ))
     if beat_events:
+        structure_beats_by_time = {
+            float(beat["timeSeconds"]): beat
+            for beat in musical_structure.get("beats", [])
+        }
+        beat_track_payload = []
+        for event in beat_events:
+            payload = event_payload(event.time, event.score, [event.source])
+            structure_beat = structure_beats_by_time.get(float(payload["timeSeconds"]))
+            if structure_beat:
+                payload.update({
+                    "isDownbeat": structure_beat["isDownbeat"],
+                    "barIndex": structure_beat["barIndex"],
+                    "beatInBar": structure_beat["beatInBar"],
+                })
+            beat_track_payload.append(payload)
         tracks.append(create_track(
             "beat-this",
-            "Beat This! 拍点",
-            "神经网络识别的 beat/downbeat，仅作为节拍基准，不代表全部障碍事件。",
-            [event_payload(event.time, event.score, [event.source]) for event in beat_events],
+            "Beat This!（当前首选）",
+            "你试听后选定的主方案；直接使用神经网络识别到的 beat/downbeat 峰值，不构造 BPM 网格。",
+            beat_track_payload,
             labels,
+            kind="recommended",
         ))
     tracks.append(create_track(
         "preference-fusion",
-        "偏好融合（推荐）",
-        "标准正则化分类器从成熟检测器候选中选择更像你标注的音乐事件；时间仍取原始音频峰。",
+        "人工标注偏好融合",
+        "正则化分类器从成熟检测器候选中选择更像第一遍手标的事件；保留作为对照方案。",
         [
             event_payload(
                 candidate["time"],
@@ -701,7 +1464,7 @@ def main() -> None:
             for candidate in fusion
         ],
         labels,
-        kind="recommended",
+        kind="recommended" if not beat_events else "algorithm",
     ))
 
     all_candidate_times = [candidate["time"] for candidate in candidates]
@@ -728,7 +1491,7 @@ def main() -> None:
             "durationSeconds": round_number(duration, 3),
             "sampleRate": SAMPLE_RATE,
         },
-        "primaryTrackId": "preference-fusion",
+        "primaryTrackId": "beat-this" if beat_events else "preference-fusion",
         "waveform": {
             "bucketCount": 1_600,
             "peaks": waveform_peaks(y),
@@ -739,8 +1502,15 @@ def main() -> None:
             "possibleDuplicateMarkerIndices": duplicate_indices,
             "markersWithoutCandidateWithin150ms": unanchored_indices,
             "policy": "Possible mistakes are flagged but never silently deleted.",
+            "reviewFeedbackCount": len(review_feedback),
+            "reviewFeedbackSource": (
+                str(args.feedback.relative_to(ROOT)).replace("\\", "/")
+                if review_feedback and args.feedback.is_relative_to(ROOT)
+                else (str(args.feedback) if review_feedback else None)
+            ),
         },
         "models": model_metadata,
+        "musicalStructure": musical_structure,
         "preferenceModel": training,
         "tracks": tracks,
     }

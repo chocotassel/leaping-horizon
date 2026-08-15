@@ -28,6 +28,8 @@ export class GameController {
   private combo = 0;
   private maxCombo = 0;
   private hits = 0;
+  private dodges = 0;
+  private readonly resolvedDodgeEvents: boolean[];
   private frameId = 0;
   private finished = false;
   private dead = false;
@@ -43,6 +45,7 @@ export class GameController {
     this.states = level.events.map((event) => event.obstacles.map((type) => (
       type === ObstacleType.Empty ? null : 'pending'
     )) as ObstacleStateRow);
+    this.resolvedDodgeEvents = level.events.map(() => false);
   }
 
   start(): void {
@@ -132,6 +135,14 @@ export class GameController {
           this.scene.flashMiss(time);
         }
       }
+      if (secondsUntilBeat <= 0 && event.kind === 'dodge' && !this.resolvedDodgeEvents[eventIndex]) {
+        this.resolvedDodgeEvents[eventIndex] = true;
+        this.dodges += 1;
+        this.combo += 1;
+        this.maxCombo = Math.max(this.maxCombo, this.combo);
+        this.score += 70 + Math.min(120, this.combo * 2);
+        this.scene.burst(this.scene.getPlayerX());
+      }
     }
   }
 
@@ -146,6 +157,8 @@ export class GameController {
         (total, event) => total + event.obstacles.filter((type) => type === ObstacleType.Breakable).length,
         0,
       ),
+      dodges: this.dodges,
+      totalDodges: this.level.events.filter((event) => event.kind === 'dodge').length,
     });
   }
 

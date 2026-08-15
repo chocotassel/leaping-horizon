@@ -16,14 +16,18 @@ import {
   APPROACH_SECONDS,
   getObstacleZ,
   getRingApproach,
+  moveTowards,
   OBSTACLE_SPAWN_Z,
+  PLAYER_MAX_LATERAL_SPEED,
   PLAYER_Z,
   shouldRenderObstacle,
 } from './physics';
 
 const NORMAL_BANDS_PER_OBSTACLE = 5;
 const SPIKES_PER_OBSTACLE = 5;
-const PARTICLE_POOL_SIZE = 96;
+const HIT_PARTICLES_PER_BURST = 22;
+const HIT_PARTICLE_LIFETIME_SECONDS = 0.72;
+const MIN_PARTICLE_POOL_SIZE = 96;
 const FLOATING_CUBE_COUNT = 80;
 const OUTER_SPECTRUM_COUNT = 112;
 const INNER_SPECTRUM_COUNT = 88;
@@ -202,12 +206,16 @@ export class GameScene {
       obstaclePoolSize * SPIKES_PER_OBSTACLE,
     );
 
+    const particlePoolSize = Math.max(
+      MIN_PARTICLE_POOL_SIZE,
+      getMaxEventRowsInWindow(level, HIT_PARTICLE_LIFETIME_SECONDS) * HIT_PARTICLES_PER_BURST,
+    );
     this.particles = this.createInstances(
       new THREE.BoxGeometry(0.24, 0.09, 0.2),
       this.createMetalMaterial({ metalness: 0.9, roughness: 0.25, emissiveIntensity: 0.8 }),
-      PARTICLE_POOL_SIZE,
+      particlePoolSize,
     );
-    this.particleData = Array.from({ length: PARTICLE_POOL_SIZE }, () => ({
+    this.particleData = Array.from({ length: particlePoolSize }, () => ({
       active: false,
       x: 0,
       y: 0,
@@ -695,7 +703,7 @@ export class GameScene {
     const dt = Math.min(this.clock.getDelta(), 0.05);
     if (!this.crashed) {
       const oldX = this.playerX;
-      this.playerX += (this.targetPlayerX - this.playerX) * Math.min(1, dt * 17);
+      this.playerX = moveTowards(this.playerX, this.targetPlayerX, PLAYER_MAX_LATERAL_SPEED * dt);
       this.playerVelocity = (this.playerX - oldX) / Math.max(dt, 0.001);
       this.player.position.x = this.playerX;
       this.player.position.y = 0.32 + Math.sin(time * 8) * 0.025;
@@ -931,7 +939,7 @@ export class GameScene {
   }
 
   burst(x: number, hazard = false): void {
-    const count = hazard ? 48 : 22;
+    const count = hazard ? 48 : HIT_PARTICLES_PER_BURST;
     if (!hazard) this.playerSpinSpeed = PLAYER_HIT_SPIN_SPEED;
     this.hitImpulse = hazard ? 0.2 : 0.075;
     let created = 0;

@@ -2,6 +2,8 @@ export const PLAYER_Z = -2.4;
 export const APPROACH_SECONDS = 2.5;
 export const OBSTACLE_SPAWN_Z = -64;
 export const MIN_RING_APPROACH_SECONDS = 2;
+/** Hard cap used by both playability validation and the runtime movement model. */
+export const PLAYER_MAX_LATERAL_SPEED = 8;
 
 const HORIZONTAL_COLLISION_DISTANCE = (0.9 + 1) / 2;
 
@@ -12,6 +14,12 @@ export function getObstacleZ(secondsUntilBeat: number): number {
 
 export function overlapsPlayer(playerX: number, obstacleX: number): boolean {
   return Math.abs(playerX - obstacleX) < HORIZONTAL_COLLISION_DISTANCE;
+}
+
+export function moveTowards(current: number, target: number, maximumDelta: number): number {
+  const delta = target - current;
+  if (Math.abs(delta) <= maximumDelta) return target;
+  return current + Math.sign(delta) * Math.max(0, maximumDelta);
 }
 
 export function shouldRenderObstacle(state: 'pending' | 'hit' | 'miss' | null): boolean {

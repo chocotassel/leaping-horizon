@@ -33,15 +33,24 @@ export function HomeScreen({ level, onStart }: HomeScreenProps) {
           <strong>{level.song.title}</strong>
           <span>{level.song.artist}</span>
           <div className="song-meta"><b>{level.song.bpm}</b> BPM <i /> {durationLabel}</div>
-          <small className="song-algorithm">{String(level.generation.displayName ?? level.generation.algorithm)} · {level.generation.noteCount} 个事件</small>
+          <small className="song-algorithm">
+            {String(level.generation.displayName ?? level.generation.algorithm)} · {String(level.generation.eventCount ?? level.generation.noteCount)} 个动作
+          </small>
         </div>
+      </section>
+
+      <section className="flow-mode-label" aria-label="当前谱面模式">
+        <small>FLOW MODE</small><strong>心流谱面</strong><span>不分难度，根据音乐强度自然起伏</span>
       </section>
 
       <button className="primary-button" type="button" onClick={onStart}>
         <span className="play-icon">▶</span>
         开始航行
       </button>
-      <a className="rhythm-lab-link" href="/rhythm-lab.html">试听并比较生成算法</a>
+      <nav className="home-tool-links" aria-label="调试工具">
+        <a className="rhythm-lab-link" href="/rhythm-lab.html">试听节奏算法</a>
+        <a className="rhythm-lab-link" href="/pattern-lab.html">画出谱面想法</a>
+      </nav>
       <p className="touch-tip"><span>↔</span> 单指左右滑动操控</p>
     </main>
   );

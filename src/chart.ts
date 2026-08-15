@@ -1,5 +1,13 @@
 import rhythmLevelCollection from './levels/slice-at-two.levels.json';
-import { ObstacleType, type Level, type LevelEvent, type ObstacleRow } from './types';
+import {
+  DIFFICULTY_OPTIONS,
+  ObstacleType,
+  isDifficultyId,
+  type DifficultyId,
+  type Level,
+  type LevelEvent,
+  type ObstacleRow,
+} from './types';
 
 interface LegacyLevelV2 {
   id: string;
@@ -99,14 +107,26 @@ export function getMaxEventRowsInWindow(level: Level, windowSeconds: number): nu
 
 interface RhythmLevelCollection {
   primaryTrackId: string;
-  levels: Record<string, unknown>;
+  primaryDifficulty: DifficultyId;
+  levels: Record<DifficultyId, Record<string, unknown>>;
 }
 
 const collection = rhythmLevelCollection as RhythmLevelCollection;
-export const RHYTHM_LEVELS = Object.keys(collection.levels).reduce<Record<string, Level>>((levels, trackId) => {
-  levels[trackId] = normalizeLevel(collection.levels[trackId]);
-  return levels;
-}, {});
+export const RHYTHM_LEVELS_BY_DIFFICULTY = DIFFICULTY_OPTIONS.reduce<Record<DifficultyId, Record<string, Level>>>(
+  (difficultyLevels, difficulty) => {
+    difficultyLevels[difficulty.id] = Object.entries(collection.levels[difficulty.id]).reduce<Record<string, Level>>(
+      (levels, [trackId, level]) => {
+        levels[trackId] = normalizeLevel(level);
+        return levels;
+      },
+      {},
+    );
+    return difficultyLevels;
+  },
+  { flow: {} },
+);
+
+export const RHYTHM_LEVELS = RHYTHM_LEVELS_BY_DIFFICULTY[collection.primaryDifficulty];
 
 export const RHYTHM_LEVEL_OPTIONS = Object.keys(RHYTHM_LEVELS).map((trackId) => ({
   id: trackId,
@@ -114,10 +134,15 @@ export const RHYTHM_LEVEL_OPTIONS = Object.keys(RHYTHM_LEVELS).map((trackId) => 
   noteCount: RHYTHM_LEVELS[trackId].generation.noteCount,
 }));
 
-export function getLevelForAlgorithm(trackId: string | null | undefined): Level {
-  return trackId && RHYTHM_LEVELS[trackId]
-    ? RHYTHM_LEVELS[trackId]
-    : RHYTHM_LEVELS[collection.primaryTrackId];
+export function getLevelForAlgorithm(
+  trackId: string | null | undefined,
+  difficulty: DifficultyId | string | null | undefined = collection.primaryDifficulty,
+): Level {
+  const difficultyId = isDifficultyId(difficulty) ? difficulty : collection.primaryDifficulty;
+  const levels = RHYTHM_LEVELS_BY_DIFFICULTY[difficultyId];
+  return trackId && levels[trackId]
+    ? levels[trackId]
+    : levels[collection.primaryTrackId];
 }
 
-export const DEMO_LEVEL = getLevelForAlgorithm(collection.primaryTrackId);
+export const DEMO_LEVEL = getLevelForAlgorithm(collection.primaryTrackId, collection.primaryDifficulty);
