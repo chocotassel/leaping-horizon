@@ -2,7 +2,7 @@ export const PLAYER_Z = -2.4;
 export const APPROACH_SECONDS = 2.5;
 export const OBSTACLE_SPAWN_Z = -64;
 export const MIN_RING_APPROACH_SECONDS = 2;
-/** Hard cap used by both playability validation and the runtime movement model. */
+/** Runtime hard cap; level generation deliberately reserves a larger movement margin. */
 export const PLAYER_MAX_LATERAL_SPEED = 8;
 
 const HORIZONTAL_COLLISION_DISTANCE = (0.9 + 1) / 2;

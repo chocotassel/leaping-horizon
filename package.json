@@ -1,5 +1,5 @@
 {
-  "name": "neon-slice",
+  "name": "leaping-horizon",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "generate": "node scripts/generate-level.mjs",
     "preview": "vite preview --host 0.0.0.0",
-    "test:intent": "node --test scripts/rhythm/layout-intent.test.mjs",
+    "test:intent": "node --test scripts/rhythm/layout-intent.test.mjs scripts/rhythm/route-analysis.test.mjs scripts/rhythm/wide-sweep-planner.test.mjs",
     "test:level": "npm run test:intent && node scripts/level-check.mjs",
     "test:physics": "tsc src/game/physics.ts --ignoreConfig --target ES2020 --module ESNext --moduleResolution Bundler --outDir node_modules/.cache/leaping-horizon-physics-check --skipLibCheck && node scripts/physics-check.mjs",
     "typecheck": "tsc -b"

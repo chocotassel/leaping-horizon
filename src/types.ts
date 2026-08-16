@@ -26,10 +26,12 @@ export interface Song {
 
 export interface LevelEvent {
   timeSeconds: number;
+  /** A row can expose several Target Cells; any one satisfies the Choice Row. */
   obstacles: ObstacleRow;
   strength?: number;
   source?: string;
-  kind?: 'target' | 'dodge';
+  /** Choice Rows require a hit; Gate Rows require avoiding every Hazard Cell. */
+  kind: 'target' | 'dodge';
   pattern?: string;
   /** Role inside the spatial motif; empty template slots are intentionally not stored. */
   role?: string;
@@ -52,10 +54,15 @@ export interface LevelEvent {
   barInPhrase?: number;
   /** True for the first stored cue of a musical bar. */
   downbeatCue?: boolean;
+  /** Number of Target Cells offered by this row (zero for a Gate Row). */
+  choiceLaneCount?: number;
+  /** True when at least two displayed targets are valid full-combo decisions. */
+  routeBranch?: boolean;
 }
 
 export interface LevelGeneration {
   algorithm: string;
+  /** Number of Choice Rows, not the number of individual Target Cells. */
   noteCount: number;
   difficulty?: 'flow';
   confidence?: number;
@@ -86,7 +93,9 @@ export type ObstacleStateRow = [
 export interface GameResult {
   score: number;
   maxCombo: number;
+  /** Number of satisfied Choice Rows; multi-target rows count once. */
   hits: number;
+  /** Number of Choice Rows in the level; this is the accuracy denominator. */
   total: number;
   dodges: number;
   totalDodges: number;
