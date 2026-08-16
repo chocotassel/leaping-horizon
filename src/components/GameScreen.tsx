@@ -61,7 +61,11 @@ export function GameScreen({ level, onDeath, onFinish }: GameScreenProps) {
     controllerRef.current?.releasePointer(event.pointerId);
   };
 
-  const togglePause = async (event: React.PointerEvent<HTMLButtonElement>) => {
+  const stopGamePointer = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+  };
+
+  const togglePause = async (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     const next = await controllerRef.current?.togglePause();
     if (typeof next === 'boolean') setPaused(next);
@@ -81,28 +85,49 @@ export function GameScreen({ level, onDeath, onFinish }: GameScreenProps) {
       <header className="game-hud">
         <div className="score-block">
           <strong>{String(hud.score).padStart(6, '0')}</strong>
-          <span>SCORE</span>
+          <span>本次得分</span>
         </div>
-        <button className="pause-button" type="button" aria-label={paused ? '继续游戏' : '暂停游戏'} onPointerDown={togglePause}>
+        <div className={`combo-block ${hud.combo > 0 ? 'is-active' : ''}`}>
+          <span>COMBO</span>
+          <strong>{hud.combo}</strong>
+        </div>
+        <button
+          className="pause-button"
+          type="button"
+          aria-label={paused ? '继续游戏' : '暂停游戏'}
+          onPointerDown={stopGamePointer}
+          onClick={togglePause}
+        >
           {paused ? <span className="resume-icon">▶</span> : <><i /><i /></>}
         </button>
       </header>
 
-      <div className="star-progress" aria-hidden="true">
-        <div className="star-line"><i style={{ width: `${hud.progress * 100}%` }} /></div>
-        <div className="stars"><span>★</span><span>★</span><span>★</span><span>★</span><span>★</span></div>
-      </div>
+      <div className="game-beat-wave" aria-hidden="true"><i /><i /><i /><i /><i /><i /><i /></div>
 
-      <div className="progress-wrap">
-        <div className="progress-labels"><span>RUN</span><b>{Math.floor(hud.progress * 100)}%</b></div>
-        <div className="progress-track"><span style={{ width: `${hud.progress * 100}%` }} /></div>
+      <div
+        className="route-progress"
+        role="progressbar"
+        aria-label="航行进度"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.floor(hud.progress * 100)}
+      >
+        <div className="route-progress-copy">
+          <span>航行进度</span>
+          <strong>{Math.floor(hud.progress * 100)}%</strong>
+        </div>
+        <div className="route-progress-track">
+          <span style={{ width: `${hud.progress * 100}%` }} />
+          <i style={{ left: `${hud.progress * 100}%` }} />
+        </div>
       </div>
 
       {paused && (
         <div className="pause-overlay">
+          <div className="pause-orbit" aria-hidden="true"><i /><span>Ⅱ</span></div>
           <span>航行暂停</span>
           <strong>PAUSED</strong>
-          <button type="button" onPointerDown={togglePause}>继续航行</button>
+          <button type="button" onPointerDown={stopGamePointer} onClick={togglePause}>继续航行</button>
         </div>
       )}
 

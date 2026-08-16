@@ -7,21 +7,17 @@ interface StartScreenProps {
 export function StartScreen({ musicEnabled, onToggleMusic, onEnter }: StartScreenProps) {
   return (
     <main className="screen start-screen">
-      <div className="horizon-orbit" aria-hidden="true">
-        <i />
-        <i />
-        <i />
+      <div className="space-backdrop" aria-hidden="true">
+        <i className="start-scene-glow" />
       </div>
 
       <header className="start-brand">
-        <span>节奏飞行游戏</span>
-        <small>RHYTHM HORIZON</small>
+        <strong>跃动地平线</strong>
       </header>
 
       <section className="start-title">
-        <p>跟随声音起飞</p>
-        <h1>跃动<br /><strong>地平线</strong></h1>
-        <span>让节拍铺成航线，让每一次滑动都落在音乐里。</span>
+        <h1><span>跃动</span><span>地平线</span></h1>
+        <p><i aria-hidden="true" />跟随声音起飞</p>
       </section>
 
       <section className="start-actions" aria-label="开始游戏">
@@ -34,15 +30,21 @@ export function StartScreen({ musicEnabled, onToggleMusic, onEnter }: StartScree
           aria-pressed={musicEnabled}
           onClick={onToggleMusic}
         >
-          <span className="music-toggle-copy">
+          <span className="music-toggle-main">
+            <span className="music-control-symbol" aria-hidden="true">♪</span>
             <strong>{musicEnabled ? '音乐已开启' : '打开音乐'}</strong>
-            <small>{musicEnabled ? '节拍已经准备好' : '推荐佩戴耳机体验'}</small>
+            <span className="music-equalizer" aria-hidden="true">
+              <i /><i /><i /><i /><i /><i />
+            </span>
           </span>
-          <span className="music-equalizer" aria-hidden="true"><i /><i /><i /></span>
+          <span className="music-headphone-note">
+            <i aria-hidden="true" />
+            {musicEnabled ? '节拍已经准备好' : '推荐佩戴耳机体验'}
+          </span>
         </button>
-        <p className="music-guidance" role="status">
+        <p className="visually-hidden" role="status">
           {musicEnabled
-            ? '进入游戏后，音乐会与轨道同步播放。'
+            ? '滑动避开地刺；同排方块任选一个即可接上连击。'
             : '请先打开音乐，完整感受节拍与轨道的呼吸。'}
         </p>
       </section>

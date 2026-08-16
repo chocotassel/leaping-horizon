@@ -102,7 +102,7 @@ interface FloatingCube {
 type SceneColorRole = 'primary' | 'ringCore' | 'hazard';
 
 function getDecorativeMetalColor(index: number): number {
-  return index % 5 === 0 ? 0x35271f : index % 3 === 0 ? 0x211b18 : 0x171514;
+  return index % 5 === 0 ? 0x17324a : index % 3 === 0 ? 0x10243a : 0x09182b;
 }
 
 function colorToCss(color: number): string {
@@ -189,8 +189,8 @@ export class GameScene {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.02;
-    this.scene.background = new THREE.Color(0x080706);
-    this.scene.fog = new THREE.Fog(0x0d0a08, 105, 430);
+    this.scene.background = new THREE.Color(0x030712);
+    this.scene.fog = new THREE.Fog(0x071225, 105, 430);
     this.camera.position.set(0, CAMERA_Y, CAMERA_Z);
     this.camera.lookAt(0, 0, -14.9);
 
@@ -199,7 +199,7 @@ export class GameScene {
     this.scene.environment = this.environmentTexture;
     pmrem.dispose();
 
-    this.scene.add(new THREE.HemisphereLight(0xf4f4f4, 0x100c0a, 1.6));
+    this.scene.add(new THREE.HemisphereLight(0xeaf5ff, 0x020814, 1.6));
     const keyLight = new THREE.DirectionalLight(0xffffff, 3.4);
     keyLight.position.set(-4, 8, 7);
     this.scene.add(keyLight);
@@ -444,12 +444,12 @@ export class GameScene {
     context.shadowBlur = 8;
     context.font = "700 64px 'Arial Narrow', sans-serif";
     context.fillText('C O M B O', 320, 26);
-    context.shadowColor = 'rgba(255,75,155,0.45)';
+    context.shadowColor = 'rgba(77,219,255,0.38)';
     context.shadowBlur = 18;
     context.font = "700 230px 'Arial Narrow', sans-serif";
     context.fillText(`× ${combo}`, 320, 112, 580);
-    context.fillStyle = '#39c6ff';
-    context.shadowColor = 'rgba(57,198,255,0.55)';
+    context.fillStyle = '#4ddbff';
+    context.shadowColor = 'rgba(77,219,255,0.55)';
     context.shadowBlur = 8;
     context.font = "700 52px 'Arial Narrow', sans-serif";
     context.fillText(`S C O R E  ×${Math.min(15, Math.max(1, Math.floor(combo / 8) + 1))}`, 320, 404);
@@ -462,8 +462,8 @@ export class GameScene {
     context.clearRect(0, 0, 512, 256);
     context.textAlign = 'center';
     context.textBaseline = 'middle';
-    context.fillStyle = '#ff4b9b';
-    context.shadowColor = '#ff4b9b';
+    context.fillStyle = '#9ccbe0';
+    context.shadowColor = '#4ddbff';
     context.shadowBlur = 20;
     context.font = "italic 700 130px 'Arial Narrow', sans-serif";
     context.fillText('M I S S', 256, 128);

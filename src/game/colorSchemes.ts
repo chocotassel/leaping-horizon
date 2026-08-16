@@ -15,6 +15,18 @@ export interface SceneColorScheme {
 }
 
 export const SCENE_COLOR_SCHEMES = {
+  deepSpace: {
+    primary: 0x4ddbff,
+    obstacle: {
+      panelDark: 0x071426,
+      panelLight: 0x173a58,
+      stripeDark: 0x0d5f7a,
+      stripeLight: 0xbfefff,
+      edge: 0x4ddbff,
+    },
+    hazard: 0xeaf5ff,
+    ringCore: 0x4ddbff,
+  },
   amberCyan: {
     primary: 0xffa21a,
     obstacle: {
@@ -67,5 +79,4 @@ export const SCENE_COLOR_SCHEMES = {
 
 export type SceneColorSchemeId = keyof typeof SCENE_COLOR_SCHEMES;
 
-export const DEFAULT_SCENE_COLOR_SCHEME_ID: SceneColorSchemeId = 'amberCyan';
-
+export const DEFAULT_SCENE_COLOR_SCHEME_ID: SceneColorSchemeId = 'deepSpace';

@@ -1,4 +1,8 @@
 import type { GameResult, Level } from '../types';
+import type { CSSProperties } from 'react';
+import handsOnDeckArt from '../assets/ui/album-hands-on-deck.png';
+import sliceAtTwoArt from '../assets/ui/album-slice-at-two.png';
+import brokenOrbitArt from '../assets/ui/broken-orbit.png';
 
 export type ResultOutcome = 'complete' | 'crashed';
 
@@ -14,26 +18,38 @@ export function ResultScreen({ result, level, outcome, onReplay, onHome }: Resul
   const accuracy = result.total ? Math.round((result.hits / result.total) * 100) : 0;
   const rank = accuracy >= 95 ? 'S' : accuracy >= 85 ? 'A' : accuracy >= 70 ? 'B' : 'C';
   const completed = outcome === 'complete';
+  const trackArt = level.song.title === 'Slice at Two' ? sliceAtTwoArt : handsOnDeckArt;
 
   return (
     <main className={`screen result-screen ${completed ? 'is-complete' : 'is-crashed'}`}>
       <header className="result-shell-header">
         <strong>跃动地平线</strong>
-        <span>{level.song.title}</span>
       </header>
 
-      <section className="result-message">
-        <p>{completed ? '航线完成' : '航线中断'}</p>
-        <h1>{completed ? '节拍仍在向前' : '再一次，越过尖刺'}</h1>
-        <span>{completed ? '你已经抵达这首歌的地平线。' : '保留这次节奏，下一次滑得更早一点。'}</span>
+      <section className="result-track" style={{ '--album-art': `url(${trackArt})` } as CSSProperties}>
+        <span className="result-track-art" aria-hidden="true"><i /></span>
+        <div>
+          <strong>{level.song.title}</strong>
+          <span className="result-track-wave" aria-hidden="true"><i /></span>
+        </div>
       </section>
 
-      <div className="result-record" aria-hidden="true">
-        <div className="result-record-label">
-          <small>{completed ? 'RANK' : 'RUN'}</small>
+      <section className="result-message">
+        <h1>{completed ? '航线完成' : '航线中断'}</h1>
+        <p>{completed ? '你已抵达这首歌的地平线' : '再一次，越过尖刺'}</p>
+      </section>
+
+      <div
+        className={`result-orbit ${completed ? 'is-complete' : 'is-broken'}`}
+        style={{ '--broken-orbit-art': `url(${brokenOrbitArt})` } as CSSProperties}
+        aria-hidden="true"
+      >
+        <span className="result-wave result-wave-left" />
+        <span className="result-wave result-wave-right" />
+        <div className="result-orbit-ring">
           <strong>{completed ? rank : '×'}</strong>
         </div>
-        {!completed && <i className="record-crack" />}
+        {!completed && <span className="orbit-shards"><i /><i /><i /><i /><i /></span>}
       </div>
 
       <section className="result-score-block">
