@@ -1,28 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
-import { AudioEngine } from '../audio/AudioEngine';
 import { GameController } from '../game/GameController';
 import { type GameResult, type Level } from '../types';
 
 interface GameScreenProps {
   level: Level;
+  onDeath: (result: GameResult) => void;
   onFinish: (result: GameResult) => void;
 }
 
-export function GameScreen({ level, onFinish }: GameScreenProps) {
+export function GameScreen({ level, onDeath, onFinish }: GameScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<GameController | null>(null);
   const [hud, setHud] = useState({ score: 0, combo: 0, progress: 0 });
   const [paused, setPaused] = useState(false);
-  const [dead, setDead] = useState(false);
-  const [runId, setRunId] = useState(0);
   useEffect(() => {
     if (!canvasRef.current || !stageRef.current) return;
     const controller = new GameController(canvasRef.current, level, {
       onHud: (score, combo, progress) => setHud({ score, combo, progress }),
-      onDeath: () => {
-        setDead(true);
+      onDeath: (result) => {
         setPaused(false);
+        onDeath(result);
       },
       onFinish,
     });
@@ -40,7 +38,7 @@ export function GameScreen({ level, onFinish }: GameScreenProps) {
       controller.destroy();
       controllerRef.current = null;
     };
-  }, [level, onFinish, runId]);
+  }, [level, onDeath, onFinish]);
 
   const normalizePointer = (clientX: number) => {
     const rect = stageRef.current?.getBoundingClientRect();
@@ -49,13 +47,13 @@ export function GameScreen({ level, onFinish }: GameScreenProps) {
   };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (paused || dead) return;
+    if (paused) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     controllerRef.current?.setPointer(event.pointerId, normalizePointer(event.clientX));
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (paused || dead || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    if (paused || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
     controllerRef.current?.setPointer(event.pointerId, normalizePointer(event.clientX));
   };
 
@@ -67,15 +65,6 @@ export function GameScreen({ level, onFinish }: GameScreenProps) {
     event.stopPropagation();
     const next = await controllerRef.current?.togglePause();
     if (typeof next === 'boolean') setPaused(next);
-  };
-
-  const restart = (event: React.PointerEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-    setDead(false);
-    setPaused(false);
-    setHud({ score: 0, combo: 0, progress: 0 });
-    void AudioEngine.unlock();
-    setRunId((value) => value + 1);
   };
 
   return (
@@ -117,15 +106,6 @@ export function GameScreen({ level, onFinish }: GameScreenProps) {
         </div>
       )}
 
-      {dead && (
-        <div className="death-overlay">
-          <div className="death-icon">×</div>
-          <span>撞上尖刺</span>
-          <strong>RUN TERMINATED</strong>
-          <p>红色尖刺无法击碎，左右滑动来躲开它。</p>
-          <button type="button" onPointerDown={restart}>重新开始</button>
-        </div>
-      )}
     </main>
   );
 }

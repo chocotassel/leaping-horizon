@@ -1,11 +1,16 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
+import { deriveLayoutIntent } from './rhythm/layout-intent.mjs';
+
 const root = resolve(import.meta.dirname, '..');
-const inputPath = resolve(root, process.argv[2] ?? 'public/analysis/slice-at-two.rhythm-analysis.json');
-const collectionPath = resolve(root, process.argv[3] ?? 'src/levels/slice-at-two.levels.json');
-const primaryPath = resolve(root, process.argv[4] ?? 'src/levels/slice-at-two.level.json');
+if (!process.argv[2] || !process.argv[3]) {
+  throw new Error('build-rhythm-levels.mjs is an internal step; run npm run generate instead.');
+}
+const inputPath = resolve(root, process.argv[2]);
+const levelPath = resolve(root, process.argv[3]);
 const analysis = JSON.parse(await readFile(inputPath, 'utf8'));
+const LAYOUT_INTENT = deriveLayoutIntent(analysis);
 
 const EMPTY = 0;
 const BREAKABLE = 1;
@@ -14,9 +19,12 @@ const LANE_COUNT = 5;
 const START_LANE = 2;
 const MIN_PLAYABLE_TIME = 1.2;
 const OUTRO_MARGIN = 1.15;
-const AUXILIARY_TRACK_IDS = ['basic-pitch', 'librosa-onset', 'preference-fusion'];
+const AUXILIARY_SOURCE_IDS = ['basic-pitch', 'librosa-onset'];
 const AUXILIARY_MERGE_SECONDS = 0.06;
-const MIN_EVENT_GAP_SECONDS = 0.12;
+const BEAT_SECONDS = 60 / Math.max(1, Number(analysis.song.bpm) || 120);
+const MIN_EVENT_GAP_SECONDS = 0.09;
+const CLIMAX_RADIUS_SECONDS = BEAT_SECONDS * 16;
+const AUXILIARY_PHRASE_GAP_SECONDS = BEAT_SECONDS * 1.5;
 
 const FLOW_MODE = {
   id: 'flow',
@@ -33,6 +41,9 @@ const MOTIFS = {
   pulse: { label: '呼吸门', baseLength: 8, minimumLength: 6, controls: [2, 1, 2, 3, 2], spikeMode: 'pulse' },
   s: { label: 'S 形滑行', baseLength: 14, minimumLength: 10, controls: [0, 1, 2, 3, 4, 4, 3, 2, 1, 0], spikeMode: 'corridor' },
   zigzag: { label: 'Z 形变向', baseLength: 12, minimumLength: 9, controls: [0, 0, 2, 4, 4, 2, 0, 0], spikeMode: 'corridor' },
+  hook: { label: '钩形回转', baseLength: 10, minimumLength: 7, controls: [0, 1, 2, 3, 4, 4, 3], spikeMode: 'corridor' },
+  stairs: { label: '阶梯横移', baseLength: 10, minimumLength: 7, controls: [0, 0, 1, 2, 3, 4, 4], spikeMode: 'corridor-wide' },
+  pendulum: { label: '钟摆切换', baseLength: 10, minimumLength: 7, controls: [1, 3, 1, 3, 1], spikeMode: 'pulse' },
   m: { label: 'M 形诱导连击', baseLength: 6, minimumLength: 6, spikeMode: 'pocket' },
 };
 
@@ -82,32 +93,89 @@ function waveformEnergyAt(timeSeconds, radiusSeconds = 2.2) {
   return average(peaks.slice(start, end));
 }
 
-const onsetTrack = analysis.tracks.find((track) => track.id === 'librosa-onset');
+const onsetTrack = analysis.eventSources.find((source) => source.id === 'librosa-onset');
+const melodyTrack = analysis.eventSources.find((source) => source.id === 'basic-pitch');
+const beatTrack = analysis.eventSources.find((source) => source.id === 'beat-this');
+const AUDIO_SEED = analysis.song.audioFingerprint ?? `waveform-${hashText(
+  analysis.waveform.peaks.filter((_, index) => index % 7 === 0).map((value) => Number(value).toFixed(3)).join(','),
+).toString(16)}`;
 
-function onsetDensityAt(timeSeconds, radiusSeconds = 2.2) {
-  if (!onsetTrack) return 0;
-  return onsetTrack.events.filter((event) => Math.abs(event.timeSeconds - timeSeconds) <= radiusSeconds).length;
+const onsetEventsPerMinute = LAYOUT_INTENT.songProfile.eventRatesPerMinute.librosaOnset;
+const melodyEventsPerMinute = LAYOUT_INTENT.songProfile.eventRatesPerMinute.basicPitch;
+const beatEventsPerMinute = LAYOUT_INTENT.songProfile.eventRatesPerMinute.beatThis;
+const SONG_STYLE = {
+  id: LAYOUT_INTENT.songProfile.dominantStyle,
+  audioFingerprint: AUDIO_SEED,
+  bpm: analysis.song.bpm,
+  onsetEventsPerMinute: Number(onsetEventsPerMinute.toFixed(2)),
+  melodyEventsPerMinute: Number(melodyEventsPerMinute.toFixed(2)),
+  beatEventsPerMinute: Number(beatEventsPerMinute.toFixed(2)),
+  weights: LAYOUT_INTENT.songProfile.weights,
+};
+
+const INTENT_SECTION_BY_INDEX = new Map(LAYOUT_INTENT.sections.map((section) => [section.index, section]));
+const INTENT_FAMILY_BY_PHRASE_ID = new Map(LAYOUT_INTENT.families.flatMap((family) => (
+  family.occurrencePhraseIds.map((phraseId) => [phraseId, family])
+)));
+
+function intentSectionAt(timeSeconds) {
+  return LAYOUT_INTENT.sections.find((section, index) => (
+    timeSeconds >= section.startSeconds
+    && (index === LAYOUT_INTENT.sections.length - 1 || timeSeconds < section.endSeconds)
+  )) ?? LAYOUT_INTENT.sections.at(-1) ?? null;
+}
+
+function trackDensityAt(track, timeSeconds, radiusSeconds = 2.2) {
+  if (!track) return 0;
+  return track.events.filter((event) => Math.abs(event.timeSeconds - timeSeconds) <= radiusSeconds).length;
 }
 
 function buildFlowValues(events) {
   const energies = events.map((event) => waveformEnergyAt(event.timeSeconds));
   const broadEnergies = events.map((event) => waveformEnergyAt(event.timeSeconds, 4));
-  const densities = events.map((event) => onsetDensityAt(event.timeSeconds));
+  const onsetDensities = events.map((event) => trackDensityAt(onsetTrack, event.timeSeconds));
+  const melodyDensities = events.map((event) => trackDensityAt(melodyTrack, event.timeSeconds));
+  const broadOnsetDensities = events.map((event) => trackDensityAt(onsetTrack, event.timeSeconds, 4));
+  const broadMelodyDensities = events.map((event) => trackDensityAt(melodyTrack, event.timeSeconds, 4));
   const normalizedEnergy = normalizeRobust(energies);
-  const normalizedDensity = normalizeRobust(densities);
+  const normalizedOnsetDensity = normalizeRobust(onsetDensities);
+  const normalizedMelodyDensity = normalizeRobust(melodyDensities);
+  const normalizedBroadOnset = normalizeRobust(broadOnsetDensities);
+  const normalizedBroadMelody = normalizeRobust(broadMelodyDensities);
+  const densityAt = (index, broad = false) => {
+    const onset = broad ? normalizedBroadOnset[index] : normalizedOnsetDensity[index];
+    const melody = broad ? normalizedBroadMelody[index] : normalizedMelodyDensity[index];
+    const { melodic, percussive, rhythmic } = SONG_STYLE.weights;
+    return melody * melodic + onset * percussive + ((melody + onset) / 2) * rhythmic;
+  };
   const raw = events.map((event, index) => {
-    const introRamp = clamp(0.28 + event.timeSeconds / 22 * 0.72, 0.28, 1);
-    return (normalizedEnergy[index] * 0.76 + normalizedDensity[index] * 0.24) * introRamp;
+    const introRampSeconds = BEAT_SECONDS * 32;
+    const introRamp = clamp(0.28 + event.timeSeconds / introRampSeconds * 0.72, 0.28, 1);
+    const sectionPressure = intentSectionAt(event.timeSeconds)?.pressure ?? 0.5;
+    return (
+      normalizedEnergy[index] * 0.5
+      + densityAt(index) * 0.3
+      + sectionPressure * 0.2
+    ) * introRamp;
   });
   const values = raw.map((_, index) => {
     const start = Math.max(0, index - 4);
     const end = Math.min(raw.length, index + 5);
     return clamp(average(raw.slice(start, end)), 0, 1);
   });
-  // The hardest section follows sustained musical energy. Do not robust-clamp
-  // this curve: clipping every loud section to 1 would make a shorter earlier
-  // burst beat the song's true final crest.
-  const climaxScores = broadEnergies;
+  const maximumBroadEnergy = Math.max(...broadEnergies, 1e-9);
+  const densityClimaxScores = broadEnergies.map((energy, index) => {
+    const introRamp = clamp(0.45 + events[index].timeSeconds / (BEAT_SECONDS * 32) * 0.55, 0.45, 1);
+    const sectionPressure = intentSectionAt(events[index].timeSeconds)?.pressure ?? 0.5;
+    return (
+      energy / maximumBroadEnergy * 0.52
+      + densityAt(index, true) * 0.25
+      + sectionPressure * 0.23
+    ) * introRamp;
+  });
+  const climaxScores = events.map((event) => average(densityClimaxScores.filter((_, candidateIndex) => (
+    Math.abs(events[candidateIndex].timeSeconds - event.timeSeconds) <= CLIMAX_RADIUS_SECONDS
+  ))));
   return { values, climaxScores };
 }
 
@@ -140,16 +208,18 @@ function auxiliaryBand(flow) {
 
 function buildAuxiliaryCandidates(baseEvents, flowValues, seed, climaxTime) {
   const minimumGapAt = (timeSeconds) => (
-    Math.abs(timeSeconds - climaxTime) <= 8 ? 0.095 : MIN_EVENT_GAP_SECONDS
+    Math.abs(timeSeconds - climaxTime) <= CLIMAX_RADIUS_SECONDS
+      ? Math.max(0.08, MIN_EVENT_GAP_SECONDS * 0.8)
+      : MIN_EVENT_GAP_SECONDS
   );
-  const sourceEntries = AUXILIARY_TRACK_IDS.flatMap((trackId) => {
-    const track = analysis.tracks.find((candidate) => candidate.id === trackId);
-    if (!track) return [];
-    const normalized = normalizeRobust(track.events.map((event) => event.confidence));
-    return track.events.flatMap((event, index) => (
+  const sourceEntries = AUXILIARY_SOURCE_IDS.flatMap((sourceId) => {
+    const source = analysis.eventSources.find((candidate) => candidate.id === sourceId);
+    if (!source) return [];
+    const normalized = normalizeRobust(source.events.map((event) => event.confidence));
+    return source.events.flatMap((event, index) => (
       event.timeSeconds >= MIN_PLAYABLE_TIME
       && event.timeSeconds <= analysis.song.durationSeconds - OUTRO_MARGIN
-        ? [{ ...event, trackId, normalizedConfidence: normalized[index] }]
+        ? [{ ...event, trackId: sourceId, normalizedConfidence: normalized[index] }]
         : []
     ));
   }).sort((left, right) => left.timeSeconds - right.timeSeconds);
@@ -168,7 +238,7 @@ function buildAuxiliaryCandidates(baseEvents, flowValues, seed, climaxTime) {
     const sourceIds = [...new Set(group.map((entry) => entry.trackId))];
     const representative = [...group].sort((left, right) => {
       const priority = (entry) => (
-        (entry.trackId === 'basic-pitch' ? 0.26 : entry.trackId === 'preference-fusion' ? 0.2 : 0.14)
+        (entry.trackId === 'basic-pitch' ? 0.26 : 0.14)
         + entry.normalizedConfidence * 0.12
       );
       return priority(right) - priority(left);
@@ -205,7 +275,7 @@ function buildAuxiliaryCandidates(baseEvents, flowValues, seed, climaxTime) {
   let phraseLength = 0;
   let previousTime = -Infinity;
   for (const candidate of spaced) {
-    if (candidate.timeSeconds - previousTime > 0.72 || phraseLength >= 8) {
+    if (candidate.timeSeconds - previousTime > AUXILIARY_PHRASE_GAP_SECONDS || phraseLength >= 8) {
       phraseIndex += 1;
       phraseLength = 0;
     }
@@ -244,7 +314,9 @@ function buildAuxiliaryCandidates(baseEvents, flowValues, seed, climaxTime) {
     }).sort((left, right) => right.selectionScore - left.selectionScore);
     selected.push(...ranked.slice(0, quota));
   }
-  const climaxCandidates = spaced.filter((candidate) => Math.abs(candidate.timeSeconds - climaxTime) <= 8);
+  const climaxCandidates = spaced.filter((candidate) => (
+    Math.abs(candidate.timeSeconds - climaxTime) <= CLIMAX_RADIUS_SECONDS
+  ));
   return [...new Map([...selected, ...climaxCandidates].map((candidate) => [candidate.groupIndex, candidate])).values()]
     .sort((left, right) => left.timeSeconds - right.timeSeconds);
 }
@@ -335,7 +407,8 @@ function buildObstacleRow(motifId, lane, nextLane, position, length, flow, cCamp
     }
     safeLaneCount = LANE_COUNT - spikeCount;
   } else if (motif.spikeMode !== 'none') {
-    let width = motif.spikeMode === 'corridor-wide' && flow < 0.30 ? 3 : 2;
+    let width = flow < 0.45 ? 3 : 2;
+    if (['hook', 'stairs', 'sweep'].includes(motifId) && position % 3 === 1 && flow < 0.56) width = 4;
     if (motif.spikeMode === 'pulse') width = flow >= 0.42 || position % 3 === 1 ? 2 : 3;
     const safeLanes = chooseSafeWindow(lane, nextLane, width);
     spikeCount = addSpikesOutside(row, safeLanes);
@@ -416,23 +489,6 @@ function stripInternalFields(event) {
   return { ...publicEvent, role: _role, section: _sectionIndex };
 }
 
-const KNOWN_STRUCTURE_REUSES = [
-  {
-    id: 'verified-repeat-16-bars',
-    sourceStartSeconds: 34.16,
-    sourceEndSeconds: 67.26,
-    targetStartSeconds: 83.80,
-    targetEndSeconds: 116.84,
-  },
-  {
-    id: 'verified-overlap-8-bars',
-    sourceStartSeconds: 42.44,
-    sourceEndSeconds: 58.98,
-    targetStartSeconds: 133.34,
-    targetEndSeconds: 149.82,
-  },
-];
-
 function timeValue(value) {
   if (typeof value === 'number') return value;
   if (!value || typeof value !== 'object') return Number.NaN;
@@ -445,13 +501,6 @@ function rowKey(row) {
 
 function stableId(value) {
   return String(value).replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase();
-}
-
-function nearestByStart(items, timeSeconds, toleranceSeconds = 1.25) {
-  const match = [...items].sort((left, right) => (
-    Math.abs(left.startSeconds - timeSeconds) - Math.abs(right.startSeconds - timeSeconds)
-  ))[0];
-  return match && Math.abs(match.startSeconds - timeSeconds) <= toleranceSeconds ? match : null;
 }
 
 function normalizeMusicalStructure(sourceEvents) {
@@ -552,6 +601,23 @@ function normalizeMusicalStructure(sourceEvents) {
     }
   }
 
+  const coveredBarCount = phrases.reduce((maximum, phrase) => Math.max(maximum, phrase.endBarIndex), 0);
+  if (coveredBarCount < bars.length) {
+    const tailBars = bars.slice(coveredBarCount);
+    phrases.push({
+      index: phrases.length,
+      id: `tail-phrase-${String(phrases.length + 1).padStart(2, '0')}`,
+      startBarIndex: coveredBarCount,
+      endBarIndex: bars.length,
+      barCount: tailBars.length,
+      startSeconds: tailBars[0].startSeconds,
+      endSeconds: tailBars[tailBars.length - 1].endSeconds,
+      familyId: `tail-family-${String(phrases.length + 1).padStart(2, '0')}`,
+      familyKind: 'tail',
+      intensity: average(tailBars.map((bar) => Number(bar.intensity) || waveformEnergyAt(bar.startSeconds))),
+    });
+  }
+
   phrases.sort((left, right) => left.startSeconds - right.startSeconds);
   const phraseById = new Map(phrases.map((phrase) => [phrase.id, phrase]));
   const parent = new Map(phrases.map((phrase) => [phrase.id, phrase.id]));
@@ -573,24 +639,6 @@ function normalizeMusicalStructure(sourceEvents) {
     const rootPhrase = phraseById.get(find(phrase.id));
     phrase.analysisFamilyId = phrase.familyId;
     if (rootPhrase && rootPhrase.id !== phrase.id) phrase.familyId = rootPhrase.familyId;
-  }
-
-  // These pairs were verified against the song's feature recurrence. Keeping
-  // the aliases here protects the authored result if a future clustering run
-  // lands on the neighbouring threshold.
-  const forcedPairs = [
-    [34.16, 83.80, 'verified-main-a'],
-    [50.72, 100.32, 'verified-main-b'],
-  ];
-  for (const [leftTime, rightTime, familyId] of forcedPairs) {
-    const left = nearestByStart(phrases, leftTime);
-    const right = nearestByStart(phrases, rightTime);
-    if (left && right && left.barCount === right.barCount) {
-      left.familyId = familyId;
-      right.familyId = familyId;
-      left.familyKind = 'verified-repeat';
-      right.familyKind = 'verified-repeat';
-    }
   }
 
   const overlappingPhrases = (Array.isArray(raw.overlappingPhrases) ? raw.overlappingPhrases : [])
@@ -661,42 +709,178 @@ function buildPhraseContexts(structure, sourceEvents, flowValues) {
   }
   return contexts.filter((phrase) => phrase.items.length).map((phrase) => ({
     ...phrase,
-    intensity: Number.isFinite(phrase.intensity) ? phrase.intensity : average(phrase.items.map((item) => item.flow)),
+    intensity: Number.isFinite(phrase.intensity)
+      ? clamp(phrase.intensity * 0.55 + average(phrase.items.map((item) => item.flow)) * 0.45, 0, 1)
+      : average(phrase.items.map((item) => item.flow)),
     durationClass: `${phrase.barCount}bars-${phrase.items.length}slots`,
   }));
 }
 
-function motifPlanFor(intensity, barCount, isIntro, familyId) {
-  if (isIntro) return Array.from({ length: barCount }, () => 'focus');
-  const palette = intensity >= 0.72
-    ? ['c', 's', 'zigzag', 'v', 'sweep', 's', 'pulse', 'focus']
-    : intensity >= 0.48
-      ? ['focus', 'c', 'sweep', 'v', 'pulse', 's', 'zigzag', 'focus']
-      : ['focus', 'focus', 'c', 'sweep', 'pulse', 'c', 'v', 'focus'];
-  const body = palette.slice(0, -1);
-  // Intensity chooses the vocabulary; structural family identity chooses its
-  // bar-level sentence. Repeated occurrences share familyId and therefore the
-  // exact same order, while A/B phrases no longer collapse to one arrangement.
-  const rotation = hashText(`motif-plan:${familyId}`) % body.length;
-  return Array.from({ length: barCount }, (_, index) => (
-    index === barCount - 1 ? 'focus' : body[(index + rotation) % body.length]
-  ));
+function countTrackEvents(track, startSeconds, endSeconds) {
+  if (!track) return 0;
+  return track.events.filter((event) => (
+    event.timeSeconds >= startSeconds - 0.02 && event.timeSeconds < endSeconds - 0.02
+  )).length;
+}
+
+function buildFamilyBarProfiles(phrases, barCount, bars) {
+  const barByIndex = new Map(bars.map((bar) => [bar.index, bar]));
+  return Array.from({ length: barCount }, (_, barInPhrase) => {
+    const occurrences = phrases.flatMap((phrase) => {
+      const items = phrase.items.filter((item) => item.barInPhrase === barInPhrase);
+      if (!items.length) return [];
+      const bar = barByIndex.get(items[0].barIndex);
+      const startSeconds = bar?.startSeconds ?? items[0].sourceEvent.timeSeconds;
+      const nextItems = phrase.items.filter((item) => item.barInPhrase > barInPhrase);
+      const endSeconds = bar?.endSeconds
+        ?? nextItems[0]?.sourceEvent.timeSeconds
+        ?? phrase.endSeconds;
+      const duration = Math.max(0.2, endSeconds - startSeconds);
+      const midpoint = (startSeconds + endSeconds) / 2;
+      return [{
+        flow: average(items.map((item) => item.flow)),
+        energy: waveformEnergyAt(midpoint, Math.min(1, duration / 2)),
+        melodyRate: countTrackEvents(melodyTrack, startSeconds, endSeconds) / duration * 60,
+        onsetRate: countTrackEvents(onsetTrack, startSeconds, endSeconds) / duration * 60,
+        section: intentSectionAt(midpoint),
+      }];
+    });
+    const flow = average(occurrences.map((sample) => sample.flow));
+    const energy = average(occurrences.map((sample) => sample.energy));
+    const melodyRate = average(occurrences.map((sample) => sample.melodyRate));
+    const onsetRate = average(occurrences.map((sample) => sample.onsetRate));
+    const melodyAccent = clamp(melodyRate / Math.max(12, melodyEventsPerMinute) / 1.7, 0, 1);
+    const onsetAccent = clamp(onsetRate / Math.max(12, onsetEventsPerMinute) / 1.7, 0, 1);
+    const styleAccent = (
+      melodyAccent * SONG_STYLE.weights.melodic
+      + onsetAccent * SONG_STYLE.weights.percussive
+      + ((melodyAccent + onsetAccent) / 2) * SONG_STYLE.weights.rhythmic
+    );
+    const sections = occurrences.map((sample) => sample.section).filter(Boolean);
+    const section = sections.sort((left, right) => right.pressure - left.pressure)[0] ?? null;
+    const sectionPressure = average(sections.map((sample) => sample.pressure));
+    return {
+      flow: Number(flow.toFixed(3)),
+      energy: Number(energy.toFixed(3)),
+      melodyEventsPerMinute: Number(melodyRate.toFixed(2)),
+      onsetEventsPerMinute: Number(onsetRate.toFixed(2)),
+      sectionRole: section?.role ?? 'drive',
+      sectionPressure: Number(sectionPressure.toFixed(3)),
+      score: Number(clamp(flow * 0.48 + styleAccent * 0.27 + sectionPressure * 0.25, 0, 1).toFixed(3)),
+    };
+  });
+}
+
+function motifPlanFor({ phrases, barCount, isIntro, familyId, bars, familyIntent }) {
+  const profiles = buildFamilyBarProfiles(phrases, barCount, bars);
+  const fallbackMotifs = [
+    'focus',
+    'sweep',
+    'c',
+    'v',
+    's',
+    'zigzag',
+    'hook',
+    'stairs',
+    'pendulum',
+    'pulse',
+  ];
+  const preferredMotifs = (familyIntent?.motifBias ?? [])
+    .filter((motif, index, values) => motif !== 'm' && MOTIFS[motif] && values.indexOf(motif) === index);
+  const palette = preferredMotifs.length >= 3
+    ? [
+      ...preferredMotifs,
+      ...preferredMotifs.slice(0, 3),
+      ...fallbackMotifs.filter((motif) => !preferredMotifs.includes(motif)).slice(0, 2),
+    ]
+    : fallbackMotifs;
+  const motifs = Array.from({ length: barCount }, () => null);
+  const averageSlotsPerBar = Math.max(1, phrases[0].items.length / Math.max(1, barCount));
+  let barInPhrase = 0;
+  let previousMotif = null;
+  while (barInPhrase < barCount) {
+    const profile = profiles[barInPhrase];
+    if (isIntro && barInPhrase < Math.min(2, barCount)) {
+      motifs[barInPhrase] = 'focus';
+      previousMotif = 'focus';
+      barInPhrase += 1;
+      continue;
+    }
+    let paletteIndex = hashText([
+      AUDIO_SEED,
+      familyId,
+      familyIntent?.contour?.kind ?? 'unknown',
+      profile.sectionRole,
+      barInPhrase,
+      Math.round(profile.score * 10),
+    ].join('|')) % palette.length;
+    if (palette[paletteIndex] === previousMotif) {
+      paletteIndex = (paletteIndex + 1) % palette.length;
+    }
+    const motif = palette[paletteIndex];
+    const requestedSlots = profile.score >= 0.55
+      ? MOTIFS[motif].baseLength
+      : MOTIFS[motif].minimumLength;
+    const remainingBars = barCount - barInPhrase;
+    const span = motif === 'focus'
+      ? 1
+      : clamp(Math.ceil(requestedSlots / averageSlotsPerBar), 1, Math.min(3, remainingBars));
+    for (let offset = 0; offset < span; offset += 1) motifs[barInPhrase + offset] = motif;
+    previousMotif = motif;
+    barInPhrase += span;
+  }
+  return { motifs, profiles };
 }
 
 const BAR_ROLES = ['opening', 'call', 'answer', 'turn', 'lift', 'drive', 'peak', 'cadence'];
 
-function templateMobility(group) {
+function templateMobility(group, auxiliaryCandidates) {
   const slotCount = group[0].items.length;
   return Array.from({ length: slotCount }, (_, slot) => {
     if (slot === 0) return 0;
     return Math.min(...group.map((phrase) => Math.min(
       LANE_COUNT - 1,
-      Math.max(0, Math.floor(
-        (phrase.items[slot].sourceEvent.timeSeconds - phrase.items[slot - 1].sourceEvent.timeSeconds + 1e-6)
-        / FLOW_MODE.minTravelSecondsPerLane,
-      )),
+      Math.max(0, (() => {
+        const startSeconds = phrase.items[slot - 1].sourceEvent.timeSeconds;
+        const endSeconds = phrase.items[slot].sourceEvent.timeSeconds;
+        const subdivisions = auxiliaryCandidates
+          .filter((candidate) => candidate.timeSeconds > startSeconds && candidate.timeSeconds < endSeconds)
+          .map((candidate) => candidate.timeSeconds);
+        const checkpoints = [startSeconds, ...subdivisions, endSeconds];
+        return checkpoints.slice(1).reduce((capacity, checkpoint, index) => (
+          capacity + Math.floor(
+            (checkpoint - checkpoints[index] + 1e-6) / FLOW_MODE.minTravelSecondsPerLane,
+          )
+        ), 0);
+      })()),
     )));
   });
+}
+
+function fitReachableBarPath(desired, indices, mobility, entryLane, forceStart, forceEnd) {
+  let states = new Map([[entryLane, { cost: 0, path: [] }]]);
+  for (let position = 0; position < indices.length; position += 1) {
+    const slotIndex = indices[position];
+    const maximumSteps = mobility[slotIndex];
+    const mustBeCenter = (forceStart && position === 0) || (forceEnd && position === indices.length - 1);
+    const allowedLanes = mustBeCenter ? [START_LANE] : Array.from({ length: LANE_COUNT }, (_, lane) => lane);
+    const nextStates = new Map();
+    for (const lane of allowedLanes) {
+      for (const [previousLane, state] of states) {
+        if (Math.abs(lane - previousLane) > maximumSteps) continue;
+        const cost = state.cost + (lane - desired[position]) ** 2;
+        const existing = nextStates.get(lane);
+        if (!existing || cost < existing.cost) {
+          nextStates.set(lane, { cost, path: [...state.path, lane] });
+        }
+      }
+    }
+    if (!nextStates.size) {
+      throw new Error(`No reachable bar path at slot ${slotIndex}; mobility=${maximumSteps}.`);
+    }
+    states = nextStates;
+  }
+  return [...states.values()].sort((left, right) => left.cost - right.cost)[0].path;
 }
 
 function makeCanonicalTemplate({
@@ -707,80 +891,148 @@ function makeCanonicalTemplate({
   trackId,
   mVariant,
   mStartBar,
+  bars,
+  familyIntent,
+  difficultyBoost = 0,
+  auxiliaryCandidates = [],
 }) {
   const prototype = phrases[0];
-  const intensity = Math.max(...phrases.map((phrase) => phrase.intensity));
-  const isIntro = phrases.some((phrase) => phrase.startSeconds < 13);
+  const intensity = clamp(Math.max(...phrases.map((phrase) => phrase.intensity)) + difficultyBoost, 0, 1);
+  const isIntro = phrases.some((phrase) => phrase.startBarIndex === 0);
   const templateId = `template-${stableId(trackId)}-${stableId(familyId)}-${stableId(durationClass)}`;
-  const transformId = mVariant || isIntro || noise(analysis.song.id, trackId, familyId, durationClass, 'transform') < 0.5
-    ? 'identity'
-    : 'mirror';
+  const transformId = familyIntent?.preferredTransform
+    ?? (noise(AUDIO_SEED, trackId, familyId, durationClass, 'transform') < 0.5 ? 'identity' : 'mirror');
   const isBeatAlignedTemplate = trackId === 'beat-this';
-  const mobility = templateMobility(phrases);
-  const plan = motifPlanFor(intensity, prototype.barCount, isIntro, familyId);
+  const mobility = templateMobility(phrases, auxiliaryCandidates);
+  const motifPlan = motifPlanFor({
+    phrases,
+    barCount: prototype.barCount,
+    isIntro,
+    familyId,
+    bars,
+    familyIntent,
+  });
+  const plan = motifPlan.motifs;
   const slots = Array.from({ length: prototype.items.length }, () => null);
   let previousLane = START_LANE;
 
-  for (let barInPhrase = 0; barInPhrase < prototype.barCount; barInPhrase += 1) {
+  let barInPhrase = 0;
+  while (barInPhrase < prototype.barCount) {
+    const moduleStartBar = barInPhrase;
+    const motif = plan[moduleStartBar];
+    let moduleEndBar = moduleStartBar + 1;
+    while (moduleEndBar < prototype.barCount && plan[moduleEndBar] === motif) moduleEndBar += 1;
     const indices = prototype.items
       .map((item, slotIndex) => ({ item, slotIndex }))
-      .filter(({ item }) => item.barInPhrase === barInPhrase)
+      .filter(({ item }) => item.barInPhrase >= moduleStartBar && item.barInPhrase < moduleEndBar)
       .map(({ slotIndex }) => slotIndex);
-    if (!indices.length) continue;
-    const motif = plan[barInPhrase];
+    if (!indices.length) {
+      barInPhrase = moduleEndBar;
+      continue;
+    }
     const rawControls = motif === 'c' ? [2, 3, 4, 4, 3, 2] : MOTIFS[motif].controls;
     const controls = transformId === 'mirror'
       ? rawControls.map((lane) => LANE_COUNT - 1 - lane)
       : rawControls;
     const desired = samplePath(controls, indices.length);
-    if (isBeatAlignedTemplate) {
+    const forceStart = isBeatAlignedTemplate && moduleStartBar === 0;
+    const forceEnd = isBeatAlignedTemplate && moduleEndBar === prototype.barCount;
+    if (forceStart) {
       desired[0] = START_LANE;
+    }
+    if (forceEnd) {
       desired[desired.length - 1] = START_LANE;
     }
-    const lanes = [];
-    for (let position = 0; position < indices.length; position += 1) {
-      const slotIndex = indices[position];
-      const maximumSteps = mobility[slotIndex];
-      const lane = slotIndex === 0
-        ? START_LANE
-        : clamp(desired[position], previousLane - maximumSteps, previousLane + maximumSteps);
-      lanes.push(lane);
-      previousLane = lane;
-    }
-    if (isBeatAlignedTemplate) {
-      previousLane = START_LANE;
-      lanes[lanes.length - 1] = START_LANE;
-    }
+    const lanes = isBeatAlignedTemplate
+      ? fitReachableBarPath(desired, indices, mobility, previousLane, forceStart, forceEnd)
+      : desired.map((lane, position) => {
+        const slotIndex = indices[position];
+        const fitted = clamp(lane, previousLane - mobility[slotIndex], previousLane + mobility[slotIndex]);
+        previousLane = fitted;
+        return fitted;
+      });
+    previousLane = lanes[lanes.length - 1];
     const cCampLane = transformId === 'mirror' ? 0 : 4;
+    const modulePressure = clamp(
+      average(motifPlan.profiles.slice(moduleStartBar, moduleEndBar).map((profile) => profile.score))
+      + difficultyBoost,
+      0,
+      1,
+    );
     for (let position = 0; position < indices.length; position += 1) {
       const slotIndex = indices[position];
+      const item = prototype.items[slotIndex];
       const lane = lanes[position];
-      const nextLane = lanes[position + 1] ?? START_LANE;
-      const rowResult = buildObstacleRow(motif, lane, nextLane, position, indices.length, intensity, cCampLane);
+      const nextLane = lanes[position + 1] ?? lane;
+      const rowResult = buildObstacleRow(
+        motif,
+        lane,
+        nextLane,
+        position,
+        indices.length,
+        modulePressure,
+        cCampLane,
+      );
       slots[slotIndex] = {
         obstacles: rowResult.row,
         emit: true,
         kind: 'target',
         pattern: motif,
-        role: position === 0 ? 'downbeat-cue' : 'beat-target',
-        barRole: BAR_ROLES[barInPhrase % BAR_ROLES.length],
-        downbeatCue: position === 0,
+        role: item.beatInBar === 0 ? 'downbeat-cue' : 'beat-target',
+        barRole: BAR_ROLES[item.barInPhrase % BAR_ROLES.length],
+        downbeatCue: item.beatInBar === 0,
         allowedLanes: [lane],
         preferredLane: lane,
         templateId,
         familyId,
         transformId,
-        relativeSlotKey: `${templateId}:bar-${barInPhrase}:slot-${position}`,
-        blockId: `${templateId}:bar-${barInPhrase}`,
+        relativeSlotKey: `${templateId}:bar-${item.barInPhrase}:slot-${item.beatInBar}`,
+        blockId: `${templateId}:bars-${moduleStartBar}-${moduleEndBar - 1}`,
+        sectionRole: motifPlan.profiles[item.barInPhrase]?.sectionRole ?? familyIntent?.dominantSectionRole ?? 'drive',
+        pressure: modulePressure,
         overridePriority: 0,
       };
     }
+    barInPhrase = moduleEndBar;
   }
 
+  let appliedMStartBar = null;
   if (mVariant && Number.isInteger(mStartBar)) {
-    const startSlot = prototype.items.findIndex((item) => item.barInPhrase === mStartBar);
-    if (startSlot >= 0 && startSlot + 5 < slots.length) {
-      const rows = [
+    const placementCandidates = Array.from({ length: prototype.barCount }, (_, candidateBar) => candidateBar)
+      .sort((left, right) => Math.abs(left - mStartBar) - Math.abs(right - mStartBar))
+      .flatMap((candidateBar) => {
+        const startSlot = prototype.items.findIndex((item) => item.barInPhrase === candidateBar);
+        if (startSlot < 0 || startSlot + 5 >= slots.length) return [];
+        const entryLane = slots[startSlot - 1]?.preferredLane ?? START_LANE;
+        const exitLane = slots[startSlot + 6]?.preferredLane ?? START_LANE;
+        const orientations = [
+          { mirror: false, gate: [3, 4] },
+          { mirror: true, gate: [0, 1] },
+        ].filter(({ gate }) => (
+          gate.some((lane) => Math.abs(lane - entryLane) <= mobility[startSlot])
+          && (
+            startSlot + 6 >= mobility.length
+            || gate.some((lane) => Math.abs(lane - exitLane) <= mobility[startSlot + 6])
+          )
+        )).map((candidate) => ({
+          ...candidate,
+          candidateBar,
+          startSlot,
+          cost: Math.min(...candidate.gate.map((lane) => Math.abs(lane - entryLane)))
+            + Math.min(...candidate.gate.map((lane) => Math.abs(lane - exitLane))),
+        }));
+        const preferredMirror = noise(AUDIO_SEED, trackId, familyId, candidateBar, 'm-orientation') >= 0.5;
+        return orientations.sort((left, right) => (
+          left.cost - right.cost
+          || Number(left.mirror !== (transformId === 'mirror' ? true : preferredMirror))
+            - Number(right.mirror !== (transformId === 'mirror' ? true : preferredMirror))
+        ));
+      });
+    const placement = placementCandidates[0];
+    if (placement) {
+      const { startSlot, candidateBar, mirror: mirrorM } = placement;
+      appliedMStartBar = candidateBar;
+      const baseRows = [
         [SPIKE, SPIKE, SPIKE, EMPTY, EMPTY],
         [EMPTY, EMPTY, EMPTY, EMPTY, EMPTY],
         [BREAKABLE, EMPTY, EMPTY, EMPTY, EMPTY],
@@ -788,13 +1040,16 @@ function makeCanonicalTemplate({
         [EMPTY, EMPTY, EMPTY, EMPTY, EMPTY],
         [SPIKE, SPIKE, SPIKE, EMPTY, EMPTY],
       ];
+      const rows = mirrorM ? baseRows.map((row) => [...row].reverse()) : baseRows;
+      const pocketLane = mirrorM ? LANE_COUNT - 1 : 0;
+      const gateLanes = mirrorM ? [0, 1] : [3, 4];
       const slotKinds = ['dodge', 'travel', 'target', 'target', 'travel', 'dodge'];
       const roles = ['entry-gate', 'travel-slot', 'pocket-hit', 'pocket-hit', 'travel-slot', 'exit-gate'];
       for (let offset = 0; offset < rows.length; offset += 1) {
         const slotIndex = startSlot + offset;
         const isTarget = slotKinds[offset] === 'target';
         const isDodge = slotKinds[offset] === 'dodge';
-        const mBarOffset = prototype.items[slotIndex].barInPhrase - mStartBar;
+        const mBarOffset = prototype.items[slotIndex].barInPhrase - candidateBar;
         slots[slotIndex] = {
           obstacles: rows[offset],
           emit: isTarget || isDodge,
@@ -803,13 +1058,17 @@ function makeCanonicalTemplate({
           role: roles[offset],
           barRole: mBarOffset === 0 ? 'peak-pocket-entry' : 'peak-pocket-release',
           downbeatCue: prototype.items[slotIndex].beatInBar === 0,
-          allowedLanes: isTarget ? [0] : [3, 4],
-          preferredLane: isTarget ? 0 : 3,
+          allowedLanes: isTarget ? [pocketLane] : gateLanes,
+          preferredLane: isTarget ? pocketLane : gateLanes[0],
           templateId,
           familyId,
-          transformId: 'identity',
+          transformId: mirrorM ? 'mirror' : 'identity',
           relativeSlotKey: `${templateId}:m-${offset}`,
           blockId: `${templateId}:m-${startSlot}`,
+          sectionRole: motifPlan.profiles[prototype.items[slotIndex].barInPhrase]?.sectionRole
+            ?? familyIntent?.dominantSectionRole
+            ?? 'peak',
+          pressure: intensity,
           variant: mVariant,
           overridePriority: 0,
         };
@@ -834,6 +1093,8 @@ function makeCanonicalTemplate({
       transformId,
       relativeSlotKey: `${templateId}:slot-${slotIndex}`,
       blockId: `${templateId}:remainder`,
+      sectionRole: familyIntent?.dominantSectionRole ?? 'drive',
+      pressure: intensity,
       overridePriority: 0,
     };
   }
@@ -847,8 +1108,18 @@ function makeCanonicalTemplate({
     occurrencePhraseIds: phrases.map((phrase) => phrase.id),
     occurrenceCount: phrases.length,
     transformId,
+    familyIntent: familyIntent ? {
+      dominantSectionRole: familyIntent.dominantSectionRole,
+      sectionRoles: familyIntent.sectionRoles,
+      contour: familyIntent.contour,
+      motifBias: familyIntent.motifBias,
+      transformReason: familyIntent.transformReason,
+    } : null,
     intensity: Number(intensity.toFixed(3)),
+    motifPlan: plan,
+    barProfiles: motifPlan.profiles,
     mVariant,
+    mStartBar: appliedMStartBar,
     slots,
   };
 }
@@ -869,6 +1140,7 @@ function applyRangeReuse({
   targetStartSeconds,
   targetEndSeconds,
   priority,
+  similarity,
 }, phraseContexts, occurrenceTemplates) {
   const collect = (startSeconds, endSeconds) => phraseContexts.flatMap((phrase) => (
     phrase.items.flatMap((item, slotIndex) => (
@@ -881,6 +1153,10 @@ function applyRangeReuse({
   const source = collect(sourceStartSeconds, sourceEndSeconds);
   const target = collect(targetStartSeconds, targetEndSeconds);
   if (!source.length || source.length !== target.length) return null;
+  // M pockets are playability overlays with their own entry/exit contract.
+  // Copying one through a shifted recurrence window can detach it from the
+  // transition it was validated against, so only the musical core is reusable.
+  if ([...source, ...target].some((entry) => entry.spec.pattern === 'm')) return null;
   for (let index = 0; index < target.length; index += 1) {
     const sourceSpec = source[index].spec;
     occurrenceTemplates.get(target[index].phrase.id)[target[index].slotIndex] = copySpec(sourceSpec, {
@@ -896,6 +1172,7 @@ function applyRangeReuse({
     targetStartSeconds,
     targetEndSeconds,
     copiedSlotCount: source.length,
+    similarity: Number(similarity),
     exact: true,
   };
 }
@@ -924,15 +1201,11 @@ function applyStructuralReuse(structure, phraseContexts, occurrenceTemplates, te
         targetStartSeconds: repeat.startSeconds,
         targetEndSeconds: repeat.endSeconds,
         priority: 1,
+        similarity: repeat.similarityToPrototype,
       }, phraseContexts, occurrenceTemplates);
       if (result) applied.push(result);
     }
   }
-  for (const link of KNOWN_STRUCTURE_REUSES) {
-    const result = applyRangeReuse({ ...link, priority: 2 }, phraseContexts, occurrenceTemplates);
-    if (result) applied.push(result);
-  }
-
   // A phrase family owns exactly one canonical template. If an overlapping
   // phrase promoted a stronger slot into one occurrence, promote the same slot
   // to every occurrence of that family rather than silently breaking identity.
@@ -992,7 +1265,9 @@ function prepareClimaxMelodyBurst({
   templateGroups,
 }) {
   if (trackId !== 'beat-this') return null;
-  const nearby = candidates.filter((candidate) => Math.abs(candidate.timeSeconds - climaxTime) <= 9);
+  const nearby = candidates.filter((candidate) => (
+    Math.abs(candidate.timeSeconds - climaxTime) <= CLIMAX_RADIUS_SECONDS
+  ));
   const clusters = [];
   let cluster = [];
   for (const candidate of nearby) {
@@ -1044,12 +1319,25 @@ function buildEvents(track) {
   if (!sourceEvents.length) throw new Error(`Rhythm track ${track.id} contains no playable events.`);
   const flowAnalysis = buildFlowValues(sourceEvents);
   const flowValues = flowAnalysis.values;
-  const climaxIndex = flowAnalysis.climaxScores.reduce((best, value, index) => (
-    value > flowAnalysis.climaxScores[best] ? index : best
-  ), 0);
+  const declaredPeak = LAYOUT_INTENT.sections
+    .filter((section) => section.role === 'peak')
+    .sort((left, right) => right.pressure - left.pressure)[0];
+  const peakIndices = sourceEvents.flatMap((event, index) => (
+    declaredPeak
+    && event.timeSeconds >= declaredPeak.startSeconds
+    && event.timeSeconds < declaredPeak.endSeconds
+      ? [index]
+      : []
+  ));
+  const climaxPool = peakIndices.length ? peakIndices : sourceEvents.map((_, index) => index);
+  const climaxIndex = climaxPool.reduce((best, index) => (
+    flowAnalysis.climaxScores[index] > flowAnalysis.climaxScores[best] ? index : best
+  ), climaxPool[0]);
   const climaxTime = sourceEvents[climaxIndex]?.timeSeconds ?? analysis.song.durationSeconds * 0.85;
-  const seed = `${analysis.song.id}:${track.id}:structure-v3`;
+  const seed = `${AUDIO_SEED}:${track.id}:responsive-structure-v5`;
   const structure = normalizeMusicalStructure(sourceEvents);
+  const introEndSeconds = structure.phrases.find((phrase) => phrase.startBarIndex === 0)?.endSeconds
+    ?? BEAT_SECONDS * 32;
   const phraseContexts = buildPhraseContexts(structure, sourceEvents, flowValues);
   // The structure model is aligned to Beat This beats. Comparator tracks have
   // different, sometimes bursty event counts, so they keep the same real bar
@@ -1072,17 +1360,27 @@ function buildEvents(track) {
     if (!templateGroups.has(key)) templateGroups.set(key, { key, phrases: [] });
     templateGroups.get(key).phrases.push(phrase);
   }
+  for (const group of templateGroups.values()) {
+    group.intent = group.phrases
+      .map((phrase) => INTENT_FAMILY_BY_PHRASE_ID.get(phrase.id))
+      .find(Boolean) ?? null;
+  }
 
   const climaxGroup = [...templateGroups.values()].find((group) => (
     group.phrases.some((phrase) => climaxTime >= phrase.startSeconds && climaxTime < phrase.endSeconds)
   ));
-  const standardMGroup = track.id === 'beat-this'
+  const standardMGroup = track.id === 'beat-this' && beatEventsPerMinute >= 135
     ? [...templateGroups.values()]
-      .filter((group) => group !== climaxGroup && group.phrases[0].items.length >= 12 && group.phrases.every((phrase) => phrase.startSeconds >= 17))
+      .filter((group) => (
+        group !== climaxGroup
+        && group.phrases[0].items.length >= 12
+        && group.phrases.every((phrase) => phrase.startBarIndex >= 4)
+        && ['build', 'drive', 'release'].includes(group.intent?.dominantSectionRole ?? 'drive')
+      ))
       .sort((left, right) => (
         Number(left.phrases.length > 1) - Number(right.phrases.length > 1)
-        || Math.abs(average(right.phrases.map((phrase) => phrase.intensity)) - 0.62)
-          - Math.abs(average(left.phrases.map((phrase) => phrase.intensity)) - 0.62)
+        || Math.abs(average(left.phrases.map((phrase) => phrase.intensity)) - 0.62)
+          - Math.abs(average(right.phrases.map((phrase) => phrase.intensity)) - 0.62)
       ))[0]
     : null;
 
@@ -1112,6 +1410,10 @@ function buildEvents(track) {
       trackId: track.id,
       mVariant,
       mStartBar,
+      bars: structure.bars,
+      familyIntent: group.intent,
+      difficultyBoost: group === climaxGroup ? 0.18 : 0,
+      auxiliaryCandidates: selectedAuxiliary,
     });
     group.template = template;
     familyTemplates.push(template);
@@ -1175,14 +1477,16 @@ function buildEvents(track) {
         barIndex: blockItems[0].barIndex,
         barInPhrase: blockItems[0].barInPhrase,
         barRole: firstSpec.barRole,
+        sectionRole: firstSpec.sectionRole,
+        pressure: Number((firstSpec.pressure ?? average(blockItems.map((item) => item.flow))).toFixed(3)),
         downbeatCue: blockSpecs.some((spec) => spec.downbeatCue),
         slotTimes: blockItems.map((item) => Number(item.sourceEvent.timeSeconds.toFixed(5))),
         templateRows: blockSpecs.map((spec) => rowKey(spec.obstacles)),
         ...(firstSpec.pattern === 'm' ? {
           variant: firstSpec.variant,
-          mirrored: false,
-          orientation: 'left-pocket',
-          pocketLane: 0,
+          mirrored: firstSpec.transformId === 'mirror',
+          orientation: firstSpec.transformId === 'mirror' ? 'right-pocket' : 'left-pocket',
+          pocketLane: firstSpec.transformId === 'mirror' ? LANE_COUNT - 1 : 0,
           pocketStartSeconds: Number(blockItems[2].sourceEvent.timeSeconds.toFixed(5)),
           pocketEndSeconds: Number(blockItems[3].sourceEvent.timeSeconds.toFixed(5)),
         } : {}),
@@ -1194,6 +1498,7 @@ function buildEvents(track) {
       }
       slotIndex = blockEnd;
     }
+    const phraseGroup = templateGroups.get(`${phrase.familyId}|${phrase.durationClass}`);
     phraseSections.push({
       index: phraseSections.length,
       phraseId: phrase.id,
@@ -1201,8 +1506,12 @@ function buildEvents(track) {
       analysisFamilyId: phrase.analysisFamilyId ?? phrase.familyId,
       familyKind: phrase.familyKind,
       durationClass: phrase.durationClass,
-      templateId: templateGroups.get(`${phrase.familyId}|${phrase.durationClass}`).template.id,
-      transformId: templateGroups.get(`${phrase.familyId}|${phrase.durationClass}`).template.transformId,
+      templateId: phraseGroup.template.id,
+      transformId: phraseGroup.template.transformId,
+      sectionRole: INTENT_SECTION_BY_INDEX.get(phrase.sectionIndex)?.role
+        ?? phraseGroup.intent?.dominantSectionRole
+        ?? 'drive',
+      contour: phraseGroup.intent?.contour ?? null,
       startSeconds: Number(phrase.startSeconds.toFixed(3)),
       endSeconds: Number(phrase.endSeconds.toFixed(3)),
       startBarIndex: phrase.startBarIndex,
@@ -1233,6 +1542,8 @@ function buildEvents(track) {
         barIndex: barItems[0].barIndex,
         barInPhrase,
         barRole: cueSpec.barRole,
+        sectionRole: cueSpec.sectionRole,
+        pressure: Number((cueSpec.pressure ?? average(barItems.map((item) => item.flow))).toFixed(3)),
         startSeconds: Number(barItems[0].sourceEvent.timeSeconds.toFixed(3)),
         endSeconds: Number(barItems[barItems.length - 1].sourceEvent.timeSeconds.toFixed(3)),
         downbeatCue: true,
@@ -1280,6 +1591,8 @@ function buildEvents(track) {
         beatInBar: item.beatInBar,
         downbeatCue: spec.downbeatCue,
         barRole: spec.barRole,
+        sectionRole: spec.sectionRole,
+        pressure: Number((spec.pressure ?? item.flow).toFixed(3)),
         relativeSlotKey: spec.relativeSlotKey,
         occurrenceSlotKey: `${phrase.id}:slot-${slotIndex}`,
         layer: 'core',
@@ -1328,7 +1641,7 @@ function buildEvents(track) {
     const targetSpec = [...specs.slice(0, previousSlot + 1)].reverse().find((spec) => spec.kind === 'target')
       ?? specs.slice(previousSlot + 1).find((spec) => spec.kind === 'target');
     const lane = targetSpec?.preferredLane ?? START_LANE;
-    const isOverlay = Math.abs(candidate.timeSeconds - climaxTime) <= 9;
+    const isOverlay = Math.abs(candidate.timeSeconds - climaxTime) <= CLIMAX_RADIUS_SECONDS;
     auxEntries.push({
       candidate,
       phrase,
@@ -1407,7 +1720,9 @@ function buildEvents(track) {
     }
     if (!canonicalAuxiliaryRows.has(entry.canonicalKey)) {
       const templateIntensity = templateIntensityById.get(entry.spec.templateId) ?? entry.candidate.flow;
-      const canonicalIntensity = entry.phrase.startSeconds < 13 ? templateIntensity : Math.max(0.72, templateIntensity);
+      const canonicalIntensity = entry.phrase.startSeconds < introEndSeconds
+        ? templateIntensity
+        : templateIntensity;
       canonicalAuxiliaryRows.set(entry.canonicalKey, preserveMotifSurvival(
         makeAuxiliaryRow(entry.lane, canonicalIntensity, entry.canonicalKey, 'auxiliary-common'),
         entry.spec.pattern,
@@ -1456,7 +1771,7 @@ function buildEvents(track) {
     - average(left.map((entry) => entry.candidate.flow)));
   let acceptedIntroAuxiliary = 0;
   for (const batch of commonBatches) {
-    const introCount = batch.filter((entry) => entry.candidate.timeSeconds < 13).length;
+    const introCount = batch.filter((entry) => entry.candidate.timeSeconds < introEndSeconds).length;
     if (introCount && acceptedIntroAuxiliary + introCount > 3) continue;
     const batchEvents = batch.map(toAuxEvent);
     const trial = [...combined, ...batchEvents].sort((left, right) => left.timeSeconds - right.timeSeconds);
@@ -1484,9 +1799,9 @@ function buildEvents(track) {
     const targetLane = comboRoute[index];
     if (event.layer === 'overlay' || event._adaptiveLane) {
       const adaptiveLayer = event.layer === 'overlay' ? 'overlay' : 'auxiliary-common';
-      const adaptiveIntensity = event.timeSeconds < 13
+      const adaptiveIntensity = event.timeSeconds < introEndSeconds
         ? 0
-        : (event.layer === 'overlay' ? event.flow : Math.max(0.72, event.flow));
+        : event.flow;
       event.obstacles = preserveMotifSurvival(
         makeAuxiliaryRow(
           targetLane,
@@ -1619,7 +1934,23 @@ function buildEvents(track) {
         occurrenceCount: template.occurrenceCount,
         transformId: template.transformId,
         intensity: template.intensity,
+        motifPlan: template.motifPlan,
+        barProfiles: template.barProfiles,
         mVariant: template.mVariant,
+        mStartBar: template.mStartBar,
+        dominantSectionRole: template.familyIntent?.dominantSectionRole ?? 'drive',
+        sectionRoles: template.familyIntent?.sectionRoles ?? ['drive'],
+        contour: template.familyIntent?.contour ?? {
+          kind: 'unknown',
+          confidence: 0,
+          range: 0,
+          slope: 0,
+          eventCount: 0,
+          analyzedOccurrenceCount: 0,
+        },
+        preferredTransform: template.transformId,
+        transformReason: template.familyIntent?.transformReason ?? 'geometry-fallback',
+        motifBias: template.familyIntent?.motifBias ?? template.motifPlan,
         coreSlotCount: realisedSlots.length,
         coreRowSignature: realisedSlots.map((slot) => rowKey(slot.obstacles)).join(','),
         barModules: [...new Map(realisedSlots.map((slot) => [slot.blockId, {
@@ -1639,26 +1970,32 @@ function buildEvents(track) {
     auxiliaryNoteCount: acceptedAuxiliary.length,
     rejectedAuxiliaryCount: selectedAuxiliary.length - acceptedAuxiliary.length,
     maximumMelodyRun,
-    layoutAlgorithm: 'music-structure-template-v3',
+    layoutIntentProfile: {
+      algorithm: 'music-description-to-layout-intent-v1',
+      audioFingerprint: AUDIO_SEED,
+      songProfile: LAYOUT_INTENT.songProfile,
+      sections: LAYOUT_INTENT.sections,
+    },
+    layoutAlgorithm: 'music-responsive-template-v5',
   };
 }
 
 function buildLevel(track) {
   const chart = buildEvents(track);
   return {
-    id: `${analysis.song.id}-${track.id}-${FLOW_MODE.id}`,
+    id: `${analysis.song.id}-${FLOW_MODE.id}`,
     version: 3,
     song: {
       title: analysis.song.title,
       artist: analysis.song.artist,
       audioUrl: analysis.song.audioUrl,
-      bpm: 116,
+      bpm: analysis.song.bpm,
       durationSeconds: analysis.song.durationSeconds,
     },
     generation: {
       algorithm: track.id,
-      displayName: track.name,
-      description: track.description,
+      displayName: '音乐语义结构心流谱面',
+      description: 'Beat This! 提供拍点骨架；librosa 段落与 Basic Pitch 音高走势共同决定重复形态、路线方向和压力。',
       difficulty: FLOW_MODE.id,
       difficultyLabel: FLOW_MODE.label,
       difficultyDescription: FLOW_MODE.description,
@@ -1686,38 +2023,22 @@ function buildLevel(track) {
       musicalStructureAlgorithm: chart.musicalStructureAlgorithm,
       musicalStructureTimingPolicy: chart.musicalStructureTimingPolicy,
       climaxTimeSeconds: chart.climaxTimeSeconds,
+      layoutIntentProfile: chart.layoutIntentProfile,
       layoutAlgorithm: chart.layoutAlgorithm,
       timingPolicy: analysis.timingPolicy,
-      metrics: track.metrics,
+      audioCompression: analysis.song.audioCompression,
     },
     events: chart.events,
   };
 }
 
-const levels = Object.fromEntries(analysis.tracks.map((track) => [track.id, buildLevel(track)]));
-const primaryTrackId = analysis.primaryTrackId;
-if (!levels[primaryTrackId]) throw new Error(`Primary rhythm track ${primaryTrackId} is missing.`);
+const primarySource = analysis.eventSources.find((source) => source.id === analysis.primaryEventSourceId);
+if (!primarySource) throw new Error(`Primary event source ${analysis.primaryEventSourceId} is missing.`);
+const level = buildLevel(primarySource);
 
-const collection = {
-  schemaVersion: 2,
-  kind: 'rhythm-level-collection',
-  generatedAt: analysis.generatedAt,
-  primaryTrackId,
-  primaryDifficulty: FLOW_MODE.id,
-  difficulties: {
-    [FLOW_MODE.id]: {
-      label: FLOW_MODE.label,
-      description: FLOW_MODE.description,
-      minTravelSecondsPerLane: FLOW_MODE.minTravelSecondsPerLane,
-    },
-  },
-  levels: { [FLOW_MODE.id]: levels },
-};
-
-await mkdir(dirname(collectionPath), { recursive: true });
-await writeFile(collectionPath, `${JSON.stringify(collection, null, 2)}\n`);
-await writeFile(primaryPath, `${JSON.stringify(levels[primaryTrackId], null, 2)}\n`);
+await mkdir(dirname(levelPath), { recursive: true });
+await writeFile(levelPath, `${JSON.stringify(level, null, 2)}\n`);
 console.log(
-  `Generated ${analysis.tracks.length} music-flow levels; primary=${primaryTrackId}/${FLOW_MODE.id}; `
-  + `${levels[primaryTrackId].generation.noteCount} targets, ${levels[primaryTrackId].generation.spikeCount} spikes.`,
+  `Generated ${level.id}: ${level.generation.noteCount} targets, `
+  + `${level.generation.spikeCount} spikes, ${level.generation.auxiliaryNoteCount} melodic subdivisions.`,
 );

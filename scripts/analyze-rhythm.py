@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""Generate non-quantized rhythm candidates and a human-preference comparison file.
-
-All precise event times come from mature detector outputs. The small classifier only
-chooses between those candidates; it never creates, moves, or snaps an event.
-"""
+"""Compress one song and analyse its non-quantized musical events and structure."""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import logging
 import math
 import os
 import tempfile
+import warnings
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
@@ -20,16 +19,13 @@ from typing import Iterable, Sequence
 
 ROOT = Path(__file__).resolve().parents[1]
 os.environ.setdefault("TORCH_HOME", str(ROOT / ".cache" / "torch"))
+warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API", module="resampy.filters")
 
 import librosa
 import numpy as np
 import soundfile as sf
-from sklearn.linear_model import LogisticRegression
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.model_selection import GroupKFold
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
 from scipy.sparse import diags
 
 
@@ -37,16 +33,10 @@ SAMPLE_RATE = 22_050
 HOP_LENGTH = 256
 N_FFT = 1_024
 MIN_OUTPUT_GAP_SECONDS = 0.12
-TRAINING_MATCH_SECONDS = 0.12
-SOURCE_MATCH_SECONDS = 0.09
-REVIEW_MATCH_SECONDS = 0.18
 COLORS = {
-    "human-reference": "#f4f7ff",
-    "legacy-grid": "#7c879c",
     "librosa-onset": "#35e4ed",
     "basic-pitch": "#b879ff",
     "beat-this": "#ffc857",
-    "preference-fusion": "#ff4f9a",
 }
 
 STRUCTURE_BARS_PER_PHRASE = 8
@@ -62,6 +52,11 @@ class DetectorEvent:
     time: float
     score: float
     source: str
+    midi_pitch: float | None = None
+    pitch_min: float | None = None
+    pitch_max: float | None = None
+    duration: float | None = None
+    polyphony: int | None = None
 
 
 def package_version(name: str) -> str | None:
@@ -82,51 +77,6 @@ def normalize_curve(values: np.ndarray) -> np.ndarray:
     low = float(np.percentile(values, 20))
     high = float(np.percentile(values, 97))
     return np.clip((values - low) / max(1e-9, high - low), 0, 1)
-
-
-def load_labels(path: Path) -> list[float]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if isinstance(payload.get("timeSeconds"), list):
-        raw = payload["timeSeconds"]
-    else:
-        raw = [marker.get("timeSeconds") for marker in payload.get("markers", [])]
-    return sorted(float(value) for value in raw if isinstance(value, (int, float)) and math.isfinite(value))
-
-
-def load_review_feedback(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    feedback = payload.get("feedback", [])
-    if not isinstance(feedback, list):
-        raise ValueError(f"Feedback file must contain an array: {path}")
-    return [
-        item
-        for item in feedback
-        if isinstance(item, dict) and item.get("verdict") in {"keep", "reject", "missing"}
-    ]
-
-
-def load_legacy_times(path: Path) -> list[float]:
-    if not path.exists():
-        return []
-    level = json.loads(path.read_text(encoding="utf-8"))
-    if isinstance(level.get("timeSeconds"), list):
-        return sorted(float(value) for value in level["timeSeconds"])
-    if level.get("version") == 3:
-        return [
-            float(event["timeSeconds"])
-            for event in level.get("events", [])
-            if 1 in event.get("obstacles", [])
-        ]
-    bpm = float(level["song"]["bpm"])
-    offset = float(level["song"]["beatOffsetSeconds"])
-    tick_duration = 60 / bpm / int(level["ticksPerBeat"])
-    return [
-        offset + tick * tick_duration
-        for tick, row in enumerate(level.get("obstacles", []))
-        if 1 in row
-    ]
 
 
 def curve_events(
@@ -242,6 +192,52 @@ def cluster_events(events: Sequence[DetectorEvent], gap: float = 0.055) -> list[
     return [max(cluster, key=lambda event: event.score) for cluster in clusters]
 
 
+def cluster_basic_pitch_events(
+    events: Sequence[DetectorEvent],
+    gap: float = 0.05,
+) -> list[DetectorEvent]:
+    """Collapse near-simultaneous notes without changing the chosen onset time."""
+    if not events:
+        return []
+    ordered = sorted(events, key=lambda event: event.time)
+    clusters: list[list[DetectorEvent]] = [[ordered[0]]]
+    for event in ordered[1:]:
+        if event.time - clusters[-1][0].time <= gap:
+            clusters[-1].append(event)
+        else:
+            clusters.append([event])
+
+    aggregated: list[DetectorEvent] = []
+    for cluster in clusters:
+        representative = max(cluster, key=lambda event: event.score)
+        pitched = [event for event in cluster if event.midi_pitch is not None]
+        weights = np.asarray([max(event.score, 1e-9) for event in pitched], dtype=np.float64)
+        pitches = np.asarray([float(event.midi_pitch) for event in pitched], dtype=np.float64)
+        durations = np.asarray(
+            [max(0.0, float(event.duration or 0.0)) for event in pitched],
+            dtype=np.float64,
+        )
+        pitch_minimums = [
+            float(event.pitch_min if event.pitch_min is not None else event.midi_pitch)
+            for event in pitched
+        ]
+        pitch_maximums = [
+            float(event.pitch_max if event.pitch_max is not None else event.midi_pitch)
+            for event in pitched
+        ]
+        aggregated.append(DetectorEvent(
+            time=representative.time,
+            score=representative.score,
+            source=representative.source,
+            midi_pitch=float(np.average(pitches, weights=weights)) if pitched else None,
+            pitch_min=min(pitch_minimums) if pitch_minimums else None,
+            pitch_max=max(pitch_maximums) if pitch_maximums else None,
+            duration=float(np.average(durations, weights=weights)) if pitched else None,
+            polyphony=sum(max(1, event.polyphony or 1) for event in pitched) if pitched else None,
+        ))
+    return aggregated
+
+
 def nms_detector_events(events: Sequence[DetectorEvent], minimum_gap: float) -> list[DetectorEvent]:
     selected: list[DetectorEvent] = []
     for event in sorted(events, key=lambda item: item.score, reverse=True):
@@ -259,8 +255,13 @@ def run_basic_pitch(wav_path: Path, duration: float) -> tuple[list[DetectorEvent
         "runtime": "ONNX",
     }
     try:
-        from basic_pitch import ICASSP_2022_MODEL_PATH
-        from basic_pitch.inference import Model, predict
+        previous_logging_disable = logging.root.manager.disable
+        logging.disable(logging.WARNING)
+        try:
+            from basic_pitch import ICASSP_2022_MODEL_PATH
+            from basic_pitch.inference import Model, predict
+        finally:
+            logging.disable(previous_logging_disable)
 
         model = Model(ICASSP_2022_MODEL_PATH)
         _, _, notes = predict(
@@ -270,12 +271,24 @@ def run_basic_pitch(wav_path: Path, duration: float) -> tuple[list[DetectorEvent
             frame_threshold=0.3,
             minimum_note_length=90,
         )
-        raw = [
-            DetectorEvent(float(note[0]), float(note[3]), "basic_pitch")
-            for note in notes
-            if 0.5 <= float(note[0]) <= duration - 0.5
-        ]
-        clustered = cluster_events(raw, gap=0.05)
+        raw = []
+        for note in notes:
+            start_time = float(note[0])
+            if not 0.5 <= start_time <= duration - 0.5:
+                continue
+            end_time = max(start_time, float(note[1]))
+            midi_pitch = float(note[2])
+            raw.append(DetectorEvent(
+                time=start_time,
+                score=float(note[3]),
+                source="basic_pitch",
+                midi_pitch=midi_pitch,
+                pitch_min=midi_pitch,
+                pitch_max=midi_pitch,
+                duration=end_time - start_time,
+                polyphony=1,
+            ))
+        clustered = cluster_basic_pitch_events(raw, gap=0.05)
         metadata.update({"available": True, "eventCount": len(clustered)})
         return clustered, metadata
     except Exception as error:  # optional model backend
@@ -677,10 +690,16 @@ def _multi_scale_sections(
         shape=(unit_count, unit_count),
         format="csr",
     )
-    # Use phrase-scale resolutions. Very coarse 2/3-cluster cuts dominated the
-    # vote with a single giant middle section on this song and obscured the
-    # repeated 8/16-bar form that the chart generator needs to preserve.
-    cluster_counts = sorted({count for count in (6, 8, 10, 12, 14, 16, 18) if count < unit_count})
+    # Express every resolution relative to this song's length. Each context
+    # unit is four bars; these cuts inspect average section spans from roughly
+    # five to sixteen bars without baking one reference song's section count
+    # into the analyser.
+    target_unit_spans = (1.25, 1.5, 2.0, 2.5, 3.0, 4.0)
+    cluster_counts = sorted({
+        max(2, min(unit_count - 1, round(unit_count / span)))
+        for span in target_unit_spans
+        if unit_count > 2
+    })
     boundary_votes: dict[int, int] = {}
     scales: list[dict] = []
     for cluster_count in cluster_counts:
@@ -994,268 +1013,6 @@ def build_musical_structure(
     return base
 
 
-def nearest_event_value(time: float, events: Sequence[DetectorEvent], radius: float) -> float:
-    best = 0.0
-    for event in events:
-        distance = abs(event.time - time)
-        if distance <= radius:
-            best = max(best, event.score * math.exp(-0.5 * (distance / max(1e-6, radius / 2)) ** 2))
-        elif event.time > time + radius:
-            break
-    return best
-
-
-def curve_value(curve: np.ndarray, time: float) -> float:
-    frame = int(round(time * SAMPLE_RATE / HOP_LENGTH))
-    return float(curve[min(max(frame, 0), len(curve) - 1)]) if len(curve) else 0.0
-
-
-def merge_candidates(detectors: dict[str, list[DetectorEvent]]) -> list[dict]:
-    flattened = sorted(
-        (event for events in detectors.values() for event in events),
-        key=lambda event: event.time,
-    )
-    if not flattened:
-        return []
-    clusters: list[list[DetectorEvent]] = [[flattened[0]]]
-    for event in flattened[1:]:
-        if event.time - clusters[-1][0].time <= 0.045:
-            clusters[-1].append(event)
-        else:
-            clusters.append([event])
-    candidates = []
-    for cluster in clusters:
-        representative = max(cluster, key=lambda event: event.score)
-        source_scores: dict[str, float] = {}
-        for event in cluster:
-            source_scores[event.source] = max(source_scores.get(event.source, 0), event.score)
-        candidates.append({
-            "time": representative.time,
-            "baseScore": representative.score,
-            "sourceScores": source_scores,
-        })
-    return candidates
-
-
-def event_match_metrics(predicted: Sequence[float], reference: Sequence[float], tolerance: float) -> dict:
-    pairs = sorted(
-        (abs(prediction - target), prediction_index, target_index)
-        for prediction_index, prediction in enumerate(predicted)
-        for target_index, target in enumerate(reference)
-        if abs(prediction - target) <= tolerance
-    )
-    used_predictions: set[int] = set()
-    used_targets: set[int] = set()
-    errors: list[float] = []
-    for error, prediction_index, target_index in pairs:
-        if prediction_index in used_predictions or target_index in used_targets:
-            continue
-        used_predictions.add(prediction_index)
-        used_targets.add(target_index)
-        errors.append(error)
-    matched = len(errors)
-    precision = matched / len(predicted) if predicted else 0.0
-    recall = matched / len(reference) if reference else 0.0
-    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
-    return {
-        "toleranceMs": round(tolerance * 1000),
-        "matched": matched,
-        "precision": round_number(precision, 4),
-        "recall": round_number(recall, 4),
-        "f1": round_number(f1, 4),
-        "meanAbsoluteErrorMs": round_number(np.mean(errors) * 1000, 1) if errors else None,
-        "p90AbsoluteErrorMs": round_number(np.percentile(errors, 90) * 1000, 1) if errors else None,
-    }
-
-
-def nms_candidates(candidates: Sequence[dict], score_key: str, minimum_gap: float) -> list[dict]:
-    selected: list[dict] = []
-    for candidate in sorted(candidates, key=lambda item: item[score_key], reverse=True):
-        if all(abs(candidate["time"] - existing["time"]) >= minimum_gap for existing in selected):
-            selected.append(candidate)
-    return sorted(selected, key=lambda item: item["time"])
-
-
-def train_preference_model(
-    candidates: list[dict],
-    detectors: dict[str, list[DetectorEvent]],
-    curves: dict[str, np.ndarray],
-    labels: Sequence[float],
-    review_feedback: Sequence[dict],
-) -> tuple[list[dict], dict]:
-    detector_features = sorted(detectors)
-    curve_features = ["rms_rise", "chroma_novelty"]
-    feature_names = detector_features + curve_features
-    matrix = []
-    weights = []
-    groups = []
-    for candidate in candidates:
-        time = candidate["time"]
-        features = [nearest_event_value(time, detectors[source], SOURCE_MATCH_SECONDS) for source in detector_features]
-        features.extend(curve_value(curves[source], time) for source in curve_features)
-        matrix.append(features)
-        groups.append(int(time // 30))
-
-    # One tap can supervise at most one real audio candidate. This prevents a
-    # dense cluster of nearby peaks from all becoming positive and also leaves
-    # accidental double taps unmatched instead of duplicating an obstacle.
-    possible_pairs = sorted(
-        (abs(candidate["time"] - label), candidate_index, label_index)
-        for candidate_index, candidate in enumerate(candidates)
-        for label_index, label in enumerate(labels)
-        if abs(candidate["time"] - label) <= TRAINING_MATCH_SECONDS
-    )
-    positive_candidates: set[int] = set()
-    matched_labels: set[int] = set()
-    for _, candidate_index, label_index in possible_pairs:
-        if candidate_index in positive_candidates or label_index in matched_labels:
-            continue
-        positive_candidates.add(candidate_index)
-        matched_labels.add(label_index)
-    # Explicit listening-room feedback overrides the original one-pass tap label
-    # for its nearest detector candidate. Later entries win, matching the UI's
-    # ability to change a verdict without silently duplicating it.
-    review_candidate_targets: dict[int, int] = {}
-    matched_review_count = 0
-    review_verdict_counts = {"keep": 0, "reject": 0, "missing": 0}
-    for item in review_feedback:
-        verdict = item.get("verdict")
-        review_verdict_counts[verdict] += 1
-        reference = item.get("eventTimeSeconds")
-        if not isinstance(reference, (int, float)) or not math.isfinite(reference):
-            reference = item.get("tapTimeSeconds")
-        if not isinstance(reference, (int, float)) or not math.isfinite(reference) or not candidates:
-            continue
-        candidate_index = min(range(len(candidates)), key=lambda index: abs(candidates[index]["time"] - reference))
-        if abs(candidates[candidate_index]["time"] - reference) <= REVIEW_MATCH_SECONDS:
-            review_candidate_targets[candidate_index] = 0 if verdict == "reject" else 1
-            matched_review_count += 1
-
-    targets = [
-        review_candidate_targets.get(index, 1 if index in positive_candidates else 0)
-        for index in range(len(candidates))
-    ]
-    for index, candidate in enumerate(candidates):
-        distance = min((abs(candidate["time"] - label) for label in labels), default=math.inf)
-        is_positive = index in positive_candidates
-        if index in review_candidate_targets:
-            weights.append(4.0)
-        else:
-            weights.append(1.8 if is_positive else (1.25 if distance <= 0.75 else 0.7))
-
-    x = np.asarray(matrix, dtype=np.float64)
-    y = np.asarray(targets, dtype=np.int32)
-    sample_weights = np.asarray(weights, dtype=np.float64)
-    group_values = np.asarray(groups, dtype=np.int32)
-    if not len(x) or len(np.unique(y)) < 2:
-        for candidate in candidates:
-            candidate["preferenceScore"] = candidate["baseScore"]
-        return nms_candidates(candidates, "preferenceScore", MIN_OUTPUT_GAP_SECONDS), {
-            "trained": False,
-            "reason": "Candidate labels did not contain both classes.",
-            "featureNames": feature_names,
-        }
-
-    unique_groups = np.unique(group_values)
-    fold_count = min(5, len(unique_groups))
-    oof = np.zeros(len(candidates), dtype=np.float64)
-    if fold_count >= 2:
-        splitter = GroupKFold(n_splits=fold_count)
-        for train_indices, test_indices in splitter.split(x, y, group_values):
-            if len(np.unique(y[train_indices])) < 2:
-                oof[test_indices] = float(np.mean(y[train_indices]))
-                continue
-            model = make_pipeline(
-                StandardScaler(),
-                LogisticRegression(C=0.35, class_weight="balanced", max_iter=2_000, solver="liblinear"),
-            )
-            model.fit(x[train_indices], y[train_indices], logisticregression__sample_weight=sample_weights[train_indices])
-            oof[test_indices] = model.predict_proba(x[test_indices])[:, 1]
-    else:
-        oof[:] = y
-
-    best_threshold = 0.5
-    best_score = -math.inf
-    best_metrics = None
-    best_count = len(labels)
-    for threshold in np.linspace(0.15, 0.85, 71):
-        trial = [
-            {**candidate, "oofScore": float(score)}
-            for candidate, score in zip(candidates, oof)
-            if score >= threshold
-        ]
-        trial = nms_candidates(trial, "oofScore", MIN_OUTPUT_GAP_SECONDS)
-        metrics = event_match_metrics([candidate["time"] for candidate in trial], labels, 0.12)
-        density_penalty = 0.06 * abs(len(trial) - len(labels)) / max(1, len(labels))
-        objective = metrics["f1"] - density_penalty
-        if objective > best_score:
-            best_score = objective
-            best_threshold = float(threshold)
-            best_metrics = metrics
-            best_count = len(trial)
-
-    final_model = make_pipeline(
-        StandardScaler(),
-        LogisticRegression(C=0.35, class_weight="balanced", max_iter=2_000, solver="liblinear"),
-    )
-    final_model.fit(x, y, logisticregression__sample_weight=sample_weights)
-    probabilities = final_model.predict_proba(x)[:, 1]
-
-    # Cross-validation probabilities and a refit model are calibrated differently.
-    # Preserve the event density selected out-of-fold instead of blindly reusing
-    # the numeric OOF threshold, which can make the final chart much too sparse.
-    final_threshold = best_threshold
-    closest_count_delta = math.inf
-    for threshold in np.linspace(0.05, 0.95, 181):
-        trial = [
-            {**candidate, "refitScore": float(score)}
-            for candidate, score in zip(candidates, probabilities)
-            if score >= threshold
-        ]
-        trial = nms_candidates(trial, "refitScore", MIN_OUTPUT_GAP_SECONDS)
-        count_delta = abs(len(trial) - best_count)
-        if count_delta < closest_count_delta:
-            closest_count_delta = count_delta
-            final_threshold = float(threshold)
-
-    scored = []
-    for candidate, score in zip(candidates, probabilities):
-        candidate = dict(candidate)
-        candidate["preferenceScore"] = float(score)
-        if score >= final_threshold:
-            scored.append(candidate)
-    selected = nms_candidates(scored, "preferenceScore", MIN_OUTPUT_GAP_SECONDS)
-
-    logistic = final_model.named_steps["logisticregression"]
-    coefficients = {
-        name: round_number(weight, 4)
-        for name, weight in sorted(
-            zip(feature_names, logistic.coef_[0]),
-            key=lambda pair: abs(pair[1]),
-            reverse=True,
-        )
-    }
-    return selected, {
-        "trained": True,
-        "model": "scikit-learn L2 logistic regression",
-        "featureNames": feature_names,
-        "candidateCount": len(candidates),
-        "positiveCandidateCount": int(np.sum(y)),
-        "matchedHumanLabelCount": len(matched_labels),
-        "reviewFeedbackCount": len(review_feedback),
-        "matchedReviewFeedbackCount": matched_review_count,
-        "reviewVerdictCounts": review_verdict_counts,
-        "blockedCrossValidationFolds": fold_count,
-        "oofSelectedThreshold": round_number(best_threshold, 3),
-        "refitCalibratedThreshold": round_number(final_threshold, 3),
-        "oofSelectedEventCount": best_count,
-        "minimumGapMs": round(MIN_OUTPUT_GAP_SECONDS * 1000),
-        "oofMetricsAt120ms": best_metrics,
-        "coefficientsAfterStandardization": coefficients,
-        "timingPolicy": "Scores select mature detector candidates; timestamps are never moved or quantized.",
-    }
-
-
 def event_payload(time: float, confidence: float, sources: Iterable[str] = ()) -> dict:
     payload = {
         "timeSeconds": round_number(time),
@@ -1267,31 +1024,76 @@ def event_payload(time: float, confidence: float, sources: Iterable[str] = ()) -
     return payload
 
 
-def create_track(
-    track_id: str,
-    name: str,
-    description: str,
-    events: Sequence[dict],
-    labels: Sequence[float],
-    kind: str = "algorithm",
-) -> dict:
+def basic_pitch_event_payload(event: DetectorEvent) -> dict:
+    payload = event_payload(event.time, event.score, [event.source])
+    payload.update({
+        "midiPitch": round_number(event.midi_pitch, 3) if event.midi_pitch is not None else None,
+        "pitchMin": round_number(event.pitch_min, 3) if event.pitch_min is not None else None,
+        "pitchMax": round_number(event.pitch_max, 3) if event.pitch_max is not None else None,
+        "durationSeconds": round_number(event.duration, 4) if event.duration is not None else None,
+        "polyphony": int(event.polyphony) if event.polyphony is not None else 1,
+    })
+    return payload
+
+
+def create_event_source(source_id: str, events: Sequence[dict]) -> dict:
     times = [float(event["timeSeconds"]) for event in events]
     intervals = np.diff(times) if len(times) > 1 else np.array([], dtype=float)
     return {
-        "id": track_id,
-        "name": name,
-        "description": description,
-        "kind": kind,
-        "color": COLORS[track_id],
+        "id": source_id,
+        "color": COLORS[source_id],
         "eventCount": len(events),
         "eventsPerMinute": round_number(len(events) / max(times[-1] / 60, 1e-9), 2) if times else 0,
         "medianIntervalSeconds": round_number(np.median(intervals), 3) if intervals.size else None,
-        "metrics": {
-            "at50ms": event_match_metrics(times, labels, 0.05),
-            "at80ms": event_match_metrics(times, labels, 0.08),
-            "at120ms": event_match_metrics(times, labels, 0.12),
-        },
         "events": events,
+    }
+
+
+def compress_game_audio(source: Path, destination: Path) -> dict:
+    source_info = sf.info(source)
+    if source.resolve() == destination.resolve():
+        source_bytes = source.stat().st_size
+        return {
+            "sourceFormat": source_info.format,
+            "sourceSampleRate": source_info.samplerate,
+            "sourceChannels": source_info.channels,
+            "sourceBytes": source_bytes,
+            "format": "MP3",
+            "codec": "MPEG Layer III",
+            "bitrateMode": "existing",
+            "compressionLevel": None,
+            "sampleRate": source_info.samplerate,
+            "channels": source_info.channels,
+            "compressedBytes": source_bytes,
+            "sizeRatio": 1.0,
+        }
+    audio, sample_rate = sf.read(source, dtype="float32", always_2d=True)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    sf.write(
+        destination,
+        audio,
+        sample_rate,
+        format="MP3",
+        subtype="MPEG_LAYER_III",
+        compression_level=0.58,
+        bitrate_mode="VARIABLE",
+    )
+    output_info = sf.info(destination)
+    source_bytes = source.stat().st_size
+    output_bytes = destination.stat().st_size
+    return {
+        "sourceFormat": source_info.format,
+        "sourceSampleRate": source_info.samplerate,
+        "sourceChannels": source_info.channels,
+        "sourceBytes": source_bytes,
+        "format": "MP3",
+        "codec": "MPEG Layer III",
+        "bitrateMode": "variable",
+        "compressionLevel": 0.58,
+        "sampleRate": output_info.samplerate,
+        "channels": output_info.channels,
+        "compressedBytes": output_bytes,
+        "sizeRatio": round_number(output_bytes / max(1, source_bytes), 4),
     }
 
 
@@ -1304,21 +1106,13 @@ def waveform_peaks(y: np.ndarray, bucket_count: int = 1_600) -> list[float]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--audio", type=Path, default=ROOT / "public/audio/slice-at-two.mp3")
-    parser.add_argument("--labels", type=Path, default=ROOT / "data/annotations/slice-at-two.human-beats.json")
-    parser.add_argument(
-        "--feedback",
-        type=Path,
-        default=ROOT / "data/annotations/slice-at-two.review-feedback.json",
-        help="Optional feedback exported by the rhythm listening room.",
-    )
-    parser.add_argument(
-        "--legacy-level",
-        type=Path,
-        default=ROOT / "data/baselines/slice-at-two.legacy-times.json",
-        help="Immutable legacy baseline; never used to generate the new chart.",
-    )
-    parser.add_argument("--output", type=Path, default=ROOT / "public/analysis/slice-at-two.rhythm-analysis.json")
+    parser.add_argument("--audio", type=Path, required=True, help="Source audio accepted by libsndfile.")
+    parser.add_argument("--audio-output", type=Path, required=True, help="Compressed MP3 used by the game.")
+    parser.add_argument("--output", type=Path, required=True, help="Intermediate production analysis JSON.")
+    parser.add_argument("--song-id", required=True)
+    parser.add_argument("--title", required=True)
+    parser.add_argument("--artist", default="Unknown Artist")
+    parser.add_argument("--audio-url", required=True)
     parser.add_argument("--skip-beat-this", action="store_true")
     parser.add_argument("--skip-basic-pitch", action="store_true")
     return parser.parse_args()
@@ -1326,11 +1120,17 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    labels = load_labels(args.labels)
-    review_feedback = load_review_feedback(args.feedback)
-    legacy_times = load_legacy_times(args.legacy_level)
-    print(f"Loading {args.audio}...")
-    y, sample_rate = librosa.load(args.audio, sr=SAMPLE_RATE, mono=True)
+    if not args.audio.is_file():
+        raise FileNotFoundError(f"Audio input does not exist: {args.audio}")
+    print(f"Compressing {args.audio} -> {args.audio_output}...")
+    audio_compression = compress_game_audio(args.audio, args.audio_output)
+    print(
+        f"Compressed {audio_compression['sourceBytes'] / 1_048_576:.2f} MiB -> "
+        f"{audio_compression['compressedBytes'] / 1_048_576:.2f} MiB "
+        f"({audio_compression['sizeRatio'] * 100:.1f}%)."
+    )
+    print(f"Loading compressed game audio {args.audio_output}...")
+    y, sample_rate = librosa.load(args.audio_output, sr=SAMPLE_RATE, mono=True)
     if sample_rate != SAMPLE_RATE:
         raise RuntimeError(f"Unexpected sample rate {sample_rate}")
     duration = len(y) / SAMPLE_RATE
@@ -1379,53 +1179,28 @@ def main() -> None:
         duration,
     )
 
-    candidates = merge_candidates(detectors)
-    fusion, training = train_preference_model(candidates, detectors, curves, labels, review_feedback)
-
     librosa_selected = nms_detector_events(librosa_display_events, MIN_OUTPUT_GAP_SECONDS)
     basic_pitch_display_events = nms_detector_events(
         [event for event in basic_pitch_events if event.score >= 0.62],
         MIN_OUTPUT_GAP_SECONDS,
     )
 
-    tracks = [
-        create_track(
-            "human-reference",
-            "你的人工标注",
-            "原始空格点击；保留可能的误触，只作为偏好参考。",
-            [event_payload(time, 1.0) for time in labels],
-            labels,
-            kind="reference",
-        ),
-        create_track(
-            "legacy-grid",
-            "旧版网格算法",
-            "原有 BPM/tick 生成结果，用来直观看出被替换前的问题。",
-            [event_payload(time, 1.0, ["legacy-grid"]) for time in legacy_times],
-            labels,
-            kind="baseline",
-        ),
-        create_track(
+    event_sources = [
+        create_event_source(
             "librosa-onset",
-            "librosa 多频段起音",
-            "混音、打击、谐波和五个频带的成熟起音检测并集；不使用拍子网格。",
             [
                 event_payload(event.time, event.score, [event.source])
                 for event in librosa_selected
             ],
-            labels,
         ),
     ]
     if basic_pitch_events:
-        tracks.append(create_track(
+        event_sources.append(create_event_source(
             "basic-pitch",
-            "Basic Pitch 旋律起音",
-            "Spotify ONNX 模型在谐波声部上识别的音符起点，偏向旋律与主唱。",
             [
-                event_payload(event.time, event.score, [event.source])
+                basic_pitch_event_payload(event)
                 for event in basic_pitch_display_events
             ],
-            labels,
         ))
     if beat_events:
         structure_beats_by_time = {
@@ -1443,83 +1218,47 @@ def main() -> None:
                     "beatInBar": structure_beat["beatInBar"],
                 })
             beat_track_payload.append(payload)
-        tracks.append(create_track(
+        event_sources.append(create_event_source(
             "beat-this",
-            "Beat This!（当前首选）",
-            "你试听后选定的主方案；直接使用神经网络识别到的 beat/downbeat 峰值，不构造 BPM 网格。",
             beat_track_payload,
-            labels,
-            kind="recommended",
         ))
-    tracks.append(create_track(
-        "preference-fusion",
-        "人工标注偏好融合",
-        "正则化分类器从成熟检测器候选中选择更像第一遍手标的事件；保留作为对照方案。",
-        [
-            event_payload(
-                candidate["time"],
-                candidate["preferenceScore"],
-                [source for source, score in candidate["sourceScores"].items() if score >= 0.2],
-            )
-            for candidate in fusion
-        ],
-        labels,
-        kind="recommended" if not beat_events else "algorithm",
-    ))
 
-    all_candidate_times = [candidate["time"] for candidate in candidates]
-    duplicate_indices = [
-        index + 1
-        for index in range(1, len(labels))
-        if labels[index] - labels[index - 1] < 0.13
-    ]
-    unanchored_indices = [
-        index + 1
-        for index, label in enumerate(labels)
-        if min((abs(label - candidate) for candidate in all_candidate_times), default=math.inf) > 0.15
-    ]
+    if not beat_events:
+        raise RuntimeError("Beat This! did not produce beat events; a complete production chart cannot be built.")
+    beat_intervals = np.diff([event.time for event in beat_events])
+    estimated_bpm = 60 / float(np.median(beat_intervals)) if beat_intervals.size else 120.0
+    audio_fingerprint = hashlib.sha256(args.audio_output.read_bytes()).hexdigest()[:16]
+
     output = {
-        "schemaVersion": 1,
-        "kind": "rhythm-algorithm-comparison",
+        "schemaVersion": 2,
+        "kind": "rhythm-production-analysis",
         "generatedAt": datetime.now(timezone.utc).isoformat(),
-        "timingPolicy": "All algorithm event times are detector peaks in seconds. No BPM grid, snapping, or gap filling is used.",
+        "timingPolicy": "All event times are mature detector peaks in seconds; no BPM grid or snapping is used.",
         "song": {
-            "id": "slice-at-two",
-            "title": "Slice at Two",
-            "artist": "NEON SYSTEM",
-            "audioUrl": "/audio/slice-at-two.mp3",
+            "id": args.song_id,
+            "title": args.title,
+            "artist": args.artist,
+            "audioUrl": args.audio_url,
+            "audioFingerprint": audio_fingerprint,
+            "bpm": round_number(estimated_bpm, 2),
             "durationSeconds": round_number(duration, 3),
             "sampleRate": SAMPLE_RATE,
+            "audioCompression": audio_compression,
         },
-        "primaryTrackId": "beat-this" if beat_events else "preference-fusion",
+        "primaryEventSourceId": "beat-this",
         "waveform": {
             "bucketCount": 1_600,
             "peaks": waveform_peaks(y),
         },
-        "labels": {
-            "count": len(labels),
-            "source": str(args.labels.relative_to(ROOT)).replace("\\", "/") if args.labels.is_relative_to(ROOT) else str(args.labels),
-            "possibleDuplicateMarkerIndices": duplicate_indices,
-            "markersWithoutCandidateWithin150ms": unanchored_indices,
-            "policy": "Possible mistakes are flagged but never silently deleted.",
-            "reviewFeedbackCount": len(review_feedback),
-            "reviewFeedbackSource": (
-                str(args.feedback.relative_to(ROOT)).replace("\\", "/")
-                if review_feedback and args.feedback.is_relative_to(ROOT)
-                else (str(args.feedback) if review_feedback else None)
-            ),
-        },
         "models": model_metadata,
         "musicalStructure": musical_structure,
-        "preferenceModel": training,
-        "tracks": tracks,
+        "eventSources": event_sources,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"Wrote {args.output}")
-    for track in tracks:
-        metrics = track["metrics"]["at120ms"]
-        print(f"  {track['id']}: {track['eventCount']} events, F1@120ms={metrics['f1']:.3f}")
+    for source in event_sources:
+        print(f"  {source['id']}: {source['eventCount']} events")
 
 
 if __name__ == "__main__":

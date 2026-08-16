@@ -5,6 +5,8 @@ type WindowWithWebkitAudio = Window & typeof globalThis & {
 /** 加载关卡音频；资源不可用时退回本地合成音轨。 */
 export class AudioEngine {
   private static sharedContext: AudioContext | null = null;
+  private static musicEnabled = false;
+  private static activeGains = new Set<GainNode>();
   private context: AudioContext;
   private source: AudioBufferSourceNode | null = null;
   private gain: GainNode;
@@ -29,6 +31,13 @@ export class AudioEngine {
     if (this.sharedContext.state === 'suspended') await this.sharedContext.resume();
   }
 
+  static setMusicEnabled(enabled: boolean): void {
+    this.musicEnabled = enabled;
+    this.activeGains.forEach((gain) => {
+      gain.gain.setValueAtTime(enabled ? 0.48 : 0, gain.context.currentTime);
+    });
+  }
+
   constructor(duration: number, bpm: number, audioUrl: string) {
     const AudioContextClass = window.AudioContext ||
       (window as WindowWithWebkitAudio).webkitAudioContext;
@@ -42,7 +51,8 @@ export class AudioEngine {
     this.analyser.fftSize = 256;
     this.analyser.smoothingTimeConstant = 0.62;
     this.spectrumData = new Uint8Array(this.analyser.frequencyBinCount);
-    this.gain.gain.value = 0.48;
+    this.gain.gain.value = AudioEngine.musicEnabled ? 0.48 : 0;
+    AudioEngine.activeGains.add(this.gain);
     this.analyser.connect(this.gain);
     this.gain.connect(this.context.destination);
     this.duration = duration;
@@ -138,6 +148,7 @@ export class AudioEngine {
     this.source?.disconnect();
     this.analyser.disconnect();
     this.gain.disconnect();
+    AudioEngine.activeGains.delete(this.gain);
     this.source = null;
   }
 }

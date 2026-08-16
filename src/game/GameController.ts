@@ -13,7 +13,7 @@ import { overlapsPlayer } from './physics';
 
 interface GameCallbacks {
   onHud: (score: number, combo: number, progress: number) => void;
-  onDeath: () => void;
+  onDeath: (result: GameResult) => void;
   onFinish: (result: GameResult) => void;
 }
 
@@ -119,10 +119,11 @@ export class GameController {
           if (type === ObstacleType.Spike) {
             this.states[eventIndex][lane] = 'hit';
             this.dead = true;
+            this.finished = true;
             this.combo = 0;
             this.scene.crash(targetX);
             void this.audio.pause();
-            this.callbacks.onDeath();
+            this.callbacks.onDeath(this.getResult());
             return;
           }
           this.states[eventIndex][lane] = 'hit';
@@ -154,7 +155,11 @@ export class GameController {
   private finish(): void {
     if (this.finished) return;
     this.finished = true;
-    this.callbacks.onFinish({
+    this.callbacks.onFinish(this.getResult());
+  }
+
+  private getResult(): GameResult {
+    return {
       score: this.score,
       maxCombo: this.maxCombo,
       hits: this.hits,
@@ -164,7 +169,7 @@ export class GameController {
       ),
       dodges: this.dodges,
       totalDodges: this.level.events.filter((event) => event.kind === 'dodge').length,
-    });
+    };
   }
 
   destroy(): void {

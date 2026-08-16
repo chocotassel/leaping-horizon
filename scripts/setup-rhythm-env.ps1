@@ -20,4 +20,4 @@ $EnvironmentPython = Join-Path $EnvironmentPath "Scripts/python.exe"
   "resampy==0.4.2"
 & $EnvironmentPython -m pip install "basic-pitch==0.4.0" --no-deps
 
-Write-Host "Rhythm environment is ready. Run: npm run analyze:rhythm"
+Write-Host 'Rhythm environment is ready. Run: npm run generate -- "path/to/song.wav" ["Title"] ["Artist"] [song-id]'
