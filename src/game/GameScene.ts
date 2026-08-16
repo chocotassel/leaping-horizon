@@ -631,11 +631,17 @@ export class GameScene {
     this.scene.add(this.rhythmRing);
 
     const circleCenterY = RING_CENTER_Y;
-    // 多层主环与频谱环对应参考图中的终点门。
-    const ringLayers = [
-      { radius: 14, tube: 0.11, z: -0.3, opacity: 0.9 },
-      { radius: 12.95, tube: 0.28, z: 0, opacity: 1 },
-      { radius: 12.04, tube: 0.1, z: 0.3, opacity: 1 },
+    // 中间粗环属于圆环实线，内外细环与频谱竖线共用主色。
+    const ringLayers: Array<{
+      radius: number;
+      tube: number;
+      z: number;
+      opacity: number;
+      role: SceneColorRole;
+    }> = [
+      { radius: 14, tube: 0.11, z: -0.3, opacity: 0.9, role: 'primary' },
+      { radius: 12.95, tube: 0.28, z: 0, opacity: 1, role: 'ringCore' },
+      { radius: 12.04, tube: 0.1, z: 0.3, opacity: 1, role: 'primary' },
     ];
     ringLayers.forEach((layer) => {
       const ringMaterial = this.createGlowMaterial({
@@ -645,7 +651,7 @@ export class GameScene {
         fog: false,
         blending: THREE.AdditiveBlending,
         toneMapped: false,
-      }, 'ringCore');
+      }, layer.role);
       const ring = new THREE.Mesh(
         new THREE.TorusGeometry(layer.radius, layer.tube, lowPower ? 6 : 10, lowPower ? 64 : 96),
         ringMaterial,
