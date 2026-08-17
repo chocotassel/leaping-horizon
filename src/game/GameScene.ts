@@ -116,7 +116,7 @@ interface FloatingCube {
   phase: number;
 }
 
-type SceneColorRole = 'primary' | 'ringCore' | 'hazard';
+type SceneColorRole = 'primary' | 'detail' | 'ringCore' | 'hazard';
 
 function getDecorativeMetalColor(index: number): number {
   return index % 5 === 0 ? 0x17324a : index % 3 === 0 ? 0x10243a : 0x09182b;
@@ -164,10 +164,12 @@ export class GameScene {
   private readonly scale = new THREE.Vector3(1, 1, 1);
   private readonly tempColor = new THREE.Color();
   private readonly glowColor = new THREE.Color(SCENE_COLOR_SCHEMES[DEFAULT_SCENE_COLOR_SCHEME_ID].primary);
+  private readonly detailColor = new THREE.Color(SCENE_COLOR_SCHEMES[DEFAULT_SCENE_COLOR_SCHEME_ID].detail);
   private readonly crashColor = new THREE.Color(0xff3448);
   private readonly ringCoreColor = new THREE.Color(SCENE_COLOR_SCHEMES[DEFAULT_SCENE_COLOR_SCHEME_ID].ringCore);
   private readonly hazardColor = new THREE.Color(SCENE_COLOR_SCHEMES[DEFAULT_SCENE_COLOR_SCHEME_ID].hazard);
   private readonly primaryChannels: THREE.Color[] = [];
+  private readonly detailChannels: THREE.Color[] = [];
   private readonly ringCoreChannels: THREE.Color[] = [];
   private readonly hazardChannels: THREE.Color[] = [];
   private readonly obstacleChannels: THREE.Color[] = [];
@@ -367,12 +369,14 @@ export class GameScene {
   }
 
   private getRoleColor(role: SceneColorRole): THREE.Color {
+    if (role === 'detail') return this.detailColor;
     if (role === 'ringCore') return this.ringCoreColor;
     if (role === 'hazard') return this.hazardColor;
     return this.glowColor;
   }
 
   private getRoleChannels(role: SceneColorRole): THREE.Color[] {
+    if (role === 'detail') return this.detailChannels;
     if (role === 'ringCore') return this.ringCoreChannels;
     if (role === 'hazard') return this.hazardChannels;
     return this.primaryChannels;
@@ -432,9 +436,11 @@ export class GameScene {
     this.colorSchemeId = colorSchemeId;
     this.colorScheme = scheme;
     this.glowColor.set(scheme.primary);
+    this.detailColor.set(scheme.detail);
     this.ringCoreColor.set(scheme.ringCore);
     this.hazardColor.set(scheme.hazard);
     this.primaryChannels.forEach((channel) => channel.copy(this.glowColor));
+    this.detailChannels.forEach((channel) => channel.copy(this.detailColor));
     this.ringCoreChannels.forEach((channel) => channel.copy(this.ringCoreColor));
     this.hazardChannels.forEach((channel) => channel.copy(this.hazardColor));
     this.obstacleChannels.forEach((channel) => channel.set(scheme.obstacle));
@@ -630,7 +636,7 @@ export class GameScene {
           blending: THREE.AdditiveBlending,
           fog: false,
           toneMapped: false,
-        }),
+        }, 'detail'),
       );
       glow.rotation.x = -Math.PI / 2;
       glow.position.set(side * visualRoadWidth / 2, -0.035, 10 - roadLength / 2);
@@ -638,7 +644,7 @@ export class GameScene {
 
       const edge = new THREE.Mesh(
         new THREE.BoxGeometry(0.065, 0.04, roadLength),
-        this.createGlowMaterial(),
+        this.createGlowMaterial({}, 'detail'),
       );
       edge.position.set(side * visualRoadWidth / 2, 0, 10 - roadLength / 2);
       this.scene.add(edge);
@@ -666,9 +672,9 @@ export class GameScene {
       opacity: number;
       role: SceneColorRole;
     }> = [
-      { radius: 14, tube: 0.11, z: -0.3, opacity: 0.9, role: 'primary' },
+      { radius: 14, tube: 0.11, z: -0.3, opacity: 0.9, role: 'detail' },
       { radius: 12.95, tube: 0.28, z: 0, opacity: 1, role: 'ringCore' },
-      { radius: 12.04, tube: 0.1, z: 0.3, opacity: 1, role: 'primary' },
+      { radius: 12.04, tube: 0.1, z: 0.3, opacity: 1, role: 'detail' },
     ];
     ringLayers.forEach((layer) => {
       const ringMaterial = this.createGlowMaterial({
@@ -818,7 +824,7 @@ export class GameScene {
     accentGeometry.setAttribute('position', new THREE.Float32BufferAttribute(accentVertices, 3));
     this.camera.add(new THREE.LineSegments(
       accentGeometry,
-      this.createGlowLineMaterial({ fog: false }),
+      this.createGlowLineMaterial({ fog: false }, 'detail'),
     ));
   }
 
@@ -1045,15 +1051,15 @@ export class GameScene {
       );
       colors.setXYZ(
         vertex + 1,
-        this.glowColor.r * coreIntensity,
-        this.glowColor.g * coreIntensity,
-        this.glowColor.b * coreIntensity,
+        this.detailColor.r * coreIntensity,
+        this.detailColor.g * coreIntensity,
+        this.detailColor.b * coreIntensity,
       );
       colors.setXYZ(
         vertex + 2,
-        this.glowColor.r * coreIntensity,
-        this.glowColor.g * coreIntensity,
-        this.glowColor.b * coreIntensity,
+        this.detailColor.r * coreIntensity,
+        this.detailColor.g * coreIntensity,
+        this.detailColor.b * coreIntensity,
       );
       colors.setXYZ(
         vertex + 3,

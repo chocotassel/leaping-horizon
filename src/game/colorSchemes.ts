@@ -1,6 +1,8 @@
 export interface SceneColorScheme {
   /** 玩家、道路、频谱、背景线与障碍物共享的主色。 */
   readonly primary: number;
+  /** 主色的小幅偏色，用于道路细边、尾焰内芯与装饰线。 */
+  readonly detail: number;
   /** 障碍物只使用一种基础色；表面明暗由中性纹理和光照产生。 */
   readonly obstacle: number;
   /** 地刺与圆环使用色环互补色或中性白。 */
@@ -34,9 +36,9 @@ export type SceneColorSchemeId = keyof typeof SCENE_COLOR_HUES;
 export const SCENE_COLOR_SATURATION = 0.84;
 export const SCENE_COLOR_VALUE = 1;
 
-function hsvColor(hue: number): number {
+function hsvColor(hue: number, saturation = SCENE_COLOR_SATURATION): number {
   const sector = ((hue % 360) + 360) % 360 / 60;
-  const chroma = SCENE_COLOR_VALUE * SCENE_COLOR_SATURATION;
+  const chroma = SCENE_COLOR_VALUE * saturation;
   const secondary = chroma * (1 - Math.abs(sector % 2 - 1));
   const match = SCENE_COLOR_VALUE - chroma;
   const [red, green, blue] = sector < 1 ? [chroma, secondary, 0]
@@ -54,8 +56,9 @@ function hsvColor(hue: number): number {
 
 function makeColorScheme(hues: SceneColorHues): SceneColorScheme {
   const primary = hsvColor(hues.primary);
+  const detail = hsvColor(hues.primary + 20, SCENE_COLOR_SATURATION * 0.94);
   const accent = hues.accent === 'white' ? 0xffffff : hsvColor(hues.accent);
-  return { primary, obstacle: primary, hazard: accent, ringCore: accent };
+  return { primary, detail, obstacle: primary, hazard: accent, ringCore: accent };
 }
 
 export const SCENE_COLOR_SCHEMES = {
