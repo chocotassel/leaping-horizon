@@ -85,6 +85,7 @@ const high = selectRenderProfile({ hardwareConcurrency: 6 });
 assert.equal(high.tier, 'high');
 assert.equal(high.antialias, true);
 assert.equal(getRenderPixelRatio(high, 390, 844, 3), 3);
+assert.equal(getRenderPixelRatio(high, 390, 844, 3, false), 1.5);
 
 const iphoneProMax = selectRenderProfile({
   hardwareConcurrency: 4,

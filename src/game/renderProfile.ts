@@ -70,14 +70,16 @@ export function getRenderPixelRatio(
   width: number,
   height: number,
   devicePixelRatio: number,
+  isWebGL2 = true,
 ): number {
   const nativeRatio = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0
     ? devicePixelRatio
     : 1;
   const cssPixels = Math.max(1, width * height);
   const budgetRatio = Math.sqrt(profile.maxRenderPixels / cssPixels);
+  const contextRatio = isWebGL2 ? Number.POSITIVE_INFINITY : 1.5;
   return Math.max(0.75, Math.floor(
-    Math.min(nativeRatio, profile.maxPixelRatio, budgetRatio) * 100,
+    Math.min(nativeRatio, profile.maxPixelRatio, budgetRatio, contextRatio) * 100,
   ) / 100);
 }
 

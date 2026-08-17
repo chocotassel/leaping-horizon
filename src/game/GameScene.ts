@@ -223,6 +223,7 @@ export class GameScene {
       canvas.clientWidth,
       canvas.clientHeight,
       devicePixelRatio,
+      this.renderer.capabilities.isWebGL2,
     ));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -935,6 +936,7 @@ export class GameScene {
       width,
       height,
       devicePixelRatio,
+      this.renderer.capabilities.isWebGL2,
     ));
     this.renderer.setSize(width, height, false);
   }
