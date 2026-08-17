@@ -38,15 +38,19 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function archivePath(from, to) {
+  return relative(from, to).replaceAll('\\', '/');
+}
+
 const builtFiles = await listFiles(outputDir);
 const appFiles = builtFiles.filter((file) => extname(file) === '.js');
 assert(appFiles.length === 1, `Expected one app script, found ${appFiles.length}`);
-const appPath = relative(outputDir, appFiles[0]);
+const appPath = archivePath(outputDir, appFiles[0]);
 assert(/^assets\/app-[A-Za-z0-9_-]+\.js$/.test(appPath), 'App script must use a content-hashed filename');
 await writeFile(join(outputDir, 'index.html'), createIndexHtml(appPath));
 
 const files = await listFiles(outputDir);
-const paths = files.map((file) => relative(outputDir, file));
+const paths = files.map((file) => archivePath(outputDir, file));
 assert(paths.includes('index.html'), 'index.html must be at ZIP root');
 assert(paths.filter((path) => path.endsWith('.html')).length === 1, 'ZIP must contain exactly one HTML file');
 assert(paths.every((path) => allowedExtensions.has(extname(path).toLowerCase())), 'ZIP contains an unsupported file type');
@@ -86,19 +90,26 @@ const syntax = spawnSync(process.execPath, ['--check', join(outputDir, appPath)]
 assert(syntax.status === 0, syntax.stderr || 'Classic bundle syntax check failed');
 
 await rm(zipPath, { force: true });
-const zipped = spawnSync('zip', ['-q', '-r', '-X', zipPath, '.'], { cwd: outputDir, encoding: 'utf8' });
-assert(zipped.status === 0, zipped.stderr || 'zip failed');
+const archiveRoots = [...new Set(paths.map((path) => path.split('/')[0]))];
+const zipCommand = process.platform === 'win32' ? 'tar' : 'zip';
+const zipArgs = process.platform === 'win32'
+  ? ['-a', '-c', '-f', zipPath, ...archiveRoots]
+  : ['-q', '-r', '-X', zipPath, '.'];
+const zipped = spawnSync(zipCommand, zipArgs, { cwd: outputDir, encoding: 'utf8' });
+assert(zipped.status === 0, zipped.error?.message || zipped.stderr || 'zip failed');
 
 const fileStats = await Promise.all(files.map(async (file) => ({
-  path: relative(outputDir, file),
+  path: archivePath(outputDir, file),
   bytes: (await stat(file)).size,
 })));
 const zipBytes = (await stat(zipPath)).size;
 assert(zipBytes <= 10 * 1024 * 1024, `ZIP exceeds 10 MiB: ${zipBytes} bytes`);
 
-const zipEntries = spawnSync('unzip', ['-Z1', zipPath], { encoding: 'utf8' });
+const inspectCommand = process.platform === 'win32' ? 'tar' : 'unzip';
+const inspectArgs = process.platform === 'win32' ? ['-tf', zipPath] : ['-Z1', zipPath];
+const zipEntries = spawnSync(inspectCommand, inspectArgs, { encoding: 'utf8' });
 assert(zipEntries.status === 0, zipEntries.stderr || 'Unable to inspect ZIP');
-assert(zipEntries.stdout.split('\n').includes('index.html'), 'Packaged ZIP root does not contain index.html');
+assert(zipEntries.stdout.split(/\r?\n/).includes('index.html'), 'Packaged ZIP root does not contain index.html');
 
 const report = {
   status: 'PASS',

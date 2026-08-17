@@ -5,7 +5,6 @@ import { access, readFile, readdir, stat } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  analyzeEdgeSweepWindow,
   analyzeRouteGraph,
   findLiteralMGestures,
 } from './rhythm/route-analysis.mjs';
@@ -13,7 +12,175 @@ import { COLOR_SCHEME_IDS, colorSchemesDiffer } from './rhythm/color-timeline.mj
 import { buildWaveRows } from './rhythm/wave-planner.mjs';
 
 const root = resolve(import.meta.dirname, '..');
-const requestedLevelPath = process.argv[2];
+const performanceContractOnly = process.argv[2] === '--performance-contract-only';
+const requestedLevelPath = performanceContractOnly ? process.argv[3] : process.argv[2];
+
+function performanceScoreOf(level) {
+  return level?.generation?.performanceScore ?? level?.performanceScore ?? null;
+}
+
+function assertNormalizedUnit(value, label) {
+  assert.ok(Number.isFinite(value) && value >= 0 && value <= 1, `${label} must be within 0..1.`);
+}
+
+function assertHitSound(hitSound, label) {
+  assert.ok(hitSound && typeof hitSound === 'object', `${label} has no Hit Voice.`);
+  assert.ok(
+    Number.isFinite(hitSound.pitchMidi) && hitSound.pitchMidi >= 0 && hitSound.pitchMidi <= 127,
+    `${label} has an invalid MIDI pitch.`,
+  );
+  assert.ok(
+    Number.isInteger(hitSound.pitchClass) && hitSound.pitchClass >= 0 && hitSound.pitchClass <= 11,
+    `${label} has an invalid pitch class.`,
+  );
+  assert.ok(typeof hitSound.sourceRole === 'string' && hitSound.sourceRole.length > 0, `${label} has no source role.`);
+  assertNormalizedUnit(hitSound.velocity, `${label} velocity`);
+  assertNormalizedUnit(hitSound.gain, `${label} gain`);
+  assertNormalizedUnit(hitSound.brightness, `${label} brightness`);
+}
+
+function assertPerformanceContract(level) {
+  const performanceScore = performanceScoreOf(level);
+  if (performanceScore == null) return false;
+
+  assert.equal(performanceScore.kind, 'performance-score', 'The Performance Score has an unknown kind.');
+  assert.ok(Array.isArray(performanceScore.attackEvents), 'The Performance Score has no Attack Events.');
+  assert.ok(performanceScore.attackEvents.length > 0, 'The Performance Score is empty.');
+  assert.ok(Array.isArray(performanceScore.melodicTraces), 'The Performance Score has no Melodic Traces array.');
+
+  const attacksById = new Map();
+  for (const [index, attack] of performanceScore.attackEvents.entries()) {
+    const label = `Attack Event ${index}`;
+    assert.ok(typeof attack?.id === 'string' && attack.id.length > 0, `${label} has no id.`);
+    assert.equal(attacksById.has(attack.id), false, `Attack Event ${attack.id} is duplicated.`);
+    assert.ok(
+      Number.isFinite(attack.timeSeconds)
+        && attack.timeSeconds >= 0
+        && attack.timeSeconds <= level.song.durationSeconds,
+      `Attack Event ${attack.id} has an invalid measured time.`,
+    );
+    assert.ok(
+      Number.isInteger(attack.lane) && attack.lane >= 0 && attack.lane <= 4,
+      `Attack Event ${attack.id} has an invalid measured lane.`,
+    );
+    assert.ok(
+      Array.isArray(attack.evidenceIds)
+        && attack.evidenceIds.length > 0
+        && attack.evidenceIds.every((evidenceId) => typeof evidenceId === 'string' && evidenceId.length > 0),
+      `Attack Event ${attack.id} has no measured evidence.`,
+    );
+    assertHitSound(attack.hitSound, `Attack Event ${attack.id}`);
+    attacksById.set(attack.id, attack);
+  }
+
+  const tracesById = new Map();
+  for (const [index, trace] of performanceScore.melodicTraces.entries()) {
+    assert.ok(typeof trace?.id === 'string' && trace.id.length > 0, `Melodic Trace ${index} has no id.`);
+    assert.equal(tracesById.has(trace.id), false, `Melodic Trace ${trace.id} is duplicated.`);
+    assert.ok(Array.isArray(trace.attackEventIds) && trace.attackEventIds.length > 0, `Melodic Trace ${trace.id} is empty.`);
+    for (const attackEventId of trace.attackEventIds) {
+      assert.ok(attacksById.has(attackEventId), `Melodic Trace ${trace.id} references an unknown Attack Event.`);
+    }
+    if (Array.isArray(trace.pitchContour)) {
+      assert.deepEqual(
+        trace.pitchContour,
+        trace.attackEventIds.map((attackEventId) => attacksById.get(attackEventId).pitchMidi),
+        `Melodic Trace ${trace.id} pitch contour differs from its Attack Events.`,
+      );
+    }
+    if (Array.isArray(trace.laneContour)) {
+      assert.deepEqual(
+        trace.laneContour,
+        trace.attackEventIds.map((attackEventId) => attacksById.get(attackEventId).lane),
+        `Melodic Trace ${trace.id} lane contour differs from its Attack Events.`,
+      );
+    }
+    tracesById.set(trace.id, trace);
+  }
+
+  const targetRows = level.events.filter((event) => event.kind === 'target');
+  assert.ok(targetRows.length > 0, 'The Performance Score emitted no Target Rows.');
+  const targetsByAttackId = new Map();
+  const representedAttackIds = new Set();
+  for (const [index, event] of targetRows.entries()) {
+    const label = `Performance Target Row ${index}`;
+    assert.equal(event.layer, 'core', `${label} is not a core performance row.`);
+    assert.equal(event.pattern, 'performance', `${label} came from a beat/layout template.`);
+    assert.ok(typeof event.performanceEventId === 'string', `${label} has no Attack Event identity.`);
+    assert.equal(targetsByAttackId.has(event.performanceEventId), false, `${label} duplicates an Attack Event target.`);
+    const attack = attacksById.get(event.performanceEventId);
+    assert.ok(attack, `${label} references an unknown Attack Event.`);
+    const targetLanes = event.obstacles.flatMap((cell, lane) => cell === 1 ? [lane] : []);
+    assert.deepEqual(targetLanes, [attack.lane], `${label} moved away from its measured lane.`);
+    assert.equal(event.timeSeconds, attack.timeSeconds, `${label} moved away from its measured time.`);
+    assertHitSound(event.hitSound, label);
+    assert.deepEqual(event.hitSound, attack.hitSound, `${label} substituted a generic Hit Voice.`);
+    if (attack.continuity?.traceId != null) {
+      assert.equal(event.melodicTraceId, attack.continuity.traceId, `${label} lost its Melodic Trace identity.`);
+    } else if (event.melodicTraceId != null) {
+      assert.ok(tracesById.has(event.melodicTraceId), `${label} references an unknown Melodic Trace.`);
+      assert.ok(
+        tracesById.get(event.melodicTraceId).attackEventIds.includes(event.performanceEventId),
+        `${label} is not a member of its declared Melodic Trace.`,
+      );
+    }
+    const memberIds = event.performanceEventIds ?? [event.performanceEventId];
+    assert.ok(Array.isArray(memberIds) && memberIds.length > 0, `${label} has no represented Attack Events.`);
+    assert.ok(memberIds.includes(event.performanceEventId), `${label} omits its primary Attack Event.`);
+    for (const attackEventId of memberIds) {
+      assert.ok(attacksById.has(attackEventId), `${label} represents an unknown Attack Event.`);
+      assert.equal(representedAttackIds.has(attackEventId), false, `Attack Event ${attackEventId} is represented twice.`);
+      representedAttackIds.add(attackEventId);
+    }
+    targetsByAttackId.set(event.performanceEventId, event);
+  }
+
+  for (const trace of performanceScore.melodicTraces) {
+    const represented = trace.attackEventIds.flatMap((attackEventId) => {
+      const event = targetsByAttackId.get(attackEventId);
+      return event ? [{ attack: attacksById.get(attackEventId), event }] : [];
+    });
+    for (let index = 1; index < represented.length; index += 1) {
+      const previous = represented[index - 1];
+      const current = represented[index];
+      if (!Number.isFinite(previous.attack.pitchMidi) || !Number.isFinite(current.attack.pitchMidi)) continue;
+      const pitchDelta = current.attack.pitchMidi - previous.attack.pitchMidi;
+      const laneDelta = current.attack.lane - previous.attack.lane;
+      assert.ok(
+        pitchDelta > 0.25 ? laneDelta >= 0 : pitchDelta < -0.25 ? laneDelta <= 0 : true,
+        `Melodic Trace ${trace.id} reverses pitch direction in the lane contour.`,
+      );
+    }
+  }
+
+  const compilation = performanceScore.diagnostics?.compilation;
+  assert.ok(compilation && typeof compilation === 'object', 'The Performance Score has no compilation diagnostics.');
+  assert.equal(compilation.selectedTargetRowCount, targetRows.length, 'Selected Target Row count is stale.');
+  assert.equal(compilation.representedAttackEventCount, representedAttackIds.size, 'Represented Attack Event count is stale.');
+  assert.equal(
+    compilation.mergedAttackEventCount,
+    representedAttackIds.size - targetRows.length,
+    'Merged Attack Event count is stale.',
+  );
+  assert.ok(Array.isArray(compilation.mergedGroups), 'Merged Attack Event diagnostics are missing.');
+  assert.ok(Array.isArray(compilation.omittedAttackEvents), 'Omitted Attack Event diagnostics are missing.');
+  assert.equal(
+    compilation.omittedAttackEventCount,
+    compilation.omittedAttackEvents.length,
+    'Omitted Attack Event count is stale.',
+  );
+  assert.equal(level.generation.performanceAttackEventCount, performanceScore.attackEvents.length);
+  assert.equal(level.generation.performanceTargetRowCount, targetRows.length);
+
+  const hazardCellCount = level.events.reduce((sum, event) => (
+    sum + event.obstacles.filter((cell) => cell === 2).length
+  ), 0);
+  assert.ok(
+    hazardCellCount <= targetRows.length * 1.5,
+    'Hazards, rather than Attack Events, are the primary chart-density source.',
+  );
+  return true;
+}
 if (!requestedLevelPath) {
   const songsDirectory = resolve(root, 'src/songs');
   const levelFiles = (await readdir(songsDirectory, { withFileTypes: true }))
@@ -39,6 +206,7 @@ if (!requestedLevelPath) {
       const left = selectableLevels[leftIndex];
       const right = selectableLevels[rightIndex];
       if (left.generation.layoutIntentProfile.audioFingerprint === right.generation.layoutIntentProfile.audioFingerprint) continue;
+      if (performanceScoreOf(left) || performanceScoreOf(right)) continue;
       const layoutSignature = (candidate) => candidate.generation.familyTemplates
         .map((template) => `${template.transformId}:${template.motifPlan.join('/')}:${template.coreRowSignature}`)
         .join('|');
@@ -77,6 +245,53 @@ if (!requestedLevelPath) {
 
 const levelPath = resolve(root, requestedLevelPath);
 const level = JSON.parse(await readFile(levelPath, 'utf8'));
+const performanceMode = assertPerformanceContract(level);
+if (performanceContractOnly) {
+  console.log(performanceMode ? 'Validated Performance Score contract.' : 'Legacy level has no Performance Score.');
+  process.exit(0);
+}
+
+if (performanceMode) {
+  assert.equal(level.version, 3);
+  assert.equal(level.generation.difficulty, 'flow');
+  assert.equal(level.generation.layoutAlgorithm, 'performance-score-row-compiler-v1');
+  assert.equal(level.generation.realizationReceipt?.targetAuthority, 'performance-score');
+  assert.equal(level.generation.realizationReceipt?.directorAuthority, 'hazard-pressure-color-visual-only');
+  assert.ok(
+    level.generation.realizationReceipt?.cues?.every((cue) => (
+      cue.targetLaneAuthority === 'performance-score' && cue.directorMayRetarget === false
+    )),
+    'A Director cue may retarget a measured Attack Event.',
+  );
+  assert.ok(level.events.length > 0, 'The generated performance level is empty.');
+  let previousTime = -Infinity;
+  for (const [index, event] of level.events.entries()) {
+    assert.ok(
+      Number.isFinite(event.timeSeconds)
+        && event.timeSeconds >= 0
+        && event.timeSeconds <= level.song.durationSeconds
+        && event.timeSeconds > previousTime,
+      `Performance event ${index} is outside the song or not ordered.`,
+    );
+    assert.ok(
+      Array.isArray(event.obstacles)
+        && event.obstacles.length === 5
+        && event.obstacles.some((cell) => cell !== 0)
+        && event.obstacles.every((cell) => Number.isInteger(cell) && cell >= 0 && cell <= 2),
+      `Performance event ${index} has an invalid lane row.`,
+    );
+    assert.equal('_routeLane' in event, false, `Performance event ${index} leaks a preferred route.`);
+    assert.equal('_preferredLane' in event, false, `Performance event ${index} leaks a preferred lane.`);
+    previousTime = event.timeSeconds;
+  }
+  const audioPath = level.song.audioUrl.startsWith('/')
+    ? resolve(root, 'public', level.song.audioUrl.replace(/^\//, ''))
+    : resolve(dirname(levelPath), level.song.audioUrl);
+  await access(audioPath);
+  const targetRowCount = level.events.filter((event) => event.kind === 'target').length;
+  console.log(`Validated ${level.id}: ${targetRowCount} measured performance Target Rows.`);
+  process.exit(0);
+}
 
 function assertNoIsolatedMiddleGap(row, label) {
   let runStart = null;
@@ -99,21 +314,159 @@ function signatureForPhrase(phraseId) {
     .map((event) => `${event.relativeSlotKey}:${event.kind}:${event.obstacles.join('')}`);
 }
 
+function actionLanes(event) {
+  const targets = event.obstacles.flatMap((cell, lane) => cell === 1 ? [lane] : []);
+  if (targets.length) return targets;
+  return event.obstacles.flatMap((cell, lane) => cell !== 2 ? [lane] : []);
+}
+
+function previousCoreEventIndex(eventIndex) {
+  for (let index = eventIndex - 1; index >= 0; index -= 1) {
+    if (level.events[index].layer === 'core') return index;
+  }
+  return -1;
+}
+
+function minimumLaneShift(fromLanes, toLanes) {
+  return Math.min(...fromLanes.flatMap((fromLane) => (
+    toLanes.map((toLane) => Math.abs(toLane - fromLane))
+  )));
+}
+
 assert.equal(level.version, 3);
 assert.equal(level.generation.difficulty, 'flow');
-assert.equal(level.generation.colorSchemeAlgorithm, 'music-wheel-neutral-white-drum-accent-v3');
-assert.ok(Array.isArray(level.colorSchemeEvents) && level.colorSchemeEvents.length > 1);
+assert.equal(level.generation.layoutAlgorithm, 'evidence-directed-kinetic-compiler-v14');
+assert.equal(level.generation.colorSchemeAlgorithm, 'director-color-scenes-v4');
+
+const directorScore = level.generation.directorScore;
+assert.equal(directorScore?.algorithm, 'music-evidence-song-director-v1');
+assert.ok(
+  typeof directorScore.audioFingerprint === 'string' && directorScore.audioFingerprint.length > 0,
+  'The Director Score has no audio fingerprint.',
+);
+assert.equal(
+  directorScore.audioFingerprint,
+  level.generation.layoutIntentProfile.audioFingerprint,
+  'The Director Score and layout intent describe different audio.',
+);
+assert.ok(Array.isArray(directorScore.anchors) && directorScore.anchors.length > 0);
+const anchorsById = new Map();
+let previousAnchorTime = -Infinity;
+for (const [index, anchor] of directorScore.anchors.entries()) {
+  assert.ok(typeof anchor.id === 'string' && anchor.id.length > 0, `Director anchor ${index} has no id.`);
+  assert.equal(anchorsById.has(anchor.id), false, `Director anchor ${anchor.id} is duplicated.`);
+  assert.ok(anchor.timeSeconds > previousAnchorTime, `Director anchor ${anchor.id} is not ordered.`);
+  assert.ok(
+    anchor.timeSeconds >= 0 && anchor.timeSeconds <= level.song.durationSeconds,
+    `Director anchor ${anchor.id} is outside the song.`,
+  );
+  assert.ok(
+    Array.isArray(anchor.evidenceIds) && anchor.evidenceIds.length > 0,
+    `Director anchor ${anchor.id} has no measured evidence.`,
+  );
+  anchorsById.set(anchor.id, anchor);
+  previousAnchorTime = anchor.timeSeconds;
+}
+
+function assertAnchorReference(anchorId, timeSeconds, label) {
+  assert.ok(typeof anchorId === 'string' && anchorsById.has(anchorId), `${label} references an unknown anchor.`);
+  if (Number.isFinite(Number(timeSeconds))) {
+    assert.ok(
+      Math.abs(anchorsById.get(anchorId).timeSeconds - Number(timeSeconds)) <= 1e-5,
+      `${label} moved away from its measured anchor.`,
+    );
+  }
+}
+
+const directorScenes = Array.isArray(directorScore.scenes) ? directorScore.scenes : [];
+const scenesById = new Map(directorScenes.map((scene) => [scene.id, scene]));
+for (const scene of directorScenes) {
+  if (scene.entryAnchorId != null) {
+    assertAnchorReference(scene.entryAnchorId, scene.startSeconds, `Director scene ${scene.id}`);
+  }
+}
+const directorMoments = Array.isArray(directorScore.moments) ? directorScore.moments : [];
+const momentsById = new Map();
+for (const moment of directorMoments) {
+  assert.ok(typeof moment.id === 'string' && !momentsById.has(moment.id), 'A Directed Moment id is missing or duplicated.');
+  assertAnchorReference(moment.anchorId, moment.timeSeconds, `Directed Moment ${moment.id}`);
+  if (moment.sceneId == null) {
+    assert.equal(moment.narrativeTurn, false, `Narrative Directed Moment ${moment.id} has no scene.`);
+    assert.deepEqual(
+      moment.requiredChannels,
+      ['visual-accent'],
+      `Only a pre-scene Visual Accent may omit sceneId (${moment.id}).`,
+    );
+  } else {
+    assert.ok(scenesById.has(moment.sceneId), `Directed Moment ${moment.id} references an unknown scene.`);
+  }
+  assert.ok(['impact', 'arrival', 'rupture', 'release', 'breath'].includes(moment.type));
+  assert.ok(['may', 'should', 'must'].includes(moment.commitment));
+  assert.ok(
+    Array.isArray(moment.requiredChannels) && moment.requiredChannels.length > 0,
+    `Directed Moment ${moment.id} has no required realization channel.`,
+  );
+  momentsById.set(moment.id, moment);
+}
+
+const directorColorScenes = Array.isArray(directorScore.colorScenes) ? directorScore.colorScenes : [];
+const colorScenesById = new Map();
+for (const colorScene of directorColorScenes) {
+  assert.ok(
+    typeof colorScene.id === 'string' && !colorScenesById.has(colorScene.id),
+    'A Director Color Scene id is missing or duplicated.',
+  );
+  assertAnchorReference(
+    colorScene.anchorId,
+    colorScene.timeSeconds ?? colorScene.startSeconds,
+    `Director Color Scene ${colorScene.id}`,
+  );
+  const sourceMoment = momentsById.get(colorScene.sourceMomentId);
+  assert.ok(sourceMoment, `Director Color Scene ${colorScene.id} has no source Directed Moment.`);
+  assert.equal(sourceMoment.anchorId, colorScene.anchorId);
+  assert.equal(sourceMoment.narrativeTurn, true);
+  assert.ok(
+    sourceMoment.commitment === 'should' || sourceMoment.commitment === 'must',
+    `Director Color Scene ${colorScene.id} must originate from a committed Narrative Turn.`,
+  );
+  assert.ok(sourceMoment.requiredChannels.includes('color'));
+  colorScenesById.set(colorScene.id, colorScene);
+}
+
+const directorVisualAccents = Array.isArray(directorScore.visualAccents)
+  ? directorScore.visualAccents
+  : [];
+const directorVisualAccentsById = new Map();
+for (const accent of directorVisualAccents) {
+  assert.ok(
+    typeof accent.id === 'string' && !directorVisualAccentsById.has(accent.id),
+    'A Director Visual Accent id is missing or duplicated.',
+  );
+  assert.equal(accent.kind, 'pulse');
+  assertAnchorReference(accent.anchorId, accent.timeSeconds, `Director Visual Accent ${accent.id}`);
+  directorVisualAccentsById.set(accent.id, accent);
+}
+assert.equal(
+  directorScore.diagnostics?.unresolvedAnchorReferenceCount,
+  0,
+  'The Director Score reports unresolved anchor references.',
+);
+
+assert.ok(Array.isArray(level.colorSchemeEvents) && level.colorSchemeEvents.length >= 1);
 assert.equal(level.generation.colorSchemeEventCount, level.colorSchemeEvents.length);
 assert.equal(level.colorSchemeEvents[0].timeSeconds, 0);
 assert.equal(level.colorSchemeEvents[0].colorSchemeId, 'cyanWhite');
-assert.ok(new Set(level.colorSchemeEvents.map((event) => event.colorSchemeId)).size > 1);
 let previousColorSchemeTime = -Infinity;
 for (const [index, event] of level.colorSchemeEvents.entries()) {
   assert.ok(event.timeSeconds > previousColorSchemeTime, `Color scheme event ${index} is not ordered.`);
   assert.ok(event.timeSeconds <= level.song.durationSeconds, `Color scheme event ${index} is outside the song.`);
   assert.ok(COLOR_SCHEME_IDS.includes(event.colorSchemeId), `Color scheme event ${index} uses an unknown preset.`);
-  assert.ok(['section', 'accent'].includes(event.kind), `Color scheme event ${index} has an unknown kind.`);
+  assert.equal(event.kind, 'section', `Color scheme event ${index} is not a persistent Color Scene.`);
   if (index > 0) {
+    const directorColorScene = colorScenesById.get(event.source);
+    assert.ok(directorColorScene, `Color scheme event ${index} did not originate from a Director Color Scene.`);
+    assert.equal(event.anchorId, directorColorScene.anchorId);
+    assertAnchorReference(event.anchorId, event.timeSeconds, `Color scheme event ${index}`);
     assert.ok(
       colorSchemesDiffer(level.colorSchemeEvents[index - 1].colorSchemeId, event.colorSchemeId),
       `Color scheme event ${index} repeats a region hue from the previous event.`,
@@ -121,7 +474,24 @@ for (const [index, event] of level.colorSchemeEvents.entries()) {
   }
   previousColorSchemeTime = event.timeSeconds;
 }
-assert.equal(level.generation.layoutAlgorithm, 'music-responsive-choice-template-v11');
+
+const visualAccentEvents = Array.isArray(level.visualAccentEvents) ? level.visualAccentEvents : [];
+assert.equal(level.generation.visualAccentEventCount, visualAccentEvents.length);
+const visualAccentIds = new Set();
+let previousVisualAccentTime = -Infinity;
+for (const [index, accent] of visualAccentEvents.entries()) {
+  assert.ok(accent.timeSeconds > previousVisualAccentTime, `Visual Accent ${index} is not strictly ordered.`);
+  assert.ok(accent.timeSeconds <= level.song.durationSeconds, `Visual Accent ${index} is outside the song.`);
+  assert.equal(accent.kind, 'pulse', `Visual Accent ${index} is not a pulse.`);
+  assert.ok(typeof accent.id === 'string' && !visualAccentIds.has(accent.id), `Visual Accent ${index} has a duplicate id.`);
+  assertAnchorReference(accent.anchorId, accent.timeSeconds, `Visual Accent ${index}`);
+  const sourceAccent = directorVisualAccentsById.get(accent.source);
+  const sourceMoment = momentsById.get(accent.source);
+  assert.ok(sourceAccent || sourceMoment, `Visual Accent ${index} has no Director source.`);
+  assert.equal((sourceAccent ?? sourceMoment).anchorId, accent.anchorId);
+  visualAccentIds.add(accent.id);
+  previousVisualAccentTime = accent.timeSeconds;
+}
 assert.match(level.generation.musicalStructureAlgorithm, /beat-this.*librosa.*agglomerative/i);
 assert.ok(['melodic-drive', 'percussive-drive', 'rhythmic-drive', 'balanced-flow'].includes(
   level.generation.layoutIntentProfile.songProfile.dominantStyle,
@@ -205,6 +575,17 @@ for (let eventIndex = 0; eventIndex < level.events.length; eventIndex += 1) {
   assert.ok(Number.isInteger(event.barInPhrase) && event.barInPhrase >= 0);
   assert.equal(typeof event.downbeatCue, 'boolean');
   assert.ok(Number.isInteger(event.barModule) && level.generation.barSections[event.barModule]);
+  if (event.directorAnchorId != null) {
+    assert.ok(anchorsById.has(event.directorAnchorId), `${label} references an unknown Director anchor.`);
+  }
+  if (event.directedMomentIds != null) {
+    assert.ok(Array.isArray(event.directedMomentIds) && event.directedMomentIds.length > 0);
+    for (const momentId of event.directedMomentIds) {
+      const moment = momentsById.get(momentId);
+      assert.ok(moment, `${label} references an unknown Directed Moment.`);
+      if (event.directorAnchorId != null) assert.equal(event.directorAnchorId, moment.anchorId);
+    }
+  }
 
   const targets = event.obstacles.filter((cell) => cell === 1).length;
   const rowSpikes = event.obstacles.filter((cell) => cell === 2).length;
@@ -227,11 +608,16 @@ for (let eventIndex = 0; eventIndex < level.events.length; eventIndex += 1) {
     } else {
       currentMultiTargetRun = 0;
     }
-  } else {
-    assert.equal(event.kind, 'dodge', `${label} has an unsupported kind.`);
+  } else if (event.kind === 'dodge') {
     assert.equal(targets, 0, `${label} dodge row cannot contain a target.`);
     assert.ok(rowSpikes > 0, `${label} dodge row must contain a hazard.`);
     dodgeCount += 1;
+    currentMultiTargetRun = 0;
+  } else {
+    assert.equal(event.kind, 'guide', `${label} has an unsupported kind.`);
+    assert.equal(targets, 0, `${label} guide row cannot contain a Target Cell.`);
+    assert.ok(rowSpikes > 0, `${label} guide row must contain a Hazard Cell.`);
+    assert.equal(event.densityFill, true, `${label} is an unaccounted guide row.`);
     currentMultiTargetRun = 0;
   }
 
@@ -241,10 +627,10 @@ for (let eventIndex = 0; eventIndex < level.events.length; eventIndex += 1) {
     densityFillCount += 1;
     solidDensityFillCount += Number(event.densityMode === 'solid');
     compactDensityFillCount += Number(event.densityMode === 'compact');
-    assert.equal(event.kind, 'dodge', `${label} density fill is not a Gate Row.`);
+    assert.equal(event.kind, 'guide', `${label} density fill claims to be a gameplay Gate Row.`);
     assert.equal(event.layer, 'auxiliary-common', `${label} density fill has the wrong layer.`);
     assert.equal(event.source, 'layout-density-rule', `${label} density fill has the wrong source.`);
-    assert.match(event.role, /^(solid|compact)-density-gate$/, `${label} density fill has the wrong role.`);
+    assert.match(event.role, /^(solid|compact)-density-guide$/, `${label} density fill has the wrong role.`);
     assert.ok(rowSpikes > 0, `${label} density fill contains no wall.`);
   }
   assertNoIsolatedMiddleGap(event.obstacles, label);
@@ -254,8 +640,320 @@ for (let eventIndex = 0; eventIndex < level.events.length; eventIndex += 1) {
 assert.equal(level.generation.densityFillCount, densityFillCount);
 assert.equal(level.generation.solidDensityFillCount, solidDensityFillCount);
 assert.equal(level.generation.compactDensityFillCount, compactDensityFillCount);
-assert.ok(solidDensityFillCount > 0, 'The chart contains no continuous solid fill.');
-assert.ok(compactDensityFillCount > 0, 'The chart contains no compact average fill.');
+assert.equal(densityFillCount, solidDensityFillCount + compactDensityFillCount);
+
+for (const identity of directorScore.phraseIdentities ?? []) {
+  if (identity.relation !== 'exact') continue;
+  assert.equal(
+    identity.developmentPolicy,
+    'preserve-canonical-kinetic-form',
+    `Exact Phrase Identity ${identity.id} does not preserve its canonical form.`,
+  );
+  assert.ok(
+    Array.isArray(identity.occurrences) && identity.occurrences.length >= 2,
+    `Exact Phrase Identity ${identity.id} has fewer than two occurrences.`,
+  );
+  const signatures = identity.occurrences.map((occurrence) => level.events
+    .filter((event) => (
+      event.layer === 'core'
+      && event.timeSeconds >= occurrence.startSeconds
+      && event.timeSeconds < occurrence.endSeconds
+    ))
+    .map((event) => `${event.kind}:${event.obstacles.join('')}:${event.routeBranch === true ? 'branch' : 'single'}`));
+  assert.ok(signatures[0].length > 0, `Exact Phrase Identity ${identity.id} has no realized core rows.`);
+  for (let index = 1; index < signatures.length; index += 1) {
+    assert.deepEqual(
+      signatures[index],
+      signatures[0],
+      `Exact Phrase Identity ${identity.id} occurrence ${index + 1} changed its rows or Route Branch topology.`,
+    );
+  }
+}
+
+const realizationReceipt = level.generation.realizationReceipt;
+assert.equal(realizationReceipt?.algorithm, 'directed-song-score-compiler-receipt-v3');
+assert.equal(realizationReceipt.kineticCompilerVersion, 'kinetic-form-row-compiler-v1');
+assert.equal(realizationReceipt.audioFingerprint, directorScore.audioFingerprint);
+assert.ok(Array.isArray(realizationReceipt.cues));
+assert.equal(realizationReceipt.cueCount, realizationReceipt.cues.length);
+assert.equal(realizationReceipt.cueCount, directorMoments.length);
+assert.ok(Array.isArray(realizationReceipt.phraseIdentities));
+assert.equal(realizationReceipt.phraseIdentityCount, directorScore.phraseIdentities.length);
+assert.equal(realizationReceipt.phraseIdentityCount, realizationReceipt.phraseIdentities.length);
+const identityReceiptsById = new Map();
+for (const identityReceipt of realizationReceipt.phraseIdentities) {
+  assert.ok(
+    typeof identityReceipt.identityId === 'string' && !identityReceiptsById.has(identityReceipt.identityId),
+    'A Phrase Identity receipt id is missing or duplicated.',
+  );
+  const identity = directorScore.phraseIdentities.find((candidate) => candidate.id === identityReceipt.identityId);
+  assert.ok(identity, `Phrase Identity receipt ${identityReceipt.identityId} has no Director contract.`);
+  assert.equal(identityReceipt.relation, identity.relation);
+  assert.equal(identityReceipt.developmentPolicy, identity.developmentPolicy);
+  assert.equal(identityReceipt.kineticFormVersion, identity.kineticForm.version);
+  assert.deepEqual(identityReceipt.kineticVerbs, identity.kineticForm.verbs);
+  assert.equal(identityReceipt.branchMode, identity.kineticForm.branchMode);
+  assert.equal(identityReceipt.status, 'realized', `Phrase Identity ${identity.id} was not realized.`);
+  assert.deepEqual(identityReceipt.missingContracts, []);
+  assert.equal(identityReceipt.occurrences.length, identity.occurrences.length);
+  for (const [occurrenceIndex, occurrenceReceipt] of identityReceipt.occurrences.entries()) {
+    const occurrence = identity.occurrences[occurrenceIndex];
+    assert.equal(occurrenceReceipt.occurrenceId, occurrence.id);
+    assert.equal(occurrenceReceipt.startSeconds, occurrence.startSeconds);
+    assert.equal(occurrenceReceipt.endSeconds, occurrence.endSeconds);
+    assert.ok(occurrenceReceipt.eventIndices.length > 0, `${occurrence.id} has no realized core rows.`);
+    const rows = occurrenceReceipt.eventIndices.map((eventIndex) => {
+      assert.ok(
+        Number.isInteger(eventIndex) && eventIndex >= 0 && eventIndex < level.events.length,
+        `${occurrence.id} references an invalid row.`,
+      );
+      const event = level.events[eventIndex];
+      assert.equal(event.layer, 'core', `${occurrence.id} references a non-core row.`);
+      assert.ok(
+        event.timeSeconds >= occurrence.startSeconds && event.timeSeconds < occurrence.endSeconds,
+        `${occurrence.id} references a row outside its interval.`,
+      );
+      return event;
+    });
+    assert.deepEqual(
+      occurrenceReceipt.rowSignature,
+      rows.map((event) => `${event.kind}:${event.obstacles.join('')}`),
+    );
+    assert.deepEqual(
+      occurrenceReceipt.routeBranchSignature,
+      rows.map((event) => event.routeBranch === true),
+    );
+    assert.ok(occurrenceReceipt.consumedEventIndices.length > 0, `${occurrence.id} consumed no Kinetic Form rows.`);
+    assert.ok(occurrenceReceipt.consumedEventIndices.every((index) => (
+      occurrenceReceipt.eligibleEventIndices.includes(index)
+    )));
+    assert.equal(occurrenceReceipt.kineticProof.compilerVersion, realizationReceipt.kineticCompilerVersion);
+    assert.equal(occurrenceReceipt.kineticProof.kineticFormVersion, identity.kineticForm.version);
+    assert.deepEqual(occurrenceReceipt.kineticProof.evidenceIds, identity.evidenceIds);
+    assert.equal(occurrenceReceipt.kineticProof.hasKineticConsumption, true);
+    assert.ok(occurrenceReceipt.kineticProof.consumedTargetCoverage > 0);
+    assert.deepEqual(
+      occurrenceReceipt.kineticProof.consumedRowSignatures,
+      occurrenceReceipt.consumedEventIndices.map((eventIndex) => level.events[eventIndex].obstacles.join('')),
+    );
+    for (const event of occurrenceReceipt.consumedEventIndices.map((eventIndex) => level.events[eventIndex])) {
+      assert.ok(
+        Array.isArray(event.directedIdentityIds) && event.directedIdentityIds.includes(identity.id),
+        `${occurrence.id} row ${event.timeSeconds}s has no Phrase Identity provenance.`,
+      );
+      assert.equal(event.kineticCompilerVersion, realizationReceipt.kineticCompilerVersion);
+      const proof = event.kineticProofs?.find((candidate) => candidate.identityId === identity.id);
+      assert.ok(proof, `${occurrence.id} row ${event.timeSeconds}s has no Kinetic Form proof.`);
+      assert.equal(proof.compilerVersion, realizationReceipt.kineticCompilerVersion);
+      assert.ok(
+        ['canonical-template-compiled', 'off-seam-kinetic-composition'].includes(proof.compilerMode),
+        `${occurrence.id} has an unknown Kinetic Form compiler mode.`,
+      );
+      assert.equal(proof.kineticFormVersion, identity.kineticForm.version);
+      assert.deepEqual(proof.verbs, identity.kineticForm.verbs);
+      assert.equal(proof.motionKind, identity.kineticForm.motion.kind);
+      assert.equal(proof.motionSlope, identity.kineticForm.motion.slope);
+      assert.deepEqual(proof.pressureContour, identity.kineticForm.pressureContour);
+      assert.equal(proof.branchMode, identity.kineticForm.branchMode);
+      assert.equal(proof.attack, identity.kineticForm.attack);
+      assert.equal(proof.development, identity.kineticForm.development);
+      assert.equal(proof.developmentPolicy, identity.developmentPolicy);
+      assert.deepEqual(proof.evidenceIds, identity.evidenceIds);
+      assert.ok(proof.compositionIdentityIds.includes(identity.id));
+      assert.equal(proof.finalRowSignature, event.obstacles.join(''));
+      assert.equal(
+        event.obstacles[proof.resolvedPreferredLane],
+        1,
+        `${occurrence.id} no longer exposes its Kinetic Form's resolved target lane.`,
+      );
+      assert.ok(
+        Math.abs(event.obstacles.filter((cell) => cell !== 2).length - proof.compiledSafeWidth) <= 1,
+        `${occurrence.id} row ${event.timeSeconds}s no longer represents its compiled pressure corridor.`,
+      );
+      assert.ok(Math.abs(proof.resolvedPreferredLane - proof.compiledPreferredLane) <= 2);
+      if (proof.compilerMode === 'off-seam-kinetic-composition') {
+        assert.ok(
+          Math.abs(proof.resolvedPreferredLane - proof.desiredLane) <= 2,
+          `${occurrence.id} composition no longer represents this identity's motion lane.`,
+        );
+        assert.ok(
+          Math.abs(proof.resolvedSafeWidth - proof.desiredSafeWidth) <= 1,
+          `${occurrence.id} composition no longer represents this identity's pressure.`,
+        );
+        const expectedPosition = (event.timeSeconds - occurrence.startSeconds)
+          / Math.max(1e-6, occurrence.endSeconds - occurrence.startSeconds);
+        assert.ok(
+          Math.abs(proof.normalizedPosition - expectedPosition) <= 1e-4,
+          `${occurrence.id} uses another occurrence's Kinetic Form position.`,
+        );
+      }
+      assert.ok(Number.isFinite(proof.normalizedPosition));
+      assert.ok(proof.normalizedPosition >= 0 && proof.normalizedPosition <= 1);
+    }
+    if (identity.kineticForm.branchMode === 'fork-converge') {
+      const firstForkIndex = rows.findIndex((event) => (
+        event.routeBranch === true
+        && event.kind === 'target'
+        && event.obstacles.filter((cell) => cell === 1).length >= 2
+      ));
+      assert.ok(firstForkIndex >= 0, `${occurrence.id} never realizes a reachable Route Branch.`);
+      assert.ok(
+        rows.slice(firstForkIndex + 1).some((event) => (
+          event.routeBranch !== true
+          && event.kind === 'target'
+          && event.obstacles.filter((cell) => cell === 1).length === 1
+        )),
+        `${occurrence.id} never converges after its Route Branch.`,
+      );
+    }
+  }
+  identityReceiptsById.set(identityReceipt.identityId, identityReceipt);
+}
+assert.equal(
+  realizationReceipt.realizedPhraseIdentityCount,
+  realizationReceipt.phraseIdentities.filter((identity) => identity.status === 'realized').length,
+);
+const exactIdentityReceipts = realizationReceipt.phraseIdentities.filter((identity) => identity.relation === 'exact');
+assert.equal(realizationReceipt.exactPhraseIdentityCount, exactIdentityReceipts.length);
+assert.equal(
+  realizationReceipt.realizedExactPhraseIdentityCount,
+  exactIdentityReceipts.filter((identity) => identity.status === 'realized').length,
+);
+assert.equal(
+  realizationReceipt.exactPhraseIdentityCoverage,
+  exactIdentityReceipts.length ? 1 : null,
+);
+const receiptCuesByMomentId = new Map();
+const validReceiptChannels = new Set(['movement', 'density', 'threat', 'color', 'visual-accent']);
+for (const cue of realizationReceipt.cues) {
+  assert.ok(
+    typeof cue.momentId === 'string' && !receiptCuesByMomentId.has(cue.momentId),
+    'A realization receipt cue id is missing or duplicated.',
+  );
+  const moment = momentsById.get(cue.momentId);
+  assert.ok(moment, `Receipt cue ${cue.momentId} has no Directed Moment.`);
+  assert.equal(cue.anchorId, moment.anchorId);
+  assert.equal(cue.sceneId, moment.sceneId);
+  assert.equal(cue.type, moment.type);
+  assert.equal(cue.commitment, moment.commitment);
+  assert.ok(Math.abs(cue.cueTimeSeconds - moment.timeSeconds) <= 1e-5);
+  assert.deepEqual(cue.requiredChannels, moment.requiredChannels);
+  assert.ok(cue.requiredChannels.length > 0, `Receipt cue ${cue.momentId} has no required channel.`);
+  assert.ok(
+    cue.requiredChannels.every((channel) => validReceiptChannels.has(channel)),
+    `Receipt cue ${cue.momentId} contains an unknown realization channel.`,
+  );
+  assert.ok(cue.channels && typeof cue.channels === 'object', `Receipt cue ${cue.momentId} has no channel map.`);
+  for (const channel of cue.requiredChannels) {
+    const channelReceipt = cue.channels[channel];
+    assert.ok(channelReceipt, `Receipt cue ${cue.momentId} has no ${channel} mapping.`);
+    if (['movement', 'density', 'threat'].includes(channel)) {
+      assert.ok(
+        Number.isInteger(channelReceipt.eventIndex)
+          && channelReceipt.eventIndex >= 0
+          && channelReceipt.eventIndex < level.events.length,
+        `Receipt cue ${cue.momentId} has an invalid ${channel} row index.`,
+      );
+      const realizedRow = level.events[channelReceipt.eventIndex];
+      assert.ok(
+        Array.isArray(realizedRow.directedMomentIds)
+          && realizedRow.directedMomentIds.includes(cue.momentId),
+        `Receipt cue ${cue.momentId} cannot be traced to its ${channel} row.`,
+      );
+      assert.ok(
+        Math.abs(realizedRow.timeSeconds - channelReceipt.timeSeconds) <= 1e-5,
+        `Receipt cue ${cue.momentId} has stale ${channel} row timing.`,
+      );
+      if (channel === 'movement') {
+        assert.ok(
+          channelReceipt.mode === 'forced-shift' || channelReceipt.mode === 'named-gesture',
+          `Receipt cue ${cue.momentId} does not describe a real movement effect.`,
+        );
+        if (channelReceipt.mode === 'forced-shift') {
+          const priorIndex = previousCoreEventIndex(channelReceipt.eventIndex);
+          assert.equal(channelReceipt.previousEventIndex, priorIndex);
+          assert.ok(priorIndex >= 0, `Receipt cue ${cue.momentId} has no movement origin row.`);
+          const fromLanes = actionLanes(level.events[priorIndex]);
+          const toLanes = actionLanes(realizedRow);
+          const measuredShift = minimumLaneShift(fromLanes, toLanes);
+          assert.deepEqual(channelReceipt.fromLanes, fromLanes);
+          assert.deepEqual(channelReceipt.toLanes, toLanes);
+          assert.equal(channelReceipt.minimumShiftLanes, measuredShift);
+          assert.ok(measuredShift > 0, `Receipt cue ${cue.momentId} leaves a no-movement route open.`);
+        } else {
+          assert.ok(
+            Array.isArray(channelReceipt.gestureEventIndices)
+              && channelReceipt.gestureEventIndices.length >= 2,
+            `Receipt cue ${cue.momentId} has no named-gesture movement sequence.`,
+          );
+          const gestureRows = channelReceipt.gestureEventIndices.map((index) => level.events[index]);
+          assert.ok(
+            gestureRows.every((event) => event?.pattern === realizedRow.pattern),
+            `Receipt cue ${cue.momentId} names unrelated gesture rows.`,
+          );
+          assert.ok(
+            new Set(gestureRows.map((event) => event.obstacles.join(''))).size > 1,
+            `Receipt cue ${cue.momentId} gesture has no visible spatial motion.`,
+          );
+        }
+      } else if (channel === 'density') {
+        const priorIndex = previousCoreEventIndex(channelReceipt.eventIndex);
+        assert.equal(channelReceipt.previousEventIndex, priorIndex);
+        assert.ok(priorIndex >= 0, `Receipt cue ${cue.momentId} has no density comparison row.`);
+        const beforeHazardCount = level.events[priorIndex].obstacles.filter((cell) => cell === 2).length;
+        const afterHazardCount = realizedRow.obstacles.filter((cell) => cell === 2).length;
+        assert.equal(channelReceipt.beforeHazardCount, beforeHazardCount);
+        assert.equal(channelReceipt.afterHazardCount, afterHazardCount);
+        assert.equal(channelReceipt.hazardDelta, afterHazardCount - beforeHazardCount);
+        assert.notEqual(afterHazardCount, beforeHazardCount, `Receipt cue ${cue.momentId} has no density contrast.`);
+      } else if (channel === 'threat') {
+        const priorIndex = previousCoreEventIndex(channelReceipt.eventIndex);
+        assert.equal(channelReceipt.previousEventIndex, priorIndex);
+        assert.ok(priorIndex >= 0, `Receipt cue ${cue.momentId} has no threat comparison row.`);
+        assert.equal(channelReceipt.previousObstacleRow, level.events[priorIndex].obstacles.join(''));
+        assert.equal(channelReceipt.obstacleRow, realizedRow.obstacles.join(''));
+        assert.ok(
+          realizedRow.obstacles.includes(2)
+            && channelReceipt.previousObstacleRow !== channelReceipt.obstacleRow,
+          `Receipt cue ${cue.momentId} has no visible threat contrast.`,
+        );
+      }
+    } else if (channel === 'color') {
+      const realizedColor = level.colorSchemeEvents.find((event) => (
+        event.anchorId === cue.anchorId
+        && event.source === channelReceipt.source
+        && Math.abs(event.timeSeconds - channelReceipt.timeSeconds) <= 1e-5
+      ));
+      assert.ok(realizedColor, `Receipt cue ${cue.momentId} cannot be traced to its Color Scene.`);
+      assert.equal(realizedColor.colorSchemeId, channelReceipt.colorSchemeId);
+    } else {
+      const realizedAccent = visualAccentEvents.find((accent) => accent.id === channelReceipt.id);
+      assert.ok(realizedAccent, `Receipt cue ${cue.momentId} cannot be traced to its Visual Accent.`);
+      assert.equal(realizedAccent.anchorId, cue.anchorId);
+      assert.equal(realizedAccent.kind, channelReceipt.kind);
+      assert.ok(Math.abs(realizedAccent.timeSeconds - channelReceipt.timeSeconds) <= 1e-5);
+    }
+  }
+  receiptCuesByMomentId.set(cue.momentId, cue);
+}
+for (const moment of directorMoments) {
+  assert.ok(receiptCuesByMomentId.has(moment.id), `Directed Moment ${moment.id} has no receipt cue.`);
+}
+const mustReceiptCues = realizationReceipt.cues.filter((cue) => cue.commitment === 'must');
+assert.equal(realizationReceipt.mustCueCount, mustReceiptCues.length);
+assert.equal(
+  realizationReceipt.realizedMustCueCount,
+  mustReceiptCues.filter((cue) => cue.status === 'realized').length,
+);
+for (const cue of mustReceiptCues) {
+  assert.equal(cue.status, 'realized', `Must cue ${cue.momentId} was not fully realized.`);
+  assert.deepEqual(cue.missingChannels, [], `Must cue ${cue.momentId} is missing a required channel.`);
+}
+if (mustReceiptCues.length) {
+  assert.equal(realizationReceipt.mustCueCoverage, 1, 'Must Director cues are not 100% realized.');
+} else {
+  assert.equal(realizationReceipt.mustCueCoverage, null);
+}
 
 const survivalRoutes = analyzeRouteGraph(level.events, {
   secondsPerLane: travelSeconds,
@@ -268,21 +966,16 @@ const comboRoutes = analyzeRouteGraph(level.events, {
 assert.ok(survivalRoutes.feasible, 'The chart has no survivable route.');
 assert.ok(comboRoutes.feasible, 'The chart has no full-combo route.');
 assert.deepEqual(comboRoutes.deadChoiceCells, [], 'The chart displays Target Cells that cannot complete the song.');
-const minimumChoiceBranches = Math.max(4, Math.ceil(choiceRowCount * 0.08));
+const minimumChoiceBranches = (directorScore.phraseIdentities ?? [])
+  .filter((identity) => identity.kineticForm?.branchMode === 'fork-converge')
+  .reduce((count, identity) => count + Math.max(1, identity.occurrences?.length ?? 0), 0);
 assert.ok(
   comboRoutes.meaningfulChoiceRows.length >= minimumChoiceBranches,
   `The chart offers too few meaningful Choice Rows (${comboRoutes.meaningfulChoiceRows.length}/${minimumChoiceBranches}).`,
 );
-assert.ok(comboRoutes.pathCountCapped >= 32, 'The full-combo route graph has too few player decisions.');
-assert.ok(
-  comboRoutes.consecutiveChoicePairs.length >= Math.max(1, Math.floor(level.song.durationSeconds / 90)),
-  'The chart lacks consecutive Route Branches.',
-);
-assert.ok(comboRoutes.maximumConsecutiveChoiceRows >= 2, 'No consecutive multi-choice sequence survived validation.');
-assert.ok(
-  comboRoutes.wideChoiceRowCount >= Math.max(1, Math.floor(comboRoutes.meaningfulChoiceRows.length * 0.2)),
-  'The chart offers too few wide Route Branches.',
-);
+if (minimumChoiceBranches > 0) {
+  assert.ok(comboRoutes.pathCountCapped >= 2, 'The directed Route Branches create no player decision.');
+}
 
 assert.equal(level.generation.noteCount, choiceRowCount);
 assert.equal(level.generation.targetCellCount, targetCellCount);
@@ -310,8 +1003,6 @@ assert.equal(level.generation.barSections.reduce((sum, section) => sum + section
 assert.equal(level.generation.barSections.reduce((sum, section) => sum + section.targetCellCount, 0), targetCellCount);
 assert.ok(level.generation.barSections.every((section) => section.downbeatCue));
 assert.ok(level.generation.familyTemplates.length > 0);
-assert.ok(level.generation.motifCounts.m > 0, 'The chart lacks an M combo motif.');
-assert.ok(Object.keys(level.generation.motifCounts).length >= 5, 'The chart uses too few route motif families.');
 assert.ok(level.generation.familyTemplates.every((template) => (
   Array.isArray(template.motifPlan)
   && template.motifPlan.length > 0
@@ -325,7 +1016,6 @@ assert.ok(level.generation.familyTemplates.every((template) => (
   && template.motifBias.length > 0
 )));
 const pitchedTemplates = level.generation.familyTemplates.filter((template) => template.contour.confidence >= 0.45);
-assert.ok(pitchedTemplates.length > 0, 'No family template uses a reliable Basic Pitch contour.');
 for (const template of pitchedTemplates) {
   if (template.contour.kind === 'rising') assert.equal(template.preferredTransform, 'identity');
   if (template.contour.kind === 'falling') assert.equal(template.preferredTransform, 'mirror');
@@ -354,57 +1044,69 @@ assert.ok(centerLaneRatio <= 0.68, `The chart is too center-heavy (${(centerLane
 assert.ok(edgeLaneRatio >= 0.05, `The chart barely uses the edge lanes (${(edgeLaneRatio * 100).toFixed(1)}%).`);
 assert.ok(representedLaneCount >= 4, 'The chart does not make meaningful use of at least four lanes.');
 
-for (const group of level.generation.repeatConsistency.groups) {
+const repeatConsistency = level.generation.repeatConsistency;
+assert.equal(repeatConsistency.repeatedFamilyGroupCount, repeatConsistency.groups.length);
+assert.equal(
+  repeatConsistency.exactGroupCount,
+  repeatConsistency.groups.filter((group) => group.exact).length,
+);
+for (const group of repeatConsistency.groups) {
   const signatures = group.phraseIds.map((phraseId) => signatureForPhrase(phraseId));
   for (const signature of signatures.slice(1)) {
     assert.deepEqual(signature, signatures[0], `${group.familyId} changed across repeated phrases.`);
   }
 }
-assert.equal(level.generation.repeatConsistency.exactRatio, 1);
-for (const link of level.generation.repeatConsistency.appliedRangeLinks) {
-  assert.match(link.id, /^analysis-overlap-/, 'A non-analysis structural reuse leaked into the chart.');
-  assert.ok(link.similarity >= 0.88, `${link.id} did not pass the exact-repeat threshold.`);
+if (repeatConsistency.groups.length) {
+  assert.equal(repeatConsistency.exactRatio, 1);
+} else {
+  assert.equal(repeatConsistency.exactRatio, null, 'An empty exact-repeat set cannot report perfect agreement.');
+}
+for (const link of repeatConsistency.appliedRangeLinks) {
+  if (link.id.startsWith('analysis-overlap-')) {
+    assert.ok(link.similarity >= 0.88, `${link.id} did not pass the exact-repeat threshold.`);
+    continue;
+  }
+  assert.match(link.id, /^director-exact-/, 'An unknown structural reuse leaked into the chart.');
+  const identity = directorScore.phraseIdentities.find((candidate) => candidate.id === link.directedIdentityId);
+  assert.equal(identity?.relation, 'exact', `${link.id} does not reference an exact Phrase Identity.`);
+  assert.equal(
+    identity?.developmentPolicy,
+    'preserve-canonical-kinetic-form',
+    `${link.id} references a Phrase Identity that permits development.`,
+  );
+  assert.equal(link.realization, 'kinetic-form-compiled', `${link.id} only copied rows without compiling its form.`);
+  assert.equal(link.compilerVersion, 'kinetic-form-row-compiler-v1');
 }
 
 const waveSections = level.generation.flowSections.filter((section) => section.motif === 'wave');
-assert.ok(waveSections.length > 0, 'The chart contains no rule-generated wave sections.');
 for (const section of waveSections) {
+  const sectionIndex = level.generation.flowSections.indexOf(section);
+  const emittedWaveRows = level.events.filter((event) => (
+    event.section === sectionIndex && event.layer === 'core' && event.pattern === 'wave'
+  ));
   assert.ok(section.slotCount >= 5, 'A wave section is too short to complete one crest.');
-  assert.deepEqual(
-    section.templateRows,
-    buildWaveRows({
+  const expectedWaveRows = buildWaveRows({
       length: section.slotCount,
       mirror: section.mirrored,
-    }).map((row) => row.join('')),
+    }).map((row) => row.join(''));
+  assert.deepEqual(
+    section.templateRows,
+    expectedWaveRows,
     'A wave section does not match the shared depth rule.',
   );
-}
-if (level.song.durationSeconds >= 120) {
   assert.deepEqual(
-    new Set(waveSections.map((section) => section.mirrored ? 'mirror' : 'identity')),
-    new Set(['identity', 'mirror']),
-    'A long chart must contain waves in both directions.',
+    emittedWaveRows.map((event) => event.obstacles.join('')),
+    expectedWaveRows,
+    'The emitted Wave Gate differs from its declared geometry.',
   );
-  assert.ok(waveSections.some((section) => section.slotCount > 5), 'A long chart has no spliced wave run.');
+  assert.ok(
+    emittedWaveRows.every((event) => event.kind === 'dodge' && !event.obstacles.includes(1)),
+    'A named Wave Gate contains a Target Cell.',
+  );
 }
 
 const mSections = level.generation.flowSections.filter((section) => section.motif === 'm');
 const literalMGestures = findLiteralMGestures(level.events);
-const requiredVisualMTemplate = [
-  '22200', '00000', '10000', '00000', '22200',
-  '22200', '00000', '10000', '00000', '22200',
-];
-assert.ok(
-  mSections.some((section) => section.templateRows?.join(',') === requiredVisualMTemplate.join(',')),
-  `The visible chart lacks the requested ${requiredVisualMTemplate.join('→')} M layout.`,
-);
-assert.ok(
-  literalMGestures.some((gesture) => gesture.orientation === 'identity'),
-  'The visible chart lacks the literal 22200→10000→22200→22200→10000→22200 M Gesture.',
-);
-if (level.song.durationSeconds >= 120) {
-  assert.ok(literalMGestures.length >= 2, 'A long song must contain at least two literal visible M Gestures.');
-}
 const coveredMEventIndices = literalMGestures.flatMap((gesture) => (
   Array.from(
     { length: gesture.endIndex - gesture.startIndex + 1 },
@@ -424,7 +1126,7 @@ assert.equal(
 );
 assert.equal(
   literalMGestures.length,
-  level.generation.motifCounts.m,
+  level.generation.motifCounts.m ?? 0,
   'M motif metadata does not match the literal visible gesture count.',
 );
 const expectedMSummary = {
@@ -479,39 +1181,6 @@ const maximumStrongStrokeSeconds = Math.max(
   physicalFullWidthSeconds + 0.05,
   beatSeconds * 1.35,
 );
-const minimumAlternatingGestureSeconds = physicalFullWidthSeconds * 4;
-const eligiblePeakIntentSections = intentSections.filter((section) => (
-  section.role === 'peak'
-  && section.endSeconds - section.startSeconds >= minimumAlternatingGestureSeconds
-));
-const fallbackStrongSection = intentSections
-  .filter((section) => section.endSeconds - section.startSeconds >= minimumAlternatingGestureSeconds)
-  .sort((left, right) => right.pressure - left.pressure)[0];
-const strongIntentSections = eligiblePeakIntentSections.length
-  ? eligiblePeakIntentSections
-  : [fallbackStrongSection].filter(Boolean);
-if (level.song.durationSeconds >= 30) {
-  assert.ok(strongIntentSections.length > 0, 'No strong section is long enough for a full-width alternating gesture.');
-}
-const strongSweepMetrics = strongIntentSections.map((section) => ({
-  section,
-  metrics: analyzeEdgeSweepWindow(level.events, comboRoutes, {
-    startSeconds: section.startSeconds,
-    endSeconds: section.endSeconds,
-    maxStrokeSeconds: maximumStrongStrokeSeconds,
-  }),
-}));
-for (const { section, metrics } of strongSweepMetrics) {
-  assert.ok(
-    metrics.maximumAlternatingEdgeStrokeCount >= 4,
-    `${section.id} ${section.role} section has no continuous five-hit full-width drum sweep.`,
-  );
-  assert.equal(
-    metrics.centerOnlyRouteExists,
-    false,
-    `${section.id} ${section.role} section still permits a full-combo route that micro-moves only in lanes 1–3.`,
-  );
-}
 
 const declaredSweepGroups = new Map();
 level.events.forEach((event, rowIndex) => {
@@ -520,13 +1189,11 @@ level.events.forEach((event, rowIndex) => {
   if (!declaredSweepGroups.has(id)) declaredSweepGroups.set(id, []);
   declaredSweepGroups.get(id).push({ event, rowIndex });
 });
-const requiredSparseSwayRows = ['22201', '10222', '22201'];
-assert.ok(
-  level.events.some((_, startIndex) => requiredSparseSwayRows.every((row, offset) => {
-    const event = level.events[startIndex + offset];
-    return event?.pattern === 'full-width-sweep' && event.obstacles.join('') === row;
-  })),
-  `The visible chart lacks the requested ${requiredSparseSwayRows.join('→')} sparse edge sway.`,
+const namedSweepRows = level.events.filter((event) => event.pattern === 'full-width-sweep');
+assert.equal(
+  namedSweepRows.filter((event) => event.sweepGestureId).length,
+  namedSweepRows.length,
+  'A named Full-width Drum Sweep row has no gesture identity.',
 );
 const actualSweepGestures = [];
 let actualForcedEdgeTargetCount = 0;
@@ -604,17 +1271,6 @@ assert.equal(
   level.generation.strongSweepMetrics.forcedEdgeTargetCount,
   actualForcedEdgeTargetCount,
 );
-if (level.song.durationSeconds >= 120) {
-  assert.ok(
-    declaredSweepGroups.size >= Math.floor(level.song.durationSeconds / 25),
-    'The chart does not reuse the full-width beat gesture often enough.',
-  );
-  assert.deepEqual(
-    new Set([...declaredSweepGroups.values()].flatMap((rows) => rows.map(({ event }) => event.sweepHazardMode))),
-    new Set(['clean', 'spiked']),
-    'A long chart must contain both clean and spiked full-width beat gestures.',
-  );
-}
 assert.deepEqual(
   level.generation.strongSweepMetrics.gestures,
   actualSweepGestures,
@@ -634,6 +1290,6 @@ console.log(
   `Validated ${level.id}: ${choiceRowCount} Choice Rows / ${targetCellCount} Target Cells, `
   + `${comboRoutes.meaningfulChoiceRows.length} Route Branches, ${dodgeCount} Gate Rows, `
   + `${literalMGestures.length} literal M Gestures, `
-  + `${strongSweepMetrics.reduce((sum, item) => sum + item.metrics.edgeToEdgeStrokes.length, 0)} strong-section full-width strokes, `
+  + `${actualEdgeToEdgeTransitionCount} full-width edge transitions, `
   + `${spikeCount} spikes, MP3 ${(audioStats.size / 1_048_576).toFixed(2)} MiB.`,
 );

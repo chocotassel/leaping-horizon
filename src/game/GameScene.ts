@@ -175,6 +175,13 @@ function getSpectrumEnergy(spectrum: Uint8Array, startBin: number, endBin: numbe
   return energy / (end - startBin + 1);
 }
 
+/** Merge a Director accent with the current ring feedback without weakening it. */
+export function mergeMusicAccentPulse(currentPulse: number, strength: number): number {
+  const safeCurrent = Number.isFinite(currentPulse) ? Math.max(0, currentPulse) : 0;
+  const safeStrength = Number.isFinite(strength) ? THREE.MathUtils.clamp(strength, 0, 1) : 0;
+  return Math.max(safeCurrent, safeStrength * 1.25);
+}
+
 export class GameScene {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly renderProfile: RenderProfile;
@@ -549,6 +556,13 @@ export class GameScene {
 
   getColorSchemeId(): SceneColorSchemeId {
     return this.colorSchemeId;
+  }
+
+  pulseMusicAccent(strength: number): void {
+    const safeStrength = Number.isFinite(strength) ? THREE.MathUtils.clamp(strength, 0, 1) : 0;
+    this.ringHitPulse = mergeMusicAccentPulse(this.ringHitPulse, safeStrength);
+    this.outerSpectrumImpact = Math.max(this.outerSpectrumImpact, safeStrength * 0.65);
+    this.innerSpectrumImpact = Math.max(this.innerSpectrumImpact, safeStrength * 0.5);
   }
 
   private createFeedback(width: number, height: number): {

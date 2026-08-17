@@ -1,10 +1,11 @@
 const HAZARD = 2;
 const LANE_COUNT = 5;
+const COMPACT_PRESSURE_THRESHOLD = 0.68;
 const PRESERVED_GESTURES = new Set(['m', 'full-width-sweep']);
 
 export const DENSITY_GAP_SECONDS = {
-  solid: 0.04,
-  compact: 0.22,
+  solid: 0.12,
+  compact: 0.36,
 };
 
 function basePattern(pattern = '') {
@@ -38,10 +39,19 @@ export function planDensityInterval(before, after) {
   if (!obstacles.includes(HAZARD)) return null;
 
   const pressure = Math.max(Number(before.pressure) || 0, Number(after.pressure) || 0);
-  const mode = patterns.includes('wave') || pressure >= 0.72
+  const isWaveGate = patterns.every((pattern) => pattern === 'wave') && [before, after].every(
+    (event) => event.kind === 'dodge' || event.kind === 'guide',
+  );
+  const isSustainedWall = before.sustainedWall === true && after.sustainedWall === true;
+  const mode = isWaveGate || isSustainedWall
     ? 'solid'
-    : pressure >= 0.42 ? 'compact' : null;
-  return mode ? { mode, obstacles, allowedLanes: allowedLanes({ obstacles }) } : null;
+    : pressure >= COMPACT_PRESSURE_THRESHOLD ? 'compact' : null;
+  return mode ? {
+    kind: 'guide',
+    mode,
+    obstacles,
+    allowedLanes: allowedLanes({ obstacles }),
+  } : null;
 }
 
 export function densityFillCount(durationSeconds, mode) {

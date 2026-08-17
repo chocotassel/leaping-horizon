@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const param = (value = 0) => ({
@@ -85,11 +86,24 @@ class FakeAudioContext {
 }
 
 const source = readFileSync(new URL('../src/audio/AudioEngine.ts', import.meta.url), 'utf8')
-  .replace("import { t } from '../i18n';", "const t = (key: string) => key;");
-const fixturePath = '/tmp/leaping-horizon-audio-engine.ts';
-const outputDir = '/tmp/leaping-horizon-audio-check';
+  .replace("import { t } from '../i18n';", "const t = (key: string) => key;")
+  .replace(
+    "import type { HitSoundIntent } from '../types';",
+    'interface HitSoundIntent { pitchMidi: number; pitchClass: number; sourceRole: string; velocity: number; gain: number; brightness: number; }',
+  )
+  .replace(
+    "import { HitVoice } from './HitVoice';",
+    'class HitVoice { constructor(_context: AudioContext, _destination: AudioNode) {} play(_intent: HitSoundIntent | undefined) { return false; } dispose() {} }',
+  );
+const temporaryRoot = fileURLToPath(new URL('../node_modules/.cache/leaping-horizon-audio-check/', import.meta.url));
+mkdirSync(temporaryRoot, { recursive: true });
+const temporaryDirectory = mkdtempSync(join(temporaryRoot, 'run-'));
+const fixturePath = join(temporaryDirectory, 'leaping-horizon-audio-engine.ts');
+const outputDir = join(temporaryDirectory, 'compiled');
+process.once('exit', () => rmSync(temporaryDirectory, { recursive: true, force: true }));
 writeFileSync(fixturePath, source);
-execFileSync(fileURLToPath(new URL('../node_modules/.bin/tsc', import.meta.url)), [
+execFileSync(process.execPath, [
+  fileURLToPath(new URL('../node_modules/typescript/bin/tsc', import.meta.url)),
   fixturePath,
   '--ignoreConfig',
   '--target', 'ES2020',

@@ -7,6 +7,7 @@ import {
   type Level,
   type LevelEvent,
   type ObstacleStateRow,
+  type VisualAccentEvent,
 } from '../types';
 import { GameScene } from './GameScene';
 import type { SceneColorSchemeId } from './colorSchemes';
@@ -40,6 +41,25 @@ export function getCrashSceneTime(startTime: number, elapsedMs: number): number 
   return startTime + CRASH_SCENE_MAX_ADVANCE_SECONDS * (
     1 - Math.exp(-elapsed / CRASH_SCENE_DECAY_MS)
   );
+}
+
+export interface VisualAccentTimelineAdvance {
+  due: readonly VisualAccentEvent[];
+  nextEventIndex: number;
+}
+
+/** Advance a validated visual-accent timeline without replaying prior pulses. */
+export function advanceVisualAccentTimeline(
+  events: readonly VisualAccentEvent[],
+  nextEventIndex: number,
+  timeSeconds: number,
+): VisualAccentTimelineAdvance {
+  let nextIndex = nextEventIndex;
+  while (nextIndex < events.length && events[nextIndex].timeSeconds <= timeSeconds) nextIndex += 1;
+  return {
+    due: events.slice(nextEventIndex, nextIndex),
+    nextEventIndex: nextIndex,
+  };
 }
 
 export interface RunJudgmentState {
@@ -162,7 +182,10 @@ export function resolveEventRow({
     const lane = laneIndex as LaneIndex;
     if (states[lane] === 'pending') states[lane] = 'miss';
   }
-  if (event.kind !== 'dodge' || !hasPendingObstacle) return result('none');
+  // Density Fill is collision guidance between measured anchors, not a scored
+  // Gate Row. Keep the flag check for v3 charts generated before `guide` was
+  // introduced as an explicit event kind.
+  if (event.kind !== 'dodge' || event.densityFill || !hasPendingObstacle) return result('none');
 
   run.dodges += 1;
   run.combo += 1;
@@ -174,6 +197,10 @@ export function resolveEventRow({
 /** Accuracy is measured per Choice Row, never per Target Cell. */
 export function countChoiceRows(events: readonly LevelEvent[]): number {
   return events.filter((event) => event.kind === 'target').length;
+}
+
+export function countDodgeRows(events: readonly LevelEvent[]): number {
+  return events.filter((event) => event.kind === 'dodge' && !event.densityFill).length;
 }
 
 export function countMultiTargetRows(events: readonly LevelEvent[]): number {
@@ -197,6 +224,7 @@ export class GameController {
   private dodges = 0;
   private nextEventIndex = 0;
   private nextColorSchemeEventIndex = 0;
+  private nextVisualAccentEventIndex = 0;
   private frameId = 0;
   private finished = false;
   private dead = false;
@@ -269,6 +297,15 @@ export class GameController {
       this.scene.setColorScheme(this.level.colorSchemeEvents[this.nextColorSchemeEventIndex].colorSchemeId);
       this.nextColorSchemeEventIndex += 1;
     }
+    if (!this.dead) {
+      const visualAccentAdvance = advanceVisualAccentTimeline(
+        this.level.visualAccentEvents ?? [],
+        this.nextVisualAccentEventIndex,
+        time,
+      );
+      visualAccentAdvance.due.forEach((event) => this.scene.pulseMusicAccent(event.strength));
+      this.nextVisualAccentEventIndex = visualAccentAdvance.nextEventIndex;
+    }
     if (!this.audio.paused && !this.dead) this.judgeObstacles(time);
     this.scene.render(time, this.level, this.states, this.combo, this.audio.spectrum);
 
@@ -336,6 +373,7 @@ export class GameController {
         return;
       }
       if (resolution.outcome === 'target-hit') {
+        this.audio.playHitSound(event.hitSound);
         this.scene.burst(resolution.impactX ?? this.scene.getPlayerX());
       } else if (resolution.outcome === 'target-miss') {
         this.scene.flashMiss(time);
@@ -358,7 +396,7 @@ export class GameController {
       doubleHitRows: this.doubleHitRows,
       totalMultiTargetRows: countMultiTargetRows(this.level.events),
       dodges: this.dodges,
-      totalDodges: this.level.events.filter((event) => event.kind === 'dodge').length,
+      totalDodges: countDodgeRows(this.level.events),
     };
   }
 

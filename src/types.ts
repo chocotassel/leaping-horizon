@@ -17,6 +17,21 @@ export type ObstacleRow = [
   ObstacleType,
 ];
 
+export interface HitSoundIntent {
+  /** MIDI note number measured from the performed attack. */
+  pitchMidi: number;
+  /** Pitch class in the range 0..11, retained for inspection and future timbres. */
+  pitchClass: number;
+  /** Measured source character, for example percussion, melody or vocal-like. */
+  sourceRole: string;
+  /** Relative attack strength in the range 0..1. */
+  velocity: number;
+  /** Per-event mix trim in the range 0..1. */
+  gain: number;
+  /** Relative high-frequency content in the range 0..1. */
+  brightness: number;
+}
+
 export interface Song {
   title: string;
   artist: string;
@@ -32,8 +47,10 @@ export interface LevelEvent {
   obstacles: ObstacleRow;
   strength?: number;
   source?: string;
-  /** Choice Rows require a hit; Gate Rows require avoiding every Hazard Cell. */
-  kind: 'target' | 'dodge';
+  /** Short performance sound derived from this row's measured Attack Event. */
+  hitSound?: HitSoundIntent;
+  /** Choice Rows score a hit; Gate Rows score a dodge; Guide Rows only shape collision. */
+  kind: 'target' | 'dodge' | 'guide';
   pattern?: string;
   /** Role inside the spatial motif; empty template slots are intentionally not stored. */
   role?: string;
@@ -60,7 +77,7 @@ export interface LevelEvent {
   choiceLaneCount?: number;
   /** True when at least two displayed targets are valid full-combo decisions. */
   routeBranch?: boolean;
-  /** Rule-generated Gate Row between two measured musical anchors. */
+  /** Rule-generated Guide Row between two measured musical anchors. */
   densityFill?: boolean;
   densityMode?: 'solid' | 'compact';
   /** Per-row movement allowance for explicit full-width beat gestures. */
@@ -86,6 +103,17 @@ export interface ColorSchemeEvent {
   strength: number;
 }
 
+export interface VisualAccentEvent {
+  id?: string;
+  timeSeconds: number;
+  kind: 'pulse';
+  strength: number;
+  source: string;
+  anchorId: string;
+  sceneId?: string;
+  evidenceIds?: string[];
+}
+
 /**
  * Level v3 stores every row at its measured audio time. There is deliberately
  * no ticksPerBeat or beatOffset: gameplay events cannot be snapped to a grid.
@@ -96,6 +124,7 @@ export interface Level {
   song: Song;
   generation: LevelGeneration;
   colorSchemeEvents: ColorSchemeEvent[];
+  visualAccentEvents?: VisualAccentEvent[];
   events: LevelEvent[];
 }
 

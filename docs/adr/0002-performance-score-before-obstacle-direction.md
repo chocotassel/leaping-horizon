@@ -1,0 +1,3 @@
+# Performance transcription before obstacle direction
+
+Status: Accepted. The offline pipeline first transcribes measured attacks and melodic motion into an immutable `PerformanceScore`, which is the sole authority for core Target Cell times and lane intent; the existing `DirectedSongScore` may shape hazards, pressure, routes, and visuals around those events but may not replace them. This deliberately favors playable musical transcription over visually balanced obstacle templates: detector fusion and local pitch mapping become more important, while beat grids remain supporting evidence and every hit can carry an event-specific Hit Voice without changing the source recording.

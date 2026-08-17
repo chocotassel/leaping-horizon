@@ -36,15 +36,23 @@ GAME_AUDIO_BITRATE_KBPS = 96
 HOP_LENGTH = 256
 N_FFT = 1_024
 MIN_OUTPUT_GAP_SECONDS = 0.12
+MIN_PERFORMANCE_EVIDENCE_GAP_SECONDS = 0.065
 COLORS = {
     "librosa-onset": "#35e4ed",
     "librosa-percussive": "#ff4058",
+    "librosa-harmonic": "#58d68d",
+    "librosa-band-bass": "#ff8b5c",
+    "librosa-band-low-mid": "#ffd166",
+    "librosa-band-mid": "#61dafb",
+    "librosa-band-high-mid": "#8f7cff",
+    "librosa-band-high": "#ff73c8",
     "basic-pitch": "#b879ff",
     "beat-this": "#ffc857",
 }
 
-STRUCTURE_BARS_PER_PHRASE = 8
-STRUCTURE_OVERLAP_STRIDE_BARS = 4
+STRUCTURE_MIN_PHRASE_BARS = 2
+STRUCTURE_MAX_PHRASE_BARS = 12
+STRUCTURE_MIN_RECURRENCE_BARS = 4
 STRUCTURE_SAME_FAMILY_SIMILARITY = 0.84
 STRUCTURE_RELATED_VARIANT_SIMILARITY = 0.78
 STRUCTURE_OVERLAP_EXACT_SIMILARITY = 0.88
@@ -91,7 +99,7 @@ def curve_events(
     wait: int,
 ) -> list[DetectorEvent]:
     normalized = normalize_curve(envelope)
-    frames = librosa.onset.onset_detect(
+    peak_frames = librosa.onset.onset_detect(
         onset_envelope=envelope,
         sr=SAMPLE_RATE,
         hop_length=HOP_LENGTH,
@@ -104,11 +112,15 @@ def curve_events(
         delta=delta,
         wait=wait,
     )
+    # Spectral-flux maxima happen after the audible attack begins. Keep the
+    # peak's confidence, but place the event at the preceding onset front so a
+    # Target Cell sounds simultaneous with the instrument rather than late.
+    attack_frames = librosa.onset.onset_backtrack(peak_frames, envelope)
     events: list[DetectorEvent] = []
-    for frame in frames:
-        time = float(librosa.frames_to_time(frame, sr=SAMPLE_RATE, hop_length=HOP_LENGTH))
+    for peak_frame, attack_frame in zip(peak_frames, attack_frames):
+        time = float(librosa.frames_to_time(attack_frame, sr=SAMPLE_RATE, hop_length=HOP_LENGTH))
         if 0.5 <= time <= duration - 0.5:
-            events.append(DetectorEvent(time, float(normalized[int(frame)]), source))
+            events.append(DetectorEvent(time, float(normalized[int(peak_frame)]), source))
     return events
 
 
@@ -589,22 +601,19 @@ def _phrase_features(
     mfcc_scaled: np.ndarray,
     onset_curve: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    chroma_parts: list[np.ndarray] = []
-    timbre_parts: list[np.ndarray] = []
-    rhythm_parts: list[np.ndarray] = []
-    for bar in bars[start_bar : start_bar + bar_count]:
-        start_time = float(bar["startSeconds"])
-        end_time = float(bar["endSeconds"])
-        chroma_bins = _temporal_means(chroma_cens, frame_times, start_time, end_time, 4)
-        chroma_parts.append(_row_l2_normalize(np.maximum(chroma_bins, 0.0)).reshape(-1))
-        timbre_bins = _temporal_means(mfcc_scaled, frame_times, start_time, end_time, 2)
-        timbre_parts.append(timbre_bins.reshape(-1))
-        onset_bins = _temporal_means(onset_curve, frame_times, start_time, end_time, 16)
-        rhythm_parts.append(_row_l2_normalize(np.maximum(onset_bins.T, 0.0)).reshape(-1))
+    phrase_bars = bars[start_bar : start_bar + bar_count]
+    start_time = float(phrase_bars[0]["startSeconds"])
+    end_time = float(phrase_bars[-1]["endSeconds"])
+    # Every descriptor has a fixed dimension even when the musical sentence
+    # spans a different number of bars. Time is normalized only inside the
+    # descriptor; emitted beat/downbeat timestamps remain untouched.
+    chroma_bins = _temporal_means(chroma_cens, frame_times, start_time, end_time, 32)
+    timbre_bins = _temporal_means(mfcc_scaled, frame_times, start_time, end_time, 16)
+    onset_bins = _temporal_means(onset_curve, frame_times, start_time, end_time, 64)
     return (
-        np.concatenate(chroma_parts),
-        np.concatenate(timbre_parts),
-        np.concatenate(rhythm_parts),
+        _row_l2_normalize(np.maximum(chroma_bins, 0.0)).reshape(-1),
+        timbre_bins.reshape(-1),
+        _row_l2_normalize(np.maximum(onset_bins.T, 0.0)).reshape(-1),
     )
 
 
@@ -614,21 +623,21 @@ def _make_phrase_units(
     chroma_cens: np.ndarray,
     mfcc_scaled: np.ndarray,
     onset_curve: np.ndarray,
-    starts: Sequence[int],
+    ranges: Sequence[tuple[int, int]],
     prefix: str,
 ) -> tuple[list[dict], dict[str, np.ndarray]]:
     phrases: list[dict] = []
     harmony_vectors: list[np.ndarray] = []
     timbre_vectors: list[np.ndarray] = []
     rhythm_vectors: list[np.ndarray] = []
-    for phrase_index, start_bar in enumerate(starts):
-        end_bar = start_bar + STRUCTURE_BARS_PER_PHRASE
-        if end_bar > len(bars):
+    for phrase_index, (start_bar, end_bar) in enumerate(ranges):
+        bar_count = end_bar - start_bar
+        if start_bar < 0 or end_bar > len(bars) or bar_count <= 0:
             continue
         harmony, timbre, rhythm = _phrase_features(
             bars,
             start_bar,
-            STRUCTURE_BARS_PER_PHRASE,
+            bar_count,
             frame_times,
             chroma_cens,
             mfcc_scaled,
@@ -645,7 +654,7 @@ def _make_phrase_units(
             "endSeconds": bars[end_bar - 1]["endSeconds"],
             "startBarIndex": start_bar,
             "endBarIndex": end_bar,
-            "barCount": STRUCTURE_BARS_PER_PHRASE,
+            "barCount": bar_count,
             "intensity": round_number(float(np.mean(intensities)), 4),
         })
     return phrases, {
@@ -656,7 +665,10 @@ def _make_phrase_units(
     }
 
 
-def _combined_phrase_similarity(components: dict[str, np.ndarray]) -> np.ndarray:
+def _combined_phrase_similarity(
+    components: dict[str, np.ndarray],
+    phrases: Sequence[dict],
+) -> np.ndarray:
     if not components["harmony"].size:
         return np.empty((0, 0), dtype=np.float64)
     combined = (
@@ -665,8 +677,317 @@ def _combined_phrase_similarity(components: dict[str, np.ndarray]) -> np.ndarray
         + 0.30 * components["rhythm"]
     )
     combined = np.clip(combined, 0.0, 1.0)
+    # Different sentence lengths may be related developments, but cannot be an
+    # exact canonical repeat. Keep their affinity below the exact-family floor.
+    for left in range(len(phrases)):
+        for right in range(left + 1, len(phrases)):
+            if phrases[left]["barCount"] != phrases[right]["barCount"]:
+                combined[left, right] = min(combined[left, right], 0.839)
+                combined[right, left] = combined[left, right]
     np.fill_diagonal(combined, 1.0)
     return combined
+
+
+def _cosine_distance(left: np.ndarray, right: np.ndarray) -> float:
+    left = np.asarray(left, dtype=np.float64).reshape(-1)
+    right = np.asarray(right, dtype=np.float64).reshape(-1)
+    left_norm = float(np.linalg.norm(left))
+    right_norm = float(np.linalg.norm(right))
+    if left_norm <= 1e-9 and right_norm <= 1e-9:
+        return 0.0
+    if left_norm <= 1e-9 or right_norm <= 1e-9:
+        # Silence and audible content are maximally different evidence states.
+        # Treating either zero vector as identical hid real section entrances.
+        return 1.0
+    denominator = left_norm * right_norm
+    return float(np.clip(1.0 - np.dot(left, right) / denominator, 0.0, 2.0) / 2.0)
+
+
+def _enforce_maximum_phrase_span(
+    boundaries: Sequence[int],
+    boundary_scores: np.ndarray,
+    bars: Sequence[dict],
+    threshold: float,
+) -> tuple[list[int], list[dict]]:
+    """Split only overlong regions at their strongest measured downbeat seam."""
+    scores = np.asarray(boundary_scores, dtype=np.float64)
+    forced: list[dict] = []
+
+    def split_region(left: int, right: int) -> list[int]:
+        if right - left <= STRUCTURE_MAX_PHRASE_BARS:
+            return [left, right]
+        candidates = range(
+            left + STRUCTURE_MIN_PHRASE_BARS,
+            right - STRUCTURE_MIN_PHRASE_BARS + 1,
+        )
+        midpoint = (left + right) / 2
+        boundary = max(
+            candidates,
+            key=lambda candidate: (
+                round(float(scores[candidate]), 12),
+                -abs(candidate - midpoint),
+                -candidate,
+            ),
+        )
+        evidence_score = float(scores[boundary])
+        forced.append({
+            "barIndex": boundary,
+            "timeSeconds": bars[boundary]["startSeconds"],
+            "score": round_number(evidence_score, 5),
+            "evidenceStrength": (
+                "supported"
+                if evidence_score > 0 and evidence_score >= threshold
+                else "weak-fallback"
+            ),
+            "reason": "maximum-phrase-span",
+        })
+        left_boundaries = split_region(left, boundary)
+        right_boundaries = split_region(boundary, right)
+        return [*left_boundaries[:-1], *right_boundaries]
+
+    result = [int(boundaries[0])] if boundaries else []
+    for left, right in zip(boundaries, boundaries[1:]):
+        result.extend(split_region(int(left), int(right))[1:])
+    return sorted(set(result)), sorted(forced, key=lambda item: item["barIndex"])
+
+
+def _adaptive_phrase_ranges(
+    bars: Sequence[dict],
+    bar_feature_matrix: np.ndarray,
+    sections: Sequence[dict],
+    boundary_support: dict[int, float],
+) -> tuple[list[tuple[int, int]], dict]:
+    """Infer variable-length musical sentences on real downbeat boundaries."""
+    bar_count = len(bars)
+    if bar_count < STRUCTURE_MIN_PHRASE_BARS:
+        return ([(0, bar_count)] if bar_count else []), {
+            "algorithm": "evidence-boundary-dp-v1",
+            "minimumPhraseBars": STRUCTURE_MIN_PHRASE_BARS,
+            "maximumPhraseBars": STRUCTURE_MAX_PHRASE_BARS,
+            "threshold": None,
+            "boundaries": [0, bar_count] if bar_count else [],
+            "mandatorySectionBoundaries": [],
+            "forcedLongRegionBoundaries": [],
+            "scores": [],
+        }
+    features = np.asarray(bar_feature_matrix, dtype=np.float64)
+    feature_similarity = _safe_cosine_matrix([row for row in features])
+    checkerboard = np.zeros(bar_count + 1, dtype=np.float64)
+    profile_discontinuity = np.zeros(bar_count + 1, dtype=np.float64)
+    reset = np.zeros(bar_count + 1, dtype=np.float64)
+    intensities = np.asarray([float(bar.get("intensity", 0.0)) for bar in bars], dtype=np.float64)
+    for boundary in range(1, bar_count):
+        scale_scores: list[float] = []
+        for scale in (1, 2, 4):
+            left_start = max(0, boundary - scale)
+            right_end = min(bar_count, boundary + scale)
+            if boundary - left_start < 1 or right_end - boundary < 1:
+                continue
+            left_mean = np.mean(features[left_start:boundary], axis=0)
+            right_mean = np.mean(features[boundary:right_end], axis=0)
+            scale_scores.append(_cosine_distance(left_mean, right_mean))
+        checkerboard[boundary] = float(np.mean(scale_scores)) if scale_scores else 0.0
+        profile_discontinuity[boundary] = _cosine_distance(
+            feature_similarity[boundary - 1],
+            feature_similarity[boundary],
+        )
+        local_left = float(np.mean(intensities[max(0, boundary - 2):boundary]))
+        local_right = float(np.mean(intensities[boundary:min(bar_count, boundary + 2)]))
+        reset[boundary] = abs(local_right - local_left)
+
+    section_component = np.zeros(bar_count + 1, dtype=np.float64)
+    for boundary, support in boundary_support.items():
+        if 0 < boundary < bar_count:
+            section_component[boundary] = max(section_component[boundary], float(support))
+    score = (
+        normalize_curve(checkerboard) * 0.40
+        + normalize_curve(section_component) * 0.25
+        + normalize_curve(profile_discontinuity) * 0.20
+        + normalize_curve(reset) * 0.15
+    )
+    interior = score[1:bar_count]
+    median = float(np.median(interior)) if interior.size else 0.0
+    mad = float(np.median(np.abs(interior - median))) if interior.size else 0.0
+    threshold = max(
+        median + 0.5 * mad,
+        float(np.percentile(interior, 70)) if interior.size else 0.0,
+    )
+    mandatory_candidates = sorted({
+        int(section["startBarIndex"])
+        for section in sections[1:]
+        if 0 < int(section["startBarIndex"]) < bar_count
+        and float(section.get("boundarySupport", 0.0)) >= 0.75
+    })
+    mandatory: list[int] = []
+    for boundary in mandatory_candidates:
+        if boundary < STRUCTURE_MIN_PHRASE_BARS or bar_count - boundary < STRUCTURE_MIN_PHRASE_BARS:
+            continue
+        if mandatory and boundary - mandatory[-1] < STRUCTURE_MIN_PHRASE_BARS:
+            if score[boundary] > score[mandatory[-1]]:
+                mandatory[-1] = boundary
+            continue
+        mandatory.append(boundary)
+
+    def infer_region(left_edge: int, right_edge: int) -> list[int]:
+        length = right_edge - left_edge
+        if length < STRUCTURE_MIN_PHRASE_BARS * 2:
+            return [left_edge, right_edge]
+        best: dict[int, tuple[float, int, list[int]]] = {left_edge: (0.0, 0, [left_edge])}
+        for end in range(left_edge + STRUCTURE_MIN_PHRASE_BARS, right_edge + 1):
+            candidates: list[tuple[float, int, list[int]]] = []
+            for start, (prior_score, phrase_count, path) in best.items():
+                if end - start < STRUCTURE_MIN_PHRASE_BARS:
+                    continue
+                boundary_reward = 0.0 if end == right_edge else float(score[end] - threshold)
+                if end != right_edge and boundary_reward <= 0:
+                    continue
+                candidates.append((prior_score + boundary_reward, phrase_count + 1, [*path, end]))
+            if candidates:
+                best[end] = max(
+                    candidates,
+                    key=lambda item: (round(item[0], 12), -item[1], tuple(-value for value in item[2])),
+                )
+        return best.get(right_edge, (0.0, 1, [left_edge, right_edge]))[2]
+
+    boundaries = [0]
+    mandatory_edges = [0, *mandatory, bar_count]
+    for left_edge, right_edge in zip(mandatory_edges, mandatory_edges[1:]):
+        region_edges = infer_region(left_edge, right_edge)
+        boundaries.extend(region_edges[1:])
+    boundaries = sorted(set(boundaries))
+    while True:
+        short_index = next((
+            index
+            for index, (left, right) in enumerate(zip(boundaries, boundaries[1:]))
+            if right - left < STRUCTURE_MIN_PHRASE_BARS
+        ), None)
+        if short_index is None:
+            break
+        if short_index == 0:
+            boundaries.pop(1)
+        elif short_index == len(boundaries) - 2:
+            boundaries.pop(-2)
+        else:
+            left_boundary = boundaries[short_index]
+            right_boundary = boundaries[short_index + 1]
+            if score[left_boundary] <= score[right_boundary]:
+                boundaries.pop(short_index)
+            else:
+                boundaries.pop(short_index + 1)
+    boundaries, forced_long_boundaries = _enforce_maximum_phrase_span(
+        boundaries,
+        score,
+        bars,
+        threshold,
+    )
+    score_components = {
+        boundary: {
+            "checkerboardNovelty": round_number(checkerboard[boundary], 5),
+            "profileDiscontinuity": round_number(profile_discontinuity[boundary], 5),
+            "energyReset": round_number(reset[boundary], 5),
+            "sectionSupport": round_number(section_component[boundary], 5),
+        }
+        for boundary in range(1, bar_count)
+    }
+    forced_long_boundaries = [
+        {**item, **score_components[item["barIndex"]]}
+        for item in forced_long_boundaries
+    ]
+    ranges = [(left, right) for left, right in zip(boundaries, boundaries[1:]) if right > left]
+    return ranges, {
+        "algorithm": "evidence-boundary-dp-v1",
+        "minimumPhraseBars": STRUCTURE_MIN_PHRASE_BARS,
+        "maximumPhraseBars": STRUCTURE_MAX_PHRASE_BARS,
+        "threshold": round_number(threshold, 5),
+        "boundaries": boundaries,
+        "mandatorySectionBoundaries": mandatory,
+        "forcedLongRegionBoundaries": forced_long_boundaries,
+        "scores": [
+            {
+                "barIndex": boundary,
+                "timeSeconds": bars[boundary]["startSeconds"],
+                "score": round_number(score[boundary], 5),
+                "checkerboardNovelty": round_number(checkerboard[boundary], 5),
+                "profileDiscontinuity": round_number(profile_discontinuity[boundary], 5),
+                "energyReset": round_number(reset[boundary], 5),
+                "sectionSupport": round_number(section_component[boundary], 5),
+            }
+            for boundary in range(1, bar_count)
+        ],
+    }
+
+
+def _adaptive_overlap_ranges(
+    phrase_ranges: Sequence[tuple[int, int]],
+    segmentation: dict,
+    bar_count: int,
+) -> list[tuple[int, int]]:
+    """Propose off-seam recurrence windows only at salient measured boundaries."""
+    observed_phrase_lengths = sorted({
+        right - left
+        for left, right in phrase_ranges
+        if right - left >= STRUCTURE_MIN_RECURRENCE_BARS
+    })
+    primary_ranges = set(phrase_ranges)
+    boundary_score_by_bar = {
+        int(item["barIndex"]): float(item["score"])
+        for item in segmentation.get("scores", [])
+    }
+    section_supported = {
+        int(item["barIndex"])
+        for item in segmentation.get("scores", [])
+        if float(item.get("sectionSupport", 0.0)) > 0
+    }
+    threshold = float(segmentation.get("threshold") or 0.0)
+    salient_boundaries = sorted({
+        0,
+        bar_count,
+        *segmentation.get("boundaries", []),
+        *(
+            boundary
+            for boundary, score in boundary_score_by_bar.items()
+            if (
+                (
+                    score >= threshold
+                    and score >= boundary_score_by_bar.get(boundary - 1, -1.0)
+                    and score >= boundary_score_by_bar.get(boundary + 1, -1.0)
+                )
+                or boundary in section_supported
+            )
+        ),
+    })
+    return [
+        (start_bar, start_bar + phrase_length)
+        for start_bar in salient_boundaries
+        for phrase_length in observed_phrase_lengths
+        if start_bar + phrase_length <= bar_count
+        and (start_bar, start_bar + phrase_length) not in primary_ranges
+    ]
+
+
+def _retain_exact_overlap_recurrences(
+    families: Sequence[dict],
+    links: Sequence[dict],
+    retained_phrase_ids: set[str],
+) -> tuple[list[dict], list[dict]]:
+    """Keep overlap windows as exact recurrence evidence, never development bridges."""
+    exact_links = [
+        link for link in links
+        if link.get("relationship") == "same-family"
+        and link.get("sourcePhraseId") in retained_phrase_ids
+        and link.get("targetPhraseId") in retained_phrase_ids
+    ]
+    exact_families = [
+        {
+            **family,
+            # Related overlap families are hypotheses around the same passage,
+            # not separate developed Phrase Identity contracts.
+            "relatedFamilyIds": [],
+        }
+        for family in families
+        if all(phrase_id in retained_phrase_ids for phrase_id in family.get("phraseIds", []))
+    ]
+    return exact_families, exact_links
 
 
 def _multi_scale_sections(
@@ -744,7 +1065,6 @@ def _multi_scale_sections(
     # A low-confidence phrase boundary is preferable to a 20+ bar monolith:
     # long regions erase musical-stage identity. Fallbacks are still detector
     # downbeats and are marked with zero agglomerative support.
-    fallback_stride = STRUCTURE_BARS_PER_PHRASE
     changed = True
     while changed:
         changed = False
@@ -752,13 +1072,14 @@ def _multi_scale_sections(
         for left, right in zip(current_edges, current_edges[1:]):
             if right - left <= 16:
                 continue
-            fallback = min(
-                (
-                    boundary
-                    for boundary in range(fallback_stride, bar_count, fallback_stride)
-                    if left + 4 <= boundary <= right - 4
+            fallback_candidates = list(range(left + 4, right - 3))
+            fallback = max(
+                fallback_candidates,
+                key=lambda boundary: (
+                    _cosine_distance(bar_feature_matrix[boundary - 1], bar_feature_matrix[boundary]),
+                    -abs(boundary - (left + right) / 2),
+                    -boundary,
                 ),
-                key=lambda boundary: abs(boundary - (left + right) / 2),
                 default=None,
             )
             if fallback is not None and fallback not in selected:
@@ -804,7 +1125,7 @@ def build_musical_structure(
         duration,
     )
     base = {
-        "algorithm": "beat-this-downbeats+librosa-cens-mfcc-onset+agglomerative-v1",
+        "algorithm": "beat-this-downbeats+librosa-adaptive-evidence-phrases+agglomerative-v2",
         "timingPolicy": (
             "Beat and downbeat times are copied from Beat This! detector peaks. "
             "All internal bar, phrase, and section boundaries reference those downbeats; "
@@ -812,7 +1133,7 @@ def build_musical_structure(
             "no BPM grid, snapping, interpolation, or event-time quantization is used."
         ),
         "beatsPerBar": beats_per_bar,
-        "barsPerPhrase": STRUCTURE_BARS_PER_PHRASE,
+        "barsPerPhrase": None,
         "beats": beat_records,
         "downbeats": [
             {
@@ -835,7 +1156,7 @@ def build_musical_structure(
             "reason": "Beat This! did not provide enough downbeats for structure analysis.",
         },
     }
-    if len(bars) < STRUCTURE_BARS_PER_PHRASE or not beat_events:
+    if len(bars) < STRUCTURE_MIN_PHRASE_BARS or not beat_events:
         return base
 
     print("Analysing repeated musical structure on Beat This! downbeats...")
@@ -890,17 +1211,22 @@ def build_musical_structure(
         bars,
         np.asarray(raw_bar_features, dtype=np.float64),
     )
-    core_starts = list(range(0, len(bars) - STRUCTURE_BARS_PER_PHRASE + 1, STRUCTURE_BARS_PER_PHRASE))
+    phrase_ranges, segmentation = _adaptive_phrase_ranges(
+        bars,
+        np.asarray(raw_bar_features, dtype=np.float64),
+        sections,
+        boundary_support,
+    )
     phrases, components = _make_phrase_units(
         bars,
         frame_times,
         chroma_cens,
         mfcc_scaled,
         onset_curve,
-        core_starts,
+        phrase_ranges,
         "phrase",
     )
-    combined = _combined_phrase_similarity(components)
+    combined = _combined_phrase_similarity(components, phrases)
     families, core_links = _assign_phrase_families(
         phrases,
         combined,
@@ -916,21 +1242,18 @@ def build_musical_structure(
     for phrase in phrases:
         phrase["sectionIndex"] = section_by_bar.get(phrase["startBarIndex"])
 
-    overlap_starts = list(range(
-        0,
-        len(bars) - STRUCTURE_BARS_PER_PHRASE + 1,
-        STRUCTURE_OVERLAP_STRIDE_BARS,
-    ))
+    observed_phrase_lengths = sorted({right - left for left, right in phrase_ranges})
+    overlap_ranges = _adaptive_overlap_ranges(phrase_ranges, segmentation, len(bars))
     overlapping_phrases, overlap_components = _make_phrase_units(
         bars,
         frame_times,
         chroma_cens,
         mfcc_scaled,
         onset_curve,
-        overlap_starts,
+        overlap_ranges,
         "overlap",
     )
-    overlap_combined = _combined_phrase_similarity(overlap_components)
+    overlap_combined = _combined_phrase_similarity(overlap_components, overlapping_phrases)
     # Complete linkage makes an overlap family safe for exact obstacle reuse:
     # every pair in the family must clear the strict threshold. Softer matches
     # remain related-variant links and never inherit the same family/template.
@@ -942,14 +1265,47 @@ def build_musical_structure(
         "OF",
         "complete",
     )
-    repeating_overlap_ids = {
-        family["id"]
+    non_overlapping_families: list[dict] = []
+    for family in overlapping_families:
+        candidates = sorted(
+            family["phraseIndices"],
+            key=lambda index: (
+                overlapping_phrases[index]["endBarIndex"],
+                overlapping_phrases[index]["startBarIndex"],
+                index,
+            ),
+        )
+        retained_indices: list[int] = []
+        last_end = -1
+        for index in candidates:
+            phrase = overlapping_phrases[index]
+            if phrase["startBarIndex"] < last_end:
+                continue
+            retained_indices.append(index)
+            last_end = phrase["endBarIndex"]
+        if len(retained_indices) < 2:
+            continue
+        non_overlapping_families.append({
+            **family,
+            "prototypePhraseIndex": retained_indices[0],
+            "phraseIndices": retained_indices,
+            "phraseIds": [overlapping_phrases[index]["id"] for index in retained_indices],
+            "occurrenceCount": len(retained_indices),
+        })
+    overlapping_families = non_overlapping_families
+    retained_overlap_phrase_ids = {
+        phrase_id
         for family in overlapping_families
-        if family["occurrenceCount"] > 1
+        for phrase_id in family["phraseIds"]
     }
-    overlapping_families = [
-        family for family in overlapping_families if family["id"] in repeating_overlap_ids
+    overlapping_phrases = [
+        phrase for phrase in overlapping_phrases if phrase["id"] in retained_overlap_phrase_ids
     ]
+    overlapping_families, overlap_links = _retain_exact_overlap_recurrences(
+        overlapping_families,
+        overlap_links,
+        retained_overlap_phrase_ids,
+    )
 
     def matrix_payload(matrix: np.ndarray) -> list[list[float]]:
         return [[round_number(value, 4) for value in row] for row in matrix]
@@ -961,9 +1317,9 @@ def build_musical_structure(
         "families": families,
         "similarityMatrix": matrix_payload(combined),
         "phraseLinks": [
-            {**link, "scope": "non-overlapping-8-bar"} for link in core_links
+            {**link, "scope": "adaptive-non-overlapping"} for link in core_links
         ] + [
-            {**link, "scope": "overlapping-8-bar-stride-4"} for link in overlap_links
+            {**link, "scope": "adaptive-variable-window"} for link in overlap_links
         ],
         "overlappingPhrases": overlapping_phrases,
         "overlappingPhraseFamilies": overlapping_families,
@@ -976,7 +1332,7 @@ def build_musical_structure(
                 "similarityWeights": {"harmony": 0.5, "timbre": 0.2, "microRhythm": 0.3},
             },
             "recurrence": {
-                "metric": "cosine affinity over locally normalized 8-bar descriptors",
+                "metric": "cosine affinity over time-normalized variable-length phrase descriptors",
                 "matrixField": "similarityMatrix",
                 "diagonalPolicy": "self-similarity is 1.0",
             },
@@ -999,13 +1355,14 @@ def build_musical_structure(
                 "sectionBoundaryMinimumSupport": round_number(3 / max(1, len(scales)), 3),
                 "maximumSectionBarsBeforeDownbeatFallback": 16,
             },
+            "segmentation": segmentation,
             "overlappingWindow": {
-                "barsPerWindow": STRUCTURE_BARS_PER_PHRASE,
-                "strideBars": STRUCTURE_OVERLAP_STRIDE_BARS,
+                "candidateBarCounts": observed_phrase_lengths,
+                "candidateCount": len(overlap_ranges),
                 "exactFamilyMinimumPairwiseSimilarity": STRUCTURE_OVERLAP_EXACT_SIMILARITY,
                 "relatedVariantMinimumSimilarity": STRUCTURE_OVERLAP_RELATED_SIMILARITY,
                 "familyLinkage": "complete",
-                "purpose": "Detect repeated melody identities that begin midway through a non-overlapping phrase unit.",
+                "purpose": "Detect repeated identities beginning away from an inferred phrase seam without imposing a fixed span or stride.",
             },
             "similarityComponents": {
                 "harmony": matrix_payload(components["harmony"]),
@@ -1184,11 +1541,11 @@ def main() -> None:
     librosa_selected = nms_detector_events(librosa_display_events, MIN_OUTPUT_GAP_SECONDS)
     percussive_selected = nms_detector_events(
         [event for event in detectors.get("percussive", []) if event.score >= 0.62],
-        MIN_OUTPUT_GAP_SECONDS,
+        MIN_PERFORMANCE_EVIDENCE_GAP_SECONDS,
     )
     basic_pitch_display_events = nms_detector_events(
         [event for event in basic_pitch_events if event.score >= 0.62],
-        MIN_OUTPUT_GAP_SECONDS,
+        MIN_PERFORMANCE_EVIDENCE_GAP_SECONDS,
     )
 
     event_sources = [
@@ -1206,7 +1563,30 @@ def main() -> None:
                 for event in percussive_selected
             ],
         ),
+        create_event_source(
+            "librosa-harmonic",
+            [
+                event_payload(event.time, event.score, [event.source])
+                for event in nms_detector_events(
+                    [event for event in detectors.get("harmonic", []) if event.score >= 0.58],
+                    MIN_PERFORMANCE_EVIDENCE_GAP_SECONDS,
+                )
+            ],
+        ),
     ]
+    for band_name in ("bass", "low_mid", "mid", "high_mid", "high"):
+        detector_id = f"band_{band_name}"
+        source_id = f"librosa-band-{band_name.replace('_', '-')}"
+        event_sources.append(create_event_source(
+            source_id,
+            [
+                event_payload(event.time, event.score, [event.source])
+                for event in nms_detector_events(
+                    [event for event in detectors.get(detector_id, []) if event.score >= 0.62],
+                    MIN_PERFORMANCE_EVIDENCE_GAP_SECONDS,
+                )
+            ],
+        ))
     if basic_pitch_events:
         event_sources.append(create_event_source(
             "basic-pitch",
@@ -1246,7 +1626,7 @@ def main() -> None:
         "schemaVersion": 2,
         "kind": "rhythm-production-analysis",
         "generatedAt": datetime.now(timezone.utc).isoformat(),
-        "timingPolicy": "All event times are mature detector peaks in seconds; no BPM grid or snapping is used.",
+        "timingPolicy": "Attack evidence uses measured onset fronts in seconds; confidence remains sampled at the detector peak and no BPM grid or snapping is used.",
         "song": {
             "id": args.song_id,
             "title": args.title,

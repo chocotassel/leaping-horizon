@@ -1,4 +1,6 @@
 import { t } from '../i18n';
+import type { HitSoundIntent } from '../types';
+import { HitVoice } from './HitVoice';
 
 type WindowWithWebkitAudio = Window & typeof globalThis & {
   webkitAudioContext?: typeof AudioContext;
@@ -41,6 +43,7 @@ export class AudioEngine {
   private distortion!: WaveShaperNode;
   private filter!: BiquadFilterNode;
   private spectrumData!: Uint8Array<ArrayBuffer>;
+  private hitVoice!: HitVoice;
   private startedAt = 0;
   private pausedAt = 0;
   private isPaused = false;
@@ -136,10 +139,12 @@ export class AudioEngine {
     this.distortion.connect(this.filter);
     this.filter.connect(this.gain);
     this.gain.connect(this.context.destination);
+    this.hitVoice = new HitVoice(this.context, this.context.destination);
   }
 
   private disconnectGraph(): void {
     this.stopSource();
+    this.hitVoice.dispose();
     this.analyser.disconnect();
     this.distortion.disconnect();
     this.filter.disconnect();
@@ -251,6 +256,17 @@ export class AudioEngine {
     this.startedAt = this.context.currentTime - this.pausedAt;
     this.isPaused = false;
     this.syncSource();
+  }
+
+  /** Complete one measured Attack Event without masking the recorded song. */
+  playHitSound(intent: HitSoundIntent | undefined): void {
+    if (
+      !AudioEngine.musicEnabled
+      || this.isPaused
+      || this.stopped
+      || this.crashing
+    ) return;
+    this.hitVoice.play(intent);
   }
 
   crash(): void {

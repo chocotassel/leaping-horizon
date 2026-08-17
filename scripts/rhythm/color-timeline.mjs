@@ -15,6 +15,8 @@ export const COLOR_SCHEME_HUES = {
 
 export const COLOR_SCHEME_IDS = Object.keys(COLOR_SCHEME_HUES);
 
+const MIN_COLOR_SCENE_DWELL_SECONDS = 1;
+
 const ROLE_SCHEMES = {
   intro: ['cyanWhite', 'cyanRed', 'blueWhite', 'orangeAzure'],
   build: ['redWhite', 'orangeAzure', 'yellowWhite', 'yellowBlue'],
@@ -40,12 +42,6 @@ function finite(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
-function percentile(values, ratio) {
-  if (!values.length) return 0;
-  const sorted = [...values].sort((left, right) => left - right);
-  return sorted[Math.round((sorted.length - 1) * clamp(ratio))];
-}
-
 function hashText(value) {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index += 1) {
@@ -53,18 +49,6 @@ function hashText(value) {
     hash = Math.imul(hash, 16777619);
   }
   return hash >>> 0;
-}
-
-function sourceEvents(analysis, id) {
-  const source = analysis?.eventSources?.find((candidate) => candidate?.id === id);
-  return Array.isArray(source?.events) ? source.events : [];
-}
-
-function sectionAt(sections, timeSeconds) {
-  return sections.find((section, index) => (
-    timeSeconds >= section.startSeconds
-    && (index === sections.length - 1 || timeSeconds < section.endSeconds)
-  ));
 }
 
 export function colorSchemesDiffer(leftSchemeId, rightSchemeId) {
@@ -112,7 +96,7 @@ function buildSectionEvents(analysis, sections, beatSeconds) {
     const enoughTime = timeSeconds - lastChangeTime >= Math.max(4, beatSeconds * 8);
     if (
       (mandatoryRole || roleChanged || pressureChange >= 0.14 || energyChange >= 0.16)
-      && (enoughTime || mandatoryRole)
+      && enoughTime
     ) {
       const colorSchemeId = chooseSectionScheme(section, fingerprint, events.at(-1).colorSchemeId);
       if (colorSchemeId !== events.at(-1).colorSchemeId) {
@@ -131,79 +115,90 @@ function buildSectionEvents(analysis, sections, beatSeconds) {
   return events;
 }
 
-function buildAccentEvents(analysis, sections, sectionEvents, beatSeconds) {
-  const percussiveEvents = sourceEvents(analysis, 'librosa-percussive');
-  const onsetEvents = percussiveEvents.length
-    ? percussiveEvents.map((event) => ({ ...event, sourceId: 'librosa-percussive' }))
-    : sourceEvents(analysis, 'librosa-onset').map((event) => ({ ...event, sourceId: 'librosa-onset' }));
-  const downbeats = sourceEvents(analysis, 'beat-this')
-    .filter((event) => event.isDownbeat)
-    .map((event) => ({ ...event, sourceId: 'beat-this' }));
-  const onsetThreshold = percentile(onsetEvents.map((event) => finite(event.confidence)), 0.78);
-  const pressureThreshold = Math.max(0.72, percentile(sections.map((section) => finite(section.pressure)), 0.72));
-  const candidates = [...onsetEvents, ...downbeats].flatMap((event) => {
-    const timeSeconds = finite(event.timeSeconds, Number.NaN);
-    const section = sectionAt(sections, timeSeconds);
-    const confidence = finite(event.confidence);
-    if (
-      !section
-      || (section.role !== 'peak' && finite(section.pressure) < pressureThreshold)
-      || (event.sourceId !== 'beat-this' && confidence < onsetThreshold)
-      || sectionEvents.some((change) => Math.abs(change.timeSeconds - timeSeconds) < 0.08)
-    ) return [];
-    return [{
-      timeSeconds,
-      section,
-      sourceId: event.sourceId,
-      score: clamp(confidence * 0.62 + finite(section.pressure) * 0.28 + finite(section.energy) * 0.1),
-    }];
-  });
+function buildDirectedSceneEvents(analysis, colorScenes) {
+  const fingerprint = String(analysis?.song?.audioFingerprint ?? 'missing-audio-fingerprint');
+  const scenes = colorScenes
+    .map((scene) => ({
+      ...scene,
+      resolvedTimeSeconds: finite(scene?.timeSeconds, finite(scene?.startSeconds, Number.NaN)),
+    }))
+    .filter((scene) => Number.isFinite(scene.resolvedTimeSeconds) && scene.resolvedTimeSeconds >= 0)
+    .sort((left, right) => left.resolvedTimeSeconds - right.resolvedTimeSeconds);
+  const events = [{
+    timeSeconds: 0,
+    colorSchemeId: 'cyanWhite',
+    kind: 'section',
+    source: 'song-start',
+    strength: 0,
+  }];
 
-  const accentEvents = [];
-  for (const section of sections) {
-    const ranked = candidates
-      .filter((candidate) => candidate.section === section)
-      .sort((left, right) => right.score - left.score || left.timeSeconds - right.timeSeconds);
-    const selected = [];
-    for (const candidate of ranked) {
-      if (selected.length >= 8) break;
-      if (selected.every((chosen) => Math.abs(chosen.timeSeconds - candidate.timeSeconds) >= Math.max(0.28, beatSeconds * 0.5))) {
-        selected.push(candidate);
-      }
+  for (const scene of scenes) {
+    const timeSeconds = Number(scene.resolvedTimeSeconds.toFixed(5));
+    if (timeSeconds === 0 && events.length === 1) {
+      events[0] = {
+        ...events[0],
+        source: String(scene.id ?? scene.sceneId ?? 'director-scene-start'),
+        strength: Number(clamp(finite(scene.strength)).toFixed(3)),
+        sceneId: scene.sceneId,
+        anchorId: scene.startAnchorId ?? scene.anchorId,
+        evidenceIds: Array.isArray(scene.evidenceIds) ? [...scene.evidenceIds] : [],
+      };
+      continue;
     }
-    selected.sort((left, right) => left.timeSeconds - right.timeSeconds);
-    if (selected.length % 2 === 1) selected.pop();
-    if (selected.length < 2) continue;
-
-    const baseSchemeId = [...sectionEvents]
-      .reverse()
-      .find((event) => event.timeSeconds <= section.startSeconds)?.colorSchemeId ?? 'cyanWhite';
-    const fingerprint = String(analysis?.song?.audioFingerprint ?? 'missing-audio-fingerprint');
-    const accentSchemeId = chooseDifferentScheme(
-      COLOR_SCHEME_IDS,
-      `${fingerprint}|${section.id}|accent`,
-      baseSchemeId,
-    );
-    selected.forEach((candidate, index) => accentEvents.push({
-      timeSeconds: Number(candidate.timeSeconds.toFixed(5)),
-      colorSchemeId: index % 2 === 0 ? accentSchemeId : baseSchemeId,
-      kind: 'accent',
-      source: candidate.sourceId,
-      strength: Number(candidate.score.toFixed(3)),
-    }));
+    if (timeSeconds - events.at(-1).timeSeconds < MIN_COLOR_SCENE_DWELL_SECONDS) continue;
+    events.push({
+      timeSeconds,
+      colorSchemeId: chooseDifferentScheme(
+        COLOR_SCHEME_IDS,
+        `${fingerprint}|${scene.id}|${scene.sceneId}|${JSON.stringify(scene.affect ?? null)}`,
+        events.at(-1).colorSchemeId,
+      ),
+      kind: 'section',
+      source: String(scene.id ?? scene.sceneId ?? 'director-color-scene'),
+      strength: Number(clamp(finite(scene.strength, 1)).toFixed(3)),
+      sceneId: scene.sceneId,
+      anchorId: scene.startAnchorId ?? scene.anchorId,
+      evidenceIds: Array.isArray(scene.evidenceIds) ? [...scene.evidenceIds] : [],
+    });
   }
-  return accentEvents;
+  return events;
 }
 
-/** Compile detector peaks and structural downbeats into the runtime color timeline. */
-export function planColorSchemeEvents(analysis, layoutIntent) {
+/** Keep ordinary strong Musical Anchors separate from persistent Color Scenes. */
+export function planVisualAccentEvents(direction) {
+  const accents = Array.isArray(direction?.visualAccents) ? direction.visualAccents : [];
+  return accents
+    .map((accent) => ({
+      accent,
+      resolvedTimeSeconds: finite(accent?.timeSeconds, Number.NaN),
+    }))
+    .filter(({ resolvedTimeSeconds }) => Number.isFinite(resolvedTimeSeconds) && resolvedTimeSeconds >= 0)
+    .sort((left, right) => left.resolvedTimeSeconds - right.resolvedTimeSeconds)
+    .map(({ accent, resolvedTimeSeconds }, index) => ({
+      id: String(accent.id ?? `visual-accent-${index + 1}`),
+      timeSeconds: Number(resolvedTimeSeconds.toFixed(5)),
+      anchorId: accent.anchorId,
+      ...(accent.sceneId == null ? {} : { sceneId: accent.sceneId }),
+      kind: 'pulse',
+      strength: Number(clamp(finite(accent.strength)).toFixed(3)),
+      source: String(accent.source ?? accent.id ?? 'director-visual-accent'),
+      evidenceIds: Array.isArray(accent.evidenceIds) ? [...accent.evidenceIds] : [],
+    }));
+}
+
+/** Compile supported Color Scenes into the runtime color timeline. */
+export function planColorSchemeEvents(analysis, layoutIntent, direction) {
+  if (direction != null) {
+    return buildDirectedSceneEvents(
+      analysis,
+      Array.isArray(direction?.colorScenes) ? direction.colorScenes : [],
+    );
+  }
   const sections = Array.isArray(layoutIntent?.sections)
     ? [...layoutIntent.sections].sort((left, right) => left.startSeconds - right.startSeconds)
     : [];
   const beatSeconds = 60 / Math.max(1, finite(analysis?.song?.bpm, 120));
-  const sectionEvents = buildSectionEvents(analysis, sections, beatSeconds);
-  const events = [...sectionEvents, ...buildAccentEvents(analysis, sections, sectionEvents, beatSeconds)]
-    .sort((left, right) => left.timeSeconds - right.timeSeconds || (left.kind === 'section' ? -1 : 1));
+  const events = buildSectionEvents(analysis, sections, beatSeconds);
   for (let index = 1; index < events.length; index += 1) {
     if (!colorSchemesDiffer(events[index - 1].colorSchemeId, events[index].colorSchemeId)) {
       throw new Error(`Color scheme event ${index} repeats a region hue from the previous event.`);

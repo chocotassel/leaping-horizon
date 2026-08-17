@@ -38,13 +38,16 @@ const vite = await createServer({
 try {
   const {
     countChoiceRows,
+    countDodgeRows,
     countMultiTargetRows,
+    advanceVisualAccentTimeline,
     getCrashEffectProgress,
     getCrashSceneTime,
     resolveEventRow,
   } = await vite.ssrLoadModule('/src/game/GameController.ts');
+  const { mergeMusicAccentPulse } = await vite.ssrLoadModule('/src/game/GameScene.ts');
   const { getEarnedStars } = await vite.ssrLoadModule('/src/game/stars.ts');
-  const { getMaxObstacleCountInWindow, LEVELS } = await vite.ssrLoadModule('/src/chart.ts');
+  const { getMaxObstacleCountInWindow, LEVELS, validateLevel } = await vite.ssrLoadModule('/src/chart.ts');
   const { getResultPresentation } = await vite.ssrLoadModule('/src/components/ResultScreen.tsx');
   const { LocalDataManager, isLevelUnlocked, recordLevelResult } = await vite.ssrLoadModule('/src/data/localData.ts');
   const { formatNumber, locale, t } = await vite.ssrLoadModule('/src/i18n/index.ts');
@@ -55,6 +58,25 @@ try {
   assert.equal(getResultPresentation('crashed').tone, 'danger');
   assert.equal(getCrashEffectProgress(100, 675), 0.5);
   assert.ok(getCrashSceneTime(10, 1000) < 10.08);
+  assert.equal(mergeMusicAccentPulse(0.2, 0.8), 1);
+  assert.equal(mergeMusicAccentPulse(1.1, 0.4), 1.1);
+  assert.equal(mergeMusicAccentPulse(0.2, 2), 1.25);
+  const accentTimeline = [
+    { timeSeconds: 1, kind: 'pulse', strength: 0.6, source: 'accent-01', anchorId: 'anchor-01' },
+    { timeSeconds: 2, kind: 'pulse', strength: 0.9, source: 'accent-02', anchorId: 'anchor-02' },
+  ];
+  assert.deepEqual(advanceVisualAccentTimeline(accentTimeline, 0, 0.999), {
+    due: [],
+    nextEventIndex: 0,
+  });
+  assert.deepEqual(advanceVisualAccentTimeline(accentTimeline, 0, 1), {
+    due: [accentTimeline[0]],
+    nextEventIndex: 1,
+  });
+  assert.deepEqual(advanceVisualAccentTimeline(accentTimeline, 1, 3), {
+    due: [accentTimeline[1]],
+    nextEventIndex: 2,
+  });
   const initialRun = { score: 0, combo: 0, maxCombo: 0, hits: 0, doubleHitRows: 0, dodges: 0 };
   const resolution = resolveEventRow({
     event: {
@@ -188,11 +210,55 @@ try {
   assert.equal(repeatedDodgeResolution.outcome, 'none');
   assert.deepEqual(repeatedDodgeResolution.run, dodgeResolution.run);
 
+  const guideRun = {
+    score: 420,
+    combo: 4,
+    maxCombo: 7,
+    hits: 3,
+    doubleHitRows: 1,
+    dodges: 2,
+  };
+  const legacyDensityGuideResolution = resolveEventRow({
+    event: {
+      timeSeconds: 4.1,
+      kind: 'dodge',
+      obstacles: [2, 0, 0, 0, 2],
+      densityFill: true,
+    },
+    states: ['pending', null, null, null, 'pending'],
+    playerX: 0,
+    run: guideRun,
+  });
+  assert.equal(legacyDensityGuideResolution.outcome, 'none');
+  assert.deepEqual(legacyDensityGuideResolution.states, ['miss', null, null, null, 'miss']);
+  assert.deepEqual(legacyDensityGuideResolution.run, guideRun);
+
+  const collidingGuideResolution = resolveEventRow({
+    event: {
+      timeSeconds: 4.2,
+      kind: 'guide',
+      obstacles: [2, 0, 0, 0, 2],
+      densityFill: true,
+    },
+    states: ['pending', null, null, null, 'pending'],
+    playerX: -2,
+    run: guideRun,
+  });
+  assert.equal(collidingGuideResolution.outcome, 'crash');
+  assert.equal(collidingGuideResolution.impactX, -2);
+  assert.deepEqual(collidingGuideResolution.run, { ...guideRun, combo: 0 });
+
   assert.equal(countChoiceRows([
     { timeSeconds: 1, kind: 'target', obstacles: [1, 0, 1, 0, 0] },
     { timeSeconds: 2, kind: 'dodge', obstacles: [2, 2, 0, 0, 0] },
+    { timeSeconds: 2.1, kind: 'guide', obstacles: [2, 0, 0, 0, 2], densityFill: true },
     { timeSeconds: 3, kind: 'target', obstacles: [0, 1, 0, 0, 0] },
   ]), 2);
+  assert.equal(countDodgeRows([
+    { timeSeconds: 1, kind: 'dodge', obstacles: [2, 2, 0, 0, 0] },
+    { timeSeconds: 2, kind: 'guide', obstacles: [2, 0, 0, 0, 2], densityFill: true },
+    { timeSeconds: 3, kind: 'dodge', obstacles: [2, 0, 0, 0, 2], densityFill: true },
+  ]), 1);
   assert.equal(countMultiTargetRows([
     { timeSeconds: 1, kind: 'target', obstacles: [1, 0, 1, 0, 0] },
     { timeSeconds: 2, kind: 'dodge', obstacles: [2, 2, 0, 0, 0] },
@@ -208,6 +274,47 @@ try {
     { timeSeconds: 0.5, obstacles: [1, 0, 2, 0, 0] },
     { timeSeconds: 2, obstacles: [0, 0, 2, 2, 0] },
   ] }, 2, 1), 2);
+  const validAccentLevel = {
+    ...LEVELS[0],
+    song: { ...LEVELS[0].song, audioUrl: 'test.mp3' },
+    visualAccentEvents: [
+      {
+        timeSeconds: 1,
+        kind: 'pulse',
+        strength: 0.75,
+        source: 'director-accent-01',
+        anchorId: 'anchor-01',
+        sceneId: 'scene-01',
+        evidenceIds: ['evidence-01'],
+      },
+      {
+        timeSeconds: 2,
+        kind: 'pulse',
+        strength: 1,
+        source: 'director-accent-02',
+        anchorId: 'anchor-02',
+      },
+    ],
+  };
+  assert.equal(validateLevel(validAccentLevel), validAccentLevel);
+  assert.throws(() => validateLevel({
+    ...validAccentLevel,
+    visualAccentEvents: [...validAccentLevel.visualAccentEvents].reverse(),
+  }));
+  assert.throws(() => validateLevel({
+    ...validAccentLevel,
+    visualAccentEvents: [{
+      ...validAccentLevel.visualAccentEvents[0],
+      timeSeconds: validAccentLevel.song.durationSeconds + 0.001,
+    }],
+  }));
+  assert.throws(() => validateLevel({
+    ...validAccentLevel,
+    visualAccentEvents: [{
+      ...validAccentLevel.visualAccentEvents[0],
+      strength: 1.01,
+    }],
+  }));
   assert.deepEqual(Object.keys(LEVELS[0].generation).sort(), ['algorithm', 'noteCount']);
   assert.ok(LEVELS.every((level) => level.events.every((event) => (
     Object.keys(event).every((key) => (
