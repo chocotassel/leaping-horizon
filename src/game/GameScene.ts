@@ -28,8 +28,17 @@ import {
   OBSTACLE_SPAWN_Z,
   PLAYER_MAX_LATERAL_SPEED,
   PLAYER_Z,
+  RING_SPAWN_Z,
   shouldRenderObstacle,
 } from './physics';
+import {
+  createSpectrumClusters,
+  followSpectrumImpulse,
+  getSpectrumBandRise,
+  getSpectrumBarTarget,
+  getSpectrumNoise,
+  type SpectrumCluster,
+} from './spectrumRing';
 
 const NORMAL_PANEL_BANDS = 5;
 const NORMAL_EDGES_PER_OBSTACLE = 12;
@@ -45,8 +54,6 @@ const FLOATING_CUBE_SPEED = 5.4;
 const FLOATING_CUBE_NEAR_Z = CAMERA_Z + 2;
 const OUTER_SPECTRUM_COUNT = 112;
 const INNER_SPECTRUM_COUNT = 88;
-const RING_PULSE_ANCHOR_COUNT = 12;
-const RING_PULSE_COOLDOWN_SECONDS = 0.18;
 const SPEED_STREAK_COUNT = 42;
 const RING_CENTER_Y = 15;
 const PLAYER_LIMIT_X = 2;
@@ -110,23 +117,12 @@ function getDecorativeMetalColor(index: number): number {
   return index % 5 === 0 ? 0x17324a : index % 3 === 0 ? 0x10243a : 0x09182b;
 }
 
-function getRingPulseEnvelope(age: number, strong: boolean): number {
-  if (age < 0) return 0;
-  const attack = 0.032;
-  const hold = strong ? 0.075 : 0.05;
-  const release = strong ? 0.28 : 0.22;
-  if (age < attack) return THREE.MathUtils.smoothstep(age, 0, attack);
-  if (age < attack + hold) return 1;
-  const releaseProgress = (age - attack - hold) / release;
-  return releaseProgress < 1 ? Math.pow(1 - releaseProgress, 2) : 0;
-}
-
-function getRingPulseWeight(index: number, center: number, count: number, radius: number): number {
-  const distance = Math.abs(index - center);
-  const circularDistance = Math.min(distance, count - distance);
-  return circularDistance < radius
-    ? THREE.MathUtils.smoothstep(radius - circularDistance, 0, radius)
-    : 0;
+function getSpectrumEnergy(spectrum: Uint8Array, startBin: number, endBin: number): number {
+  const end = Math.min(endBin, spectrum.length - 1);
+  if (end < startBin) return 0;
+  let energy = 0;
+  for (let bin = startBin; bin <= end; bin += 1) energy += spectrum[bin] / 255;
+  return energy / (end - startBin + 1);
 }
 
 export class GameScene {
@@ -180,11 +176,15 @@ export class GameScene {
   private playerVelocity = 0;
   private playerSpinSpeed = PLAYER_IDLE_SPIN_SPEED;
   private hitImpulse = 0;
-  private nextRingPulseEventIndex = 0;
-  private ringPulseAnchor = 0;
-  private ringPulseStartTime = -Infinity;
-  private ringPulseStrength = 0;
-  private ringPulseStrong = false;
+  private nextSpectrumLayoutEventIndex = 0;
+  private spectrumLayoutBar = -1;
+  private outerSpectrumClusters: SpectrumCluster[] = [];
+  private innerSpectrumClusters: SpectrumCluster[] = [];
+  private readonly outerSpectrumHeights = new Float32Array(OUTER_SPECTRUM_COUNT).fill(1);
+  private readonly innerSpectrumHeights = new Float32Array(INNER_SPECTRUM_COUNT).fill(1);
+  private previousSpectrum: Uint8Array | null = null;
+  private outerSpectrumImpact = 0;
+  private innerSpectrumImpact = 0;
   private ringHitPulse = 0;
   private feedbackCombo = -1;
   private comboImpactStart = -Infinity;
@@ -636,7 +636,7 @@ export class GameScene {
     this.createBackgroundGrid();
 
     this.createPerspectiveRoad();
-    this.rhythmRing.position.z = OBSTACLE_SPAWN_Z;
+    this.rhythmRing.position.z = RING_SPAWN_Z;
     this.scene.add(this.rhythmRing);
 
     const circleCenterY = RING_CENTER_Y;
@@ -970,7 +970,7 @@ export class GameScene {
       ) * Math.min(1, dt * 11);
       this.camera.position.y = CAMERA_Y + cameraJitter * 0.28;
     }
-    this.updateSpectrum(dt, time, combo, level.song.durationSeconds, level.events, spectrum);
+    this.updateSpectrum(dt, time, level.song.durationSeconds, level.events, spectrum);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -1033,23 +1033,26 @@ export class GameScene {
     colors.needsUpdate = true;
   }
 
-  private triggerRingPulse(event: LevelEvent): void {
-    if (
-      !event.downbeatCue
-      && event.timeSeconds - this.ringPulseStartTime < RING_PULSE_COOLDOWN_SECONDS
-    ) return;
-    this.ringPulseAnchor = event.barIndex === undefined
-      ? (this.ringPulseAnchor + 2) % RING_PULSE_ANCHOR_COUNT
-      : event.barIndex * 5 % RING_PULSE_ANCHOR_COUNT;
-    this.ringPulseStartTime = event.timeSeconds;
-    this.ringPulseStrength = event.strength ?? 0.72;
-    this.ringPulseStrong = Boolean(event.downbeatCue);
+  private updateSpectrumLayout(event: LevelEvent): void {
+    if (!event.downbeatCue) return;
+    const barIndex = event.barIndex ?? Math.floor(event.timeSeconds / 1.2);
+    if (barIndex === this.spectrumLayoutBar) return;
+    this.spectrumLayoutBar = barIndex;
+    const seed = (event.barIndex ?? Math.floor(event.timeSeconds / 1.2)) * 101 + 17;
+    const outerCount = 2 + Math.floor(getSpectrumNoise(seed, 31) * 3);
+    const innerCount = 2 + Math.floor(getSpectrumNoise(seed, 47) * 4);
+    this.outerSpectrumClusters = createSpectrumClusters(seed, outerCount, OUTER_SPECTRUM_COUNT);
+    this.innerSpectrumClusters = createSpectrumClusters(
+      seed + 7919,
+      innerCount,
+      INNER_SPECTRUM_COUNT,
+      this.outerSpectrumClusters.map((cluster) => cluster.position),
+    );
   }
 
   private updateSpectrum(
     dt: number,
     time: number,
-    combo: number,
     duration: number,
     events: readonly LevelEvent[],
     spectrum: Uint8Array,
@@ -1058,43 +1061,70 @@ export class GameScene {
     this.rhythmRing.position.set(
       THREE.MathUtils.lerp(0, this.camera.position.x, approach),
       THREE.MathUtils.lerp(0, this.camera.position.y - RING_CENTER_Y, approach),
-      THREE.MathUtils.lerp(OBSTACLE_SPAWN_Z, CAMERA_Z + 2, approach),
+      THREE.MathUtils.lerp(RING_SPAWN_Z, CAMERA_Z + 2, approach),
     );
+    const lowEnergy = getSpectrumEnergy(spectrum, 1, 14);
+    const highEnergy = getSpectrumEnergy(spectrum, 18, 72);
     while (
-      this.nextRingPulseEventIndex < events.length
-      && events[this.nextRingPulseEventIndex].timeSeconds <= time
+      this.nextSpectrumLayoutEventIndex < events.length
+      && events[this.nextSpectrumLayoutEventIndex].timeSeconds <= time
     ) {
-      this.triggerRingPulse(events[this.nextRingPulseEventIndex]);
-      this.nextRingPulseEventIndex += 1;
+      this.updateSpectrumLayout(events[this.nextSpectrumLayoutEventIndex]);
+      this.nextSpectrumLayoutEventIndex += 1;
     }
 
-    const pulseAge = time - this.ringPulseStartTime;
-    const pulseEnvelope = getRingPulseEnvelope(pulseAge, this.ringPulseStrong);
-    const innerPulseEnvelope = getRingPulseEnvelope(pulseAge - 0.035, false);
-    const pulsePower = pulseEnvelope * (1.7 + this.ringPulseStrength * 1.2
-      + (this.ringPulseStrong ? 0.4 : 0));
+    const previousSpectrum = this.previousSpectrum?.length === spectrum.length
+      ? this.previousSpectrum
+      : spectrum;
+    const lowRise = Math.max(0, lowEnergy - getSpectrumEnergy(previousSpectrum, 1, 14) - 1 / 255);
+    const highRise = Math.max(0, highEnergy - getSpectrumEnergy(previousSpectrum, 18, 72) - 1 / 255);
+    this.outerSpectrumImpact = Math.max(
+      Math.min(1, lowRise * 8.5),
+      this.outerSpectrumImpact * Math.exp(-5.2 * dt),
+    );
+    this.innerSpectrumImpact = Math.max(
+      Math.min(1, highRise * 10),
+      this.innerSpectrumImpact * Math.exp(-7 * dt),
+    );
+    const outerAmplitudes = this.outerSpectrumClusters.map((cluster) => Math.min(
+      1.9,
+      (getSpectrumBandRise(spectrum, previousSpectrum, 1, 28, cluster.bandPosition) * 13
+        + lowRise * 5) * cluster.gain,
+    ));
+    const innerAmplitudes = this.innerSpectrumClusters.map((cluster) => Math.min(
+      1.55,
+      (getSpectrumBandRise(spectrum, previousSpectrum, 18, 90, cluster.bandPosition) * 15
+        + highRise * 6) * cluster.gain,
+    ));
+    if (!this.previousSpectrum || this.previousSpectrum.length !== spectrum.length) {
+      this.previousSpectrum = new Uint8Array(spectrum.length);
+    }
+    this.previousSpectrum.set(spectrum);
     this.ringHitPulse *= Math.exp(-9 * dt);
-    const comboBoost = Math.min(0.4, combo * 0.006);
-    const maxBin = Math.min(55, spectrum.length - 2);
-    let averageEnergy = 0;
-    for (let bin = 2; bin <= maxBin; bin += 1) averageEnergy += spectrum[bin] / 255;
-    averageEnergy /= maxBin - 1;
-    const musicBreath = THREE.MathUtils.clamp(averageEnergy * 0.12, 0, 0.1);
-    const outerPulseCenter = this.ringPulseAnchor / RING_PULSE_ANCHOR_COUNT * OUTER_SPECTRUM_COUNT;
-    const innerPulseCenter = (
-      (this.ringPulseAnchor + RING_PULSE_ANCHOR_COUNT / 2) % RING_PULSE_ANCHOR_COUNT
-    ) / RING_PULSE_ANCHOR_COUNT * INNER_SPECTRUM_COUNT;
-    const ringScale = 1 + pulseEnvelope * (this.ringPulseStrong ? 0.016 : 0.005)
+    const averageEnergy = getSpectrumEnergy(spectrum, 2, 55);
+    const musicBreath = THREE.MathUtils.clamp(averageEnergy * 0.06, 0, 0.055);
+    const ringScale = 1 + this.outerSpectrumImpact * 0.028 + lowEnergy * 0.008
       + this.ringHitPulse * 0.022;
     this.ringLayers.forEach((ring) => ring.scale.setScalar(ringScale));
 
     for (let i = 0; i < OUTER_SPECTRUM_COUNT; i += 1) {
       const position = i / OUTER_SPECTRUM_COUNT;
       const angle = position * Math.PI * 2;
-      const pulseWeight = getRingPulseWeight(i, outerPulseCenter, OUTER_SPECTRUM_COUNT, 2.8);
-      const variation = 1 + Math.sin(angle * 3 + time * 0.16) * 0.035 + Math.sin(angle * 7 - 1.1) * 0.022;
-      const length = (1.05 + musicBreath + pulseWeight * (pulsePower + this.ringHitPulse * 1.15)
-        + comboBoost * 0.35) * variation;
+      const baseTargetHeight = getSpectrumBarTarget(
+        i,
+        OUTER_SPECTRUM_COUNT,
+        this.outerSpectrumClusters,
+        outerAmplitudes,
+      );
+      const targetHeight = 1 + (baseTargetHeight - 1) * 2;
+      this.outerSpectrumHeights[i] = followSpectrumImpulse(
+        this.outerSpectrumHeights[i],
+        targetHeight,
+        dt,
+        5.6,
+      );
+      const variation = 1 + Math.sin(angle * 3 + time * 0.13) * 0.018 + Math.sin(angle * 7 - 1.1) * 0.012;
+      const length = (1 + musicBreath) * this.outerSpectrumHeights[i] * variation;
       const radius = 14.7 + length * 0.5;
       this.position.set(Math.cos(angle) * radius, RING_CENTER_Y + Math.sin(angle) * radius, 0.15);
       this.quaternion.setFromEuler(new THREE.Euler(0, 0, angle - Math.PI / 2));
@@ -1109,12 +1139,20 @@ export class GameScene {
     for (let i = 0; i < INNER_SPECTRUM_COUNT; i += 1) {
       const position = i / INNER_SPECTRUM_COUNT;
       const angle = position * Math.PI * 2;
-      const pulseWeight = getRingPulseWeight(i, innerPulseCenter, INNER_SPECTRUM_COUNT, 1.8);
-      const variation = 1 + Math.sin(angle * 3 + time * 0.16 + 0.7) * 0.025 + Math.sin(angle * 5 + 0.4) * 0.018;
-      const length = (0.48 + musicBreath * 0.5
-        + pulseWeight * (innerPulseEnvelope * (0.8 + this.ringPulseStrength * 0.5)
-          + this.ringHitPulse * 0.45)
-        + comboBoost * 0.16) * variation;
+      const targetHeight = getSpectrumBarTarget(
+        i,
+        INNER_SPECTRUM_COUNT,
+        this.innerSpectrumClusters,
+        innerAmplitudes,
+      );
+      this.innerSpectrumHeights[i] = followSpectrumImpulse(
+        this.innerSpectrumHeights[i],
+        targetHeight,
+        dt,
+        7.5,
+      );
+      const variation = 1 + Math.sin(angle * 3 + time * 0.15 + 0.7) * 0.014 + Math.sin(angle * 5 + 0.4) * 0.01;
+      const length = (0.52 + musicBreath * 0.35) * this.innerSpectrumHeights[i] * variation;
       const radius = 11.3 - length * 0.5;
       this.position.set(Math.cos(angle) * radius, RING_CENTER_Y + Math.sin(angle) * radius, 0.75);
       this.quaternion.setFromEuler(new THREE.Euler(0, 0, angle - Math.PI / 2));

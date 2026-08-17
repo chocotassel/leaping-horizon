@@ -12,6 +12,7 @@
     "test:intent": "node --test scripts/rhythm/color-timeline.test.mjs scripts/rhythm/layout-intent.test.mjs scripts/rhythm/route-analysis.test.mjs scripts/rhythm/wide-sweep-planner.test.mjs",
     "test:level": "npm run test:intent && node scripts/level-check.mjs",
     "test:physics": "tsc src/game/physics.ts --ignoreConfig --target ES2020 --module ESNext --moduleResolution Bundler --outDir node_modules/.cache/leaping-horizon-physics-check --skipLibCheck && node scripts/physics-check.mjs",
+    "test:spectrum-ring": "tsc src/game/spectrumRing.ts --ignoreConfig --target ES2020 --module ESNext --moduleResolution Bundler --outDir node_modules/.cache/leaping-horizon-spectrum-ring-check --skipLibCheck && node scripts/spectrum-ring-check.mjs",
     "typecheck": "tsc -b"
   },
   "dependencies": {

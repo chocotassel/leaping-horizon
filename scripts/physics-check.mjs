@@ -13,6 +13,7 @@ assert.equal(physics.overlapsPlayer(-1.9999999999999998, -1), false);
 assert.equal(physics.moveTowards(0, 2, 0.4), 0.4);
 assert.equal(physics.moveTowards(2, -2, 0.5), 1.5);
 assert.equal(physics.moveTowards(0, 0.2, 0.4), 0.2);
+assert.equal(physics.RING_SPAWN_Z, -64);
 assert.ok(physics.getObstacleZ(-0.1) - physics.PLAYER_Z > 2);
 assert.equal(physics.shouldRenderObstacle('miss'), true);
 assert.equal(physics.shouldRenderObstacle('hit'), false);
