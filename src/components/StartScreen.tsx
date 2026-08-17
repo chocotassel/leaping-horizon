@@ -2,12 +2,12 @@ import { BrandHeader } from './BrandHeader';
 import { t } from '../i18n';
 
 interface StartScreenProps {
-  musicEnabled: boolean;
-  onToggleMusic: () => void;
+  soundEnabled: boolean;
+  onToggleSound: () => void;
   onEnter: () => void;
 }
 
-export function StartScreen({ musicEnabled, onToggleMusic, onEnter }: StartScreenProps) {
+export function StartScreen({ soundEnabled, onToggleSound, onEnter }: StartScreenProps) {
   return (
     <main className="screen start-screen">
       <div className="space-backdrop" aria-hidden="true">
@@ -26,14 +26,14 @@ export function StartScreen({ musicEnabled, onToggleMusic, onEnter }: StartScree
           {t('start.enter')}
         </button>
         <button
-          className={`music-toggle ${musicEnabled ? 'is-enabled' : ''}`}
+          className={`music-toggle ${soundEnabled ? 'is-enabled' : ''}`}
           type="button"
-          aria-pressed={musicEnabled}
-          onClick={onToggleMusic}
+          aria-pressed={soundEnabled}
+          onClick={onToggleSound}
         >
           <span className="music-toggle-main">
             <span className="music-control-symbol" aria-hidden="true">♪</span>
-            <strong>{musicEnabled ? t('start.musicEnabled') : t('start.openMusic')}</strong>
+            <strong>{soundEnabled ? t('start.musicEnabled') : t('start.openMusic')}</strong>
             <span className="music-equalizer" aria-hidden="true">
               <i /><i /><i /><i /><i /><i />
             </span>
@@ -44,7 +44,7 @@ export function StartScreen({ musicEnabled, onToggleMusic, onEnter }: StartScree
           </span>
         </button>
         <p className="visually-hidden" role="status">
-          {musicEnabled
+          {soundEnabled
             ? t('start.readyHint')
             : t('start.musicHint')}
         </p>

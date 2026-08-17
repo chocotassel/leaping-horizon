@@ -13,10 +13,10 @@ import { BrandHeader } from './BrandHeader';
 interface HomeScreenProps {
   level: Level;
   levels: readonly Level[];
-  musicEnabled: boolean;
+  soundEnabled: boolean;
   onSelectLevel: (levelId: string) => void;
   onPrepareStart: () => void;
-  onToggleMusic: () => void;
+  onToggleSound: () => void;
   onStart: () => void;
 }
 
@@ -49,10 +49,10 @@ function VinylDisc() {
 export function HomeScreen({
   level,
   levels,
-  musicEnabled,
+  soundEnabled,
   onSelectLevel,
   onPrepareStart,
-  onToggleMusic,
+  onToggleSound,
   onStart,
 }: HomeScreenProps) {
   const startTimerRef = useRef<number | null>(null);
@@ -191,13 +191,13 @@ export function HomeScreen({
       <section className="song-select-heading">
         <h1>{t('songSelect.title')}</h1>
         <button
-          className={`header-music-button ${musicEnabled ? 'is-enabled' : ''}`}
+          className={`header-music-button ${soundEnabled ? 'is-enabled' : ''}`}
           type="button"
-          aria-pressed={musicEnabled}
-          onClick={onToggleMusic}
+          aria-pressed={soundEnabled}
+          onClick={onToggleSound}
         >
           <span aria-hidden="true">♪</span>
-          {t('songSelect.musicToggle', { state: musicEnabled ? t('common.on') : t('common.off') })}
+          {t('songSelect.musicToggle', { state: soundEnabled ? t('common.on') : t('common.off') })}
           <i aria-hidden="true" />
         </button>
         <span>{String(activeIndex + 1).padStart(2, '0')} / {String(levels.length).padStart(2, '0')}</span>

@@ -1,4 +1,7 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import buttonTapUrl from './assets/audio/ui-button-tap.mp3';
+import soundOffUrl from './assets/audio/ui-sound-off.mp3';
+import soundOnUrl from './assets/audio/ui-sound-on.mp3';
 import { AudioEngine } from './audio/AudioEngine';
 import { DEFAULT_LEVEL_ID, LEVELS, getLevelById } from './chart';
 import { GameScreen } from './components/GameScreen';
@@ -9,11 +12,15 @@ import type { GameResult } from './types';
 
 type Screen = 'start' | 'home' | 'game' | 'result';
 
+function playSound(url: string): void {
+  void new Audio(url).play().catch(() => {});
+}
+
 export default function App() {
   const [levelId, setLevelId] = useState(DEFAULT_LEVEL_ID);
   const level = useMemo(() => getLevelById(levelId), [levelId]);
   const [screen, setScreen] = useState<Screen>('start');
-  const [musicEnabled, setMusicEnabled] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(false);
   const [result, setResult] = useState<GameResult | null>(null);
   const [resultOutcome, setResultOutcome] = useState<ResultOutcome>('complete');
   const finish = useCallback((nextResult: GameResult) => {
@@ -28,14 +35,23 @@ export default function App() {
     setScreen('result');
   }, []);
 
-  const toggleMusic = useCallback(() => {
-    setMusicEnabled((enabled) => {
+  const toggleSound = useCallback(() => {
+    setSoundEnabled((enabled) => {
       const next = !enabled;
+      playSound(next ? soundOnUrl : soundOffUrl);
       AudioEngine.setMusicEnabled(next);
       if (next && screen !== 'game') void AudioEngine.unlock();
       return next;
     });
   }, [screen]);
+
+  const playButtonTap = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (
+      soundEnabled &&
+      event.target instanceof Element &&
+      event.target.closest('button:not([aria-pressed])')
+    ) playSound(buttonTapUrl);
+  }, [soundEnabled]);
 
   const startGame = useCallback(() => {
     void AudioEngine.unlock();
@@ -48,11 +64,11 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <div className="portrait-frame">
+      <div className="portrait-frame" onClickCapture={playButtonTap}>
         {screen === 'start' && (
           <StartScreen
-            musicEnabled={musicEnabled}
-            onToggleMusic={toggleMusic}
+            soundEnabled={soundEnabled}
+            onToggleSound={toggleSound}
             onEnter={() => setScreen('home')}
           />
         )}
@@ -60,21 +76,21 @@ export default function App() {
           <HomeScreen
             level={level}
             levels={LEVELS}
-            musicEnabled={musicEnabled}
+            soundEnabled={soundEnabled}
             onPrepareStart={prepareGame}
             onSelectLevel={setLevelId}
-            onToggleMusic={toggleMusic}
+            onToggleSound={toggleSound}
             onStart={() => setScreen('game')}
           />
         )}
         {screen === 'game' && (
           <GameScreen
             level={level}
-            musicEnabled={musicEnabled}
+            soundEnabled={soundEnabled}
             onDeath={crash}
             onExit={() => setScreen('home')}
             onFinish={finish}
-            onToggleMusic={toggleMusic}
+            onToggleSound={toggleSound}
           />
         )}
         {screen === 'result' && result && (

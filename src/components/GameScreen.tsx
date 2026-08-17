@@ -5,20 +5,20 @@ import { type GameResult, type Level } from '../types';
 
 interface GameScreenProps {
   level: Level;
-  musicEnabled: boolean;
+  soundEnabled: boolean;
   onDeath: (result: GameResult) => void;
   onExit: () => void;
   onFinish: (result: GameResult) => void;
-  onToggleMusic: () => void;
+  onToggleSound: () => void;
 }
 
 export function GameScreen({
   level,
-  musicEnabled,
+  soundEnabled,
   onDeath,
   onExit,
   onFinish,
-  onToggleMusic,
+  onToggleSound,
 }: GameScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -82,9 +82,9 @@ export function GameScreen({
     if (typeof next === 'boolean') setPaused(next);
   };
 
-  const togglePauseMusic = (event: React.MouseEvent<HTMLButtonElement>) => {
+  const togglePauseSound = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
-    onToggleMusic();
+    onToggleSound();
   };
 
   const exitGame = (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -149,15 +149,15 @@ export function GameScreen({
           <span>{t('game.paused')}</span>
           <strong>{t('game.pausedState')}</strong>
           <button
-            className={`pause-music-toggle ${musicEnabled ? 'is-enabled' : ''}`}
+            className={`pause-music-toggle ${soundEnabled ? 'is-enabled' : ''}`}
             type="button"
-            aria-pressed={musicEnabled}
+            aria-pressed={soundEnabled}
             onPointerDown={stopGamePointer}
-            onClick={togglePauseMusic}
+            onClick={togglePauseSound}
           >
             <span aria-hidden="true">♪</span>
             <strong>{t('game.music')}</strong>
-            <small>{musicEnabled ? t('common.enabled') : t('common.disabled')}</small>
+            <small>{soundEnabled ? t('common.enabled') : t('common.disabled')}</small>
             <i aria-hidden="true" />
           </button>
           <div className="pause-actions">
