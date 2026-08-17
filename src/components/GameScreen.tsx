@@ -63,8 +63,8 @@ export function GameScreen({
     controllerRef.current = controller;
 
     const resize = () => {
-      const stage = stageRef.current;
-      if (stage) controller.resize(stage.clientWidth, stage.clientHeight);
+      const canvas = canvasRef.current;
+      if (canvas) controller.resize(canvas.clientWidth, canvas.clientHeight);
     };
     resize();
     window.addEventListener('resize', resize);
