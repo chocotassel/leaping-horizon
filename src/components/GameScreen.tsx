@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import {
   GameController,
   countChoiceRows,
@@ -31,7 +31,6 @@ export function GameScreen({
   const stageRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<GameController | null>(null);
   const [hud, setHud] = useState<GameHud>({
-    combo: 0,
     progress: 0,
     hits: 0,
     doubleHitRows: 0,
@@ -130,16 +129,15 @@ export function GameScreen({
       <div className="game-vignette" />
       <div className="game-crash-atmosphere" aria-hidden="true" />
       <header className="game-hud">
-        <div className="game-star-progress">
-          <span>{t('game.starProgress')}</span>
+        <span className="game-hud-spacer" aria-hidden="true" />
+        <div
+          className="game-star-progress"
+          style={{ '--star-rail-progress': hud.progress } as CSSProperties}
+        >
           <StarRating
             label={t('game.starProgressLabel')}
             progress={starProgress}
           />
-        </div>
-        <div className={`combo-block ${hud.combo > 0 ? 'is-active' : ''}`}>
-          <span>{t('game.combo')}</span>
-          <strong>{hud.combo}</strong>
         </div>
         <button
           className="pause-button"

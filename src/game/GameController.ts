@@ -20,7 +20,6 @@ export interface GameCallbacks {
 }
 
 export interface GameHud {
-  combo: number;
   progress: number;
   hits: number;
   doubleHitRows: number;
@@ -274,7 +273,6 @@ export class GameController {
 
     if (time - this.lastHudUpdate > 0.045 || time >= this.level.song.durationSeconds) {
       this.callbacks.onHud({
-        combo: this.combo,
         progress: Math.min(1, time / this.level.song.durationSeconds),
         hits: this.hits,
         doubleHitRows: this.doubleHitRows,

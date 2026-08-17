@@ -149,35 +149,66 @@ button { font: inherit; }
   left: 22px;
   right: 22px;
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: start;
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
+  align-items: center;
 }
+
+.game-hud-spacer { width: 48px; height: 48px; }
 
 .game-star-progress {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
+  --star-rail-progress: 0;
+  position: relative;
+  justify-self: center;
+  width: min(calc(100% - 16px), clamp(190px, 58cqw, 320px));
+  min-width: 0;
+  height: 32px;
+  display: grid;
+  place-items: center;
 }
-.game-star-progress > span {
-  color: #88a3bc;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-}
-.game-star-progress .star-rating { font-size: clamp(17px, 4.6cqw, 23px); }
 
-.combo-block {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  opacity: 0;
-  transform: translateY(-7px);
-  transition: opacity 180ms ease, transform 180ms ease;
+.game-star-progress::before,
+.game-star-progress::after {
+  content: '';
+  position: absolute;
+  left: 11px;
+  right: 11px;
+  top: 50%;
+  height: 2px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  pointer-events: none;
 }
-.combo-block.is-active { opacity: 1; transform: translateY(0); }
-.combo-block span { color: #87a2ba; font: 700 8px/1 'Cascadia Mono', Consolas, monospace; letter-spacing: 0.18em; }
-.combo-block strong { margin-top: 3px; color: var(--cyan); font: italic 900 25px/1 'Arial Narrow', 'Bahnschrift Condensed', sans-serif; }
+
+.game-star-progress::before {
+  background: rgb(116 145 169 / 0.34);
+  box-shadow: 0 0 0 1px rgb(4 15 30 / 0.72);
+}
+
+.game-star-progress::after {
+  background: linear-gradient(90deg, #c98c22, #ffe16b);
+  box-shadow: 0 0 8px rgb(255 205 79 / 0.46);
+  transform: translateY(-50%) scaleX(var(--star-rail-progress));
+  transform-origin: left center;
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.game-star-progress .star-rating {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  justify-content: space-between;
+  font-size: clamp(20px, 5.2cqw, 27px);
+}
+
+.game-star-progress .star-rating-star {
+  color: rgb(126 151 174 / 0.42);
+  text-shadow: 0 0 9px rgb(2 8 18 / 0.92);
+}
+
+.game-star-progress .star-rating-star > span {
+  color: #ffe16b;
+  filter: drop-shadow(0 0 6px rgb(255 196 54 / 0.56));
+}
 
 .pause-button {
   justify-self: end;
