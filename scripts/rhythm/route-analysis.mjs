@@ -1,7 +1,8 @@
 const TARGET = 1;
 const HAZARD = 2;
 const DEFAULT_LANE_COUNT = 5;
-const LITERAL_M_ROWS = ['00222', '00001', '22200', '00001', '00222', '00001'];
+const LITERAL_M_ROWS = ['22200', '10000', '22200', '22200', '10000', '22200'];
+const LITERAL_M_KINDS = ['dodge', 'target', 'dodge', 'dodge', 'target', 'dodge'];
 
 function clampInteger(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, Math.floor(Number(value))));
@@ -22,12 +23,81 @@ function maximumLaneSteps(fromTime, toTime, secondsPerLane, laneCount) {
   return clampInteger((toTime - fromTime + 1e-6) / secondsPerLane, 0, laneCount - 1);
 }
 
+function rowTravelSeconds(rows, fromIndex, toIndex, fallback) {
+  return Math.min(
+    fallback,
+    Number(rows[fromIndex]?.travelSecondsPerLane) || Number.POSITIVE_INFINITY,
+    Number(rows[toIndex]?.travelSecondsPerLane) || Number.POSITIVE_INFINITY,
+  );
+}
+
 function mirrorRows(rows) {
   return rows.map((row) => [...row].reverse().join(''));
 }
 
 function rowToken(event) {
   return Array.isArray(event?.obstacles) ? event.obstacles.join('') : '';
+}
+
+function expandTransparentRows(rows, routeRows, routeRowIndices, routeGraph, requireCombo) {
+  const routePositionByRowIndex = new Map(routeRowIndices.map((rowIndex, position) => [rowIndex, position]));
+  const allowedLanesByRow = rows.map((event) => rowLanes(event, requireCombo));
+  const globallyViableLanesByRow = rows.map((event, rowIndex) => {
+    const routePosition = routePositionByRowIndex.get(rowIndex);
+    return routePosition === undefined
+      ? allowedLanesByRow[rowIndex]
+      : routeGraph.globallyViableLanesByRow[routePosition];
+  });
+  const referenceRoute = rows.map((event, rowIndex) => {
+    const routePosition = routePositionByRowIndex.get(rowIndex);
+    if (routePosition !== undefined) return routeGraph.referenceRoute[routePosition];
+    const previousPosition = routeRowIndices.findLastIndex((candidate) => candidate < rowIndex);
+    const nextPosition = routeRowIndices.findIndex((candidate) => candidate > rowIndex);
+    const previousLane = routeGraph.referenceRoute[previousPosition] ?? routeGraph.referenceRoute[0] ?? 2;
+    const nextLane = routeGraph.referenceRoute[nextPosition] ?? previousLane;
+    const previousTime = Number(routeRows[previousPosition]?.timeSeconds ?? event.timeSeconds);
+    const nextTime = Number(routeRows[nextPosition]?.timeSeconds ?? event.timeSeconds);
+    const phase = Math.max(0, Math.min(1, (
+      Number(event.timeSeconds) - previousTime
+    ) / Math.max(1e-6, nextTime - previousTime)));
+    const desiredLane = Math.round(previousLane + (nextLane - previousLane) * phase);
+    return [...globallyViableLanesByRow[rowIndex]].sort((left, right) => (
+      Math.abs(left - desiredLane) - Math.abs(right - desiredLane)
+    ))[0];
+  });
+  const globallyViableTransitionsByRow = rows.map(() => []);
+  for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
+    const routePosition = routePositionByRowIndex.get(rowIndex);
+    const previousRoutePosition = routePositionByRowIndex.get(rowIndex - 1);
+    if (routePosition !== undefined && previousRoutePosition !== undefined) {
+      globallyViableTransitionsByRow[rowIndex] = routeGraph.globallyViableTransitionsByRow[routePosition];
+      continue;
+    }
+    globallyViableTransitionsByRow[rowIndex] = globallyViableLanesByRow[rowIndex - 1].flatMap((fromLane) => (
+      globallyViableLanesByRow[rowIndex].map((toLane) => ({ fromLane, toLane }))
+    ));
+  }
+  const toOriginalRowIndex = (entry) => ({
+    ...entry,
+    rowIndex: routeRowIndices[entry.rowIndex],
+  });
+
+  return {
+    ...routeGraph,
+    feasible: routeGraph.feasible && globallyViableLanesByRow.every((lanes) => lanes.length > 0),
+    referenceRoute,
+    allowedLanesByRow,
+    globallyViableLanesByRow,
+    globallyViableTransitionsByRow,
+    meaningfulChoiceRows: routeGraph.meaningfulChoiceRows.map((index) => routeRowIndices[index]),
+    deadChoiceCells: routeGraph.deadChoiceCells.map(toOriginalRowIndex),
+    deadAllowedCells: routeGraph.deadAllowedCells.map(toOriginalRowIndex),
+    consecutiveChoicePairs: routeGraph.consecutiveChoicePairs.map((pair) => ({
+      ...pair,
+      firstRowIndex: routeRowIndices[pair.firstRowIndex],
+      secondRowIndex: routeRowIndices[pair.secondRowIndex],
+    })),
+  };
 }
 
 /**
@@ -50,7 +120,7 @@ export function findLiteralMGestures(events) {
     )));
     if (!variant) continue;
     if (!window.every((event) => event?.layer === 'core' && event?.pattern === 'm')) continue;
-    if (!window.every((event, offset) => event?.kind === (offset % 2 === 0 ? 'dodge' : 'target'))) continue;
+    if (!window.every((event, offset) => event?.kind === LITERAL_M_KINDS[offset])) continue;
     gestures.push({
       startIndex,
       endIndex: startIndex + LITERAL_M_ROWS.length - 1,
@@ -106,6 +176,21 @@ export function analyzeRouteGraph(events, {
     };
   }
 
+  const routeRowIndices = rows.flatMap((event, index) => event?.densityFill ? [] : [index]);
+  if (routeRowIndices.length !== rows.length) {
+    const routeRows = routeRowIndices.map((index) => rows[index]);
+    const routeGraph = analyzeRouteGraph(routeRows, {
+      startLane,
+      startTime,
+      secondsPerLane,
+      laneCount,
+      requireCombo,
+      pathCountCap,
+      consecutiveGapSeconds,
+    });
+    return expandTransparentRows(rows, routeRows, routeRowIndices, routeGraph, requireCombo);
+  }
+
   const allowedByRow = rows.map((event) => rowLanes(event, requireCombo));
   const forwardCounts = [];
   let priorCounts = new Map([[startLane, 1]]);
@@ -114,7 +199,7 @@ export function analyzeRouteGraph(events, {
     const steps = maximumLaneSteps(
       priorTime,
       Number(rows[index]?.timeSeconds),
-      secondsPerLane,
+      rowTravelSeconds(rows, index - 1, index, secondsPerLane),
       laneCount,
     );
     const counts = new Map();
@@ -136,7 +221,7 @@ export function analyzeRouteGraph(events, {
     const steps = maximumLaneSteps(
       Number(rows[index]?.timeSeconds),
       Number(rows[index + 1]?.timeSeconds),
-      secondsPerLane,
+      rowTravelSeconds(rows, index, index + 1, secondsPerLane),
       laneCount,
     );
     backward[index] = new Set(allowedByRow[index].filter((lane) => (
@@ -152,7 +237,7 @@ export function analyzeRouteGraph(events, {
     const steps = maximumLaneSteps(
       Number(rows[index - 1]?.timeSeconds),
       Number(rows[index]?.timeSeconds),
-      secondsPerLane,
+      rowTravelSeconds(rows, index - 1, index, secondsPerLane),
       laneCount,
     );
     for (const fromLane of globallyViableLanesByRow[index - 1]) {
@@ -230,7 +315,7 @@ export function analyzeRouteGraph(events, {
       const steps = maximumLaneSteps(
         Number(rows[index]?.timeSeconds),
         Number(rows[index + 1]?.timeSeconds),
-        secondsPerLane,
+        rowTravelSeconds(rows, index, index + 1, secondsPerLane),
         laneCount,
       );
       nextLane = globallyViableLanesByRow[index]

@@ -60,6 +60,12 @@ export interface LevelEvent {
   choiceLaneCount?: number;
   /** True when at least two displayed targets are valid full-combo decisions. */
   routeBranch?: boolean;
+  /** Rule-generated Gate Row between two measured musical anchors. */
+  densityFill?: boolean;
+  densityMode?: 'solid' | 'compact';
+  /** Per-row movement allowance for explicit full-width beat gestures. */
+  travelSecondsPerLane?: number;
+  sweepHazardMode?: 'clean' | 'spiked';
 }
 
 export interface LevelGeneration {

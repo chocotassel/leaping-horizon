@@ -1,20 +1,9 @@
 const PEAK_ROLE = 'peak';
 const DRIVING_ROLES = new Set(['build', 'drive']);
+const EDGE_HIT_COUNT = 5;
 
 function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
-}
-
-export function sweepSafeLanes(lane, nextLane, laneCount = 5) {
-  if (lane === nextLane) return lane === laneCount - 1 ? [lane - 1, lane] : [lane, lane + 1];
-  const start = Math.min(lane, nextLane);
-  const end = Math.max(lane, nextLane);
-  if (end - start < laneCount - 1) {
-    return Array.from({ length: end - start + 1 }, (_, index) => start + index);
-  }
-  return lane === 0
-    ? Array.from({ length: laneCount - 1 }, (_, index) => index)
-    : Array.from({ length: laneCount - 1 }, (_, index) => index + 1);
 }
 
 function sumCapacity(mobility, fromExclusive, toInclusive) {
@@ -29,8 +18,8 @@ function isStrongSlot(slot) {
   if (!slot || slot.blocked) return false;
   const score = Number(slot.score) || 0;
   if (slot.sectionRole === PEAK_ROLE) return true;
-  if (DRIVING_ROLES.has(slot.sectionRole)) return score >= 0.62;
-  return score >= 0.82;
+  if (DRIVING_ROLES.has(slot.sectionRole)) return score >= 0.42;
+  return score >= 0.68;
 }
 
 function collectStrongRuns(slots) {
@@ -138,11 +127,13 @@ function buildGuidePath(candidate, slots, mobility, laneCount) {
 
 function candidateScore(candidate, slots, preferredFirstEdge) {
   const downbeats = candidate.anchorSlots.filter((slot) => slots[slot].beatInBar === 0).length;
+  const halfBarBeats = candidate.anchorSlots.filter((slot) => slots[slot].beatInBar % 2 === 0).length;
   const strength = candidate.anchorSlots.reduce((sum, slot) => sum + (Number(slots[slot].score) || 0), 0);
   const peakHits = candidate.anchorSlots.filter((slot) => slots[slot].sectionRole === PEAK_ROLE).length;
   const preferredOrientation = candidate.anchorLanes[0] === preferredFirstEdge ? 1 : 0;
   const travelSpan = candidate.anchorSlots.at(-1) - candidate.anchorSlots[0];
-  return downbeats * 100 + peakHits * 20 + strength * 4 + preferredOrientation - travelSpan * 0.01;
+  return halfBarBeats * 40 + downbeats * 8 + peakHits * 20
+    + strength * 4 + preferredOrientation - travelSpan;
 }
 
 function candidatesForRun({
@@ -156,42 +147,38 @@ function candidatesForRun({
   const candidates = [];
   const edgeDistance = laneCount - 1;
   for (const firstEdge of [0, laneCount - 1]) {
-    const anchorLanes = [firstEdge, laneCount - 1 - firstEdge, firstEdge];
-    for (let first = run.start; first <= run.end - 2; first += 1) {
-      for (let second = first + 1; second <= run.end - 1; second += 1) {
-        if (!isTimedEdgeTransition(
+    for (let first = run.start; first <= run.end - EDGE_HIT_COUNT + 1; first += 1) {
+      const anchorSlots = [first];
+      while (anchorSlots.length < EDGE_HIT_COUNT) {
+        const previous = anchorSlots.at(-1);
+        const remaining = EDGE_HIT_COUNT - anchorSlots.length - 1;
+        const next = Array.from(
+          { length: Math.max(0, run.end - previous - remaining) },
+          (_, index) => previous + index + 1,
+        ).find((slot) => isTimedEdgeTransition(
           slots,
           mobility,
-          first,
-          second,
+          previous,
+          slot,
           edgeDistance,
           maximumTransitionSeconds,
-        )) continue;
-        for (let third = second + 1; third <= run.end; third += 1) {
-          if (!isTimedEdgeTransition(
-            slots,
-            mobility,
-            second,
-            third,
-            edgeDistance,
-            maximumTransitionSeconds,
-          )) continue;
-          const entry = entryWindowStart(slots, mobility, run.start, first, firstEdge);
-          const exit = exitWindowEnd(slots, mobility, run.end, third, firstEdge);
-          if (!entry || !exit) continue;
-          const candidate = {
-            ...entry,
-            ...exit,
-            anchorSlots: [first, second, third],
-            anchorLanes,
-          };
-          const guidePath = buildGuidePath(candidate, slots, mobility, laneCount);
-          if (!guidePath) continue;
-          candidate.guidePath = guidePath;
-          candidate.score = candidateScore(candidate, slots, preferredFirstEdge);
-          candidates.push(candidate);
-        }
+        ));
+        if (next === undefined) break;
+        anchorSlots.push(next);
       }
+      if (anchorSlots.length < EDGE_HIT_COUNT) continue;
+      const anchorLanes = anchorSlots.map((_, index) => (
+        index % 2 === 0 ? firstEdge : laneCount - 1 - firstEdge
+      ));
+      const entry = entryWindowStart(slots, mobility, run.start, anchorSlots[0], firstEdge);
+      const exit = exitWindowEnd(slots, mobility, run.end, anchorSlots.at(-1), firstEdge);
+      if (!entry || !exit) continue;
+      const candidate = { ...entry, ...exit, anchorSlots, anchorLanes };
+      const guidePath = buildGuidePath(candidate, slots, mobility, laneCount);
+      if (!guidePath) continue;
+      candidate.guidePath = guidePath;
+      candidate.score = candidateScore(candidate, slots, preferredFirstEdge);
+      candidates.push(candidate);
     }
   }
   return candidates;
@@ -199,8 +186,8 @@ function candidatesForRun({
 
 /**
  * Plans recognisable edge-to-edge drum gestures without moving a single audio
- * timestamp. Edge hits are fixed Choice Rows; intervening measured beats become
- * Gate Rows whose safe corridor follows a capacity-checked guide path.
+ * timestamp. Edge hits are fixed Choice Rows on consecutive reachable beats;
+ * any slower transition keeps its intervening measured slots silent.
  */
 export function planFullWidthSweeps({
   slots = [],
@@ -213,7 +200,7 @@ export function planFullWidthSweeps({
   const slotPlans = Array.from({ length: slots.length }, () => null);
   if (slots.length < 3 || mobility.length !== slots.length) return { gestures: [], slotPlans };
 
-  const maximumTransitionSeconds = Math.max(0.1, Number(secondsPerBeat) || 0.5) * 8;
+  const maximumTransitionSeconds = Math.max(0.1, Number(secondsPerBeat) || 0.5) * 1.35;
   const preferredFirstEdge = Number(orientationSeed) < 0.5 ? 0 : laneCount - 1;
   const runs = collectStrongRuns(slots).sort((left, right) => {
     const peakScore = (run) => slots.slice(run.start, run.end + 1)
@@ -236,38 +223,37 @@ export function planFullWidthSweeps({
       maximumTransitionSeconds,
       preferredFirstEdge,
     }).sort((left, right) => right.score - left.score || left.startSlot - right.startSlot);
-    const selected = candidates.find((candidate) => (
-      slotPlans.slice(candidate.startSlot, candidate.endSlot + 1).every((plan) => plan === null)
-    ));
-    if (!selected) continue;
-
-    const gestureIndex = gestures.length;
-    const gestureId = `full-width-sweep-${gestureIndex + 1}`;
-    const anchorBySlot = new Map(selected.anchorSlots.map((slot, index) => [slot, index]));
-    for (let slotIndex = selected.startSlot; slotIndex <= selected.endSlot; slotIndex += 1) {
-      const anchorIndex = anchorBySlot.get(slotIndex);
-      slotPlans[slotIndex] = {
-        gestureId,
-        kind: anchorIndex === undefined ? 'travel-gate' : 'edge-target',
-        lane: selected.guidePath[slotIndex],
-        anchorIndex: anchorIndex ?? null,
-      };
+    for (const selected of candidates) {
+      if (gestures.length >= maximumGestures) break;
+      if (!slotPlans.slice(selected.startSlot, selected.endSlot + 1).every((plan) => plan === null)) continue;
+      const gestureIndex = gestures.length;
+      const gestureId = `full-width-sweep-${gestureIndex + 1}`;
+      const anchorBySlot = new Map(selected.anchorSlots.map((slot, index) => [slot, index]));
+      for (let slotIndex = selected.startSlot; slotIndex <= selected.endSlot; slotIndex += 1) {
+        const anchorIndex = anchorBySlot.get(slotIndex);
+        slotPlans[slotIndex] = {
+          gestureId,
+          kind: anchorIndex === undefined ? 'silent-slot' : 'edge-target',
+          lane: selected.guidePath[slotIndex],
+          anchorIndex: anchorIndex ?? null,
+        };
+      }
+      gestures.push({
+        id: gestureId,
+        startSlot: selected.startSlot,
+        endSlot: selected.endSlot,
+        anchorSlots: selected.anchorSlots,
+        anchorLanes: selected.anchorLanes,
+        edgeToEdgeTransitionCount: selected.anchorSlots.length - 1,
+        sectionRole: selected.anchorSlots.some((slot) => slots[slot].sectionRole === PEAK_ROLE)
+          ? PEAK_ROLE
+          : slots[selected.anchorSlots[0]].sectionRole,
+        score: Number((selected.score / 100).toFixed(3)),
+        anchorTimesByOccurrence: slots[selected.anchorSlots[0]].timeSecondsByOccurrence.map((_, occurrenceIndex) => (
+          selected.anchorSlots.map((slot) => Number(slots[slot].timeSecondsByOccurrence[occurrenceIndex].toFixed(5)))
+        )),
+      });
     }
-    gestures.push({
-      id: gestureId,
-      startSlot: selected.startSlot,
-      endSlot: selected.endSlot,
-      anchorSlots: selected.anchorSlots,
-      anchorLanes: selected.anchorLanes,
-      edgeToEdgeTransitionCount: selected.anchorSlots.length - 1,
-      sectionRole: selected.anchorSlots.some((slot) => slots[slot].sectionRole === PEAK_ROLE)
-        ? PEAK_ROLE
-        : slots[selected.anchorSlots[0]].sectionRole,
-      score: Number((selected.score / 100).toFixed(3)),
-      anchorTimesByOccurrence: slots[selected.anchorSlots[0]].timeSecondsByOccurrence.map((_, occurrenceIndex) => (
-        selected.anchorSlots.map((slot) => Number(slots[slot].timeSecondsByOccurrence[occurrenceIndex].toFixed(5)))
-      )),
-    });
   }
 
   return { gestures, slotPlans };

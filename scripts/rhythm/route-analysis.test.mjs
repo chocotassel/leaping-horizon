@@ -55,15 +55,41 @@ test('treats a hazard-only gate as safe lanes and a target row as any-of lanes',
   assert.deepEqual(analysis.referenceRoute, [3, 3]);
 });
 
+test('keeps dense bridge gates transparent to the measured anchor route', () => {
+  const events = [
+    { timeSeconds: 0.3, kind: 'target', obstacles: [0, 1, 0, 0, 0] },
+    { timeSeconds: 0.4, kind: 'dodge', obstacles: [2, 0, 0, 0, 2], densityFill: true },
+    { timeSeconds: 0.5, kind: 'dodge', obstacles: [2, 0, 0, 0, 2], densityFill: true },
+    { timeSeconds: 1.1, kind: 'target', obstacles: [0, 0, 0, 1, 0] },
+  ];
+  const analysis = analyzeRouteGraph(events, { secondsPerLane: 0.23, requireCombo: true });
+
+  assert.equal(analysis.feasible, true);
+  assert.deepEqual(analysis.globallyViableLanesByRow.slice(1, 3), [[1, 2, 3], [1, 2, 3]]);
+  assert.deepEqual(analysis.referenceRoute, [1, 1, 2, 3]);
+});
+
+test('uses the explicit movement allowance only for a full-width gesture', () => {
+  const events = [
+    { timeSeconds: 0.3, kind: 'target', obstacles: [1, 0, 0, 0, 0], travelSecondsPerLane: 0.14 },
+    { timeSeconds: 0.9, kind: 'target', obstacles: [0, 0, 0, 0, 1], travelSecondsPerLane: 0.14 },
+  ];
+
+  assert.equal(analyzeRouteGraph(events, { secondsPerLane: 0.23 }).feasible, true);
+  assert.equal(analyzeRouteGraph(events.map(({ travelSecondsPerLane, ...event }) => event), {
+    secondsPerLane: 0.23,
+  }).feasible, false);
+});
+
 test('finds only literal uninterrupted M rows from the visible core event stream', () => {
   const makeM = (tokens) => tokens.map((token, index) => ({
     timeSeconds: 1 + index,
-    kind: index % 2 === 0 ? 'dodge' : 'target',
+    kind: token.includes('1') ? 'target' : 'dodge',
     layer: 'core',
     pattern: 'm',
     obstacles: [...token].map(Number),
   }));
-  const identity = ['00222', '00001', '22200', '00001', '00222', '00001'];
+  const identity = ['22200', '10000', '22200', '22200', '10000', '22200'];
   const mirror = identity.map((token) => [...token].reverse().join(''));
 
   assert.deepEqual(findLiteralMGestures(makeM(identity)).map((gesture) => gesture.orientation), ['identity']);

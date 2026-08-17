@@ -3,12 +3,14 @@ import { dirname, resolve } from 'node:path';
 
 import { deriveLayoutIntent } from './rhythm/layout-intent.mjs';
 import { planColorSchemeEvents } from './rhythm/color-timeline.mjs';
+import { densityFillCount, planDensityInterval } from './rhythm/density-planner.mjs';
 import {
   analyzeRouteGraph,
   chooseMGesturePlacement,
   findLiteralMGestures,
 } from './rhythm/route-analysis.mjs';
-import { planFullWidthSweeps, sweepSafeLanes } from './rhythm/wide-sweep-planner.mjs';
+import { buildWaveRows } from './rhythm/wave-planner.mjs';
+import { planFullWidthSweeps } from './rhythm/wide-sweep-planner.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 if (!process.argv[2] || !process.argv[3]) {
@@ -33,12 +35,15 @@ const BEAT_SECONDS = 60 / Math.max(1, Number(analysis.song.bpm) || 120);
 const MIN_EVENT_GAP_SECONDS = 0.09;
 const CLIMAX_RADIUS_SECONDS = BEAT_SECONDS * 16;
 const AUXILIARY_PHRASE_GAP_SECONDS = BEAT_SECONDS * 1.5;
+const STRUCTURAL_TRAVEL_SECONDS_PER_LANE = 0.23;
+const SWEEP_TRAVEL_SECONDS_PER_LANE = 0.09;
+const SWEEP_SPIKE_PRESSURE = 0.68;
 
 const FLOW_MODE = {
   id: 'flow',
   label: '心流',
   description: '全程保持操作，随音乐强度递进',
-  minTravelSecondsPerLane: 0.23,
+  minTravelSecondsPerLane: STRUCTURAL_TRAVEL_SECONDS_PER_LANE,
 };
 
 const MOTIFS = {
@@ -52,6 +57,7 @@ const MOTIFS = {
   hook: { label: '钩形回转', baseLength: 10, minimumLength: 7, controls: [0, 1, 2, 3, 4, 4, 3], spikeMode: 'corridor' },
   stairs: { label: '阶梯横移', baseLength: 10, minimumLength: 7, controls: [0, 0, 1, 2, 3, 4, 4], spikeMode: 'corridor-wide' },
   pendulum: { label: '钟摆切换', baseLength: 10, minimumLength: 7, controls: [1, 3, 1, 3, 1], spikeMode: 'pulse' },
+  wave: { label: '波浪门', baseLength: 9, minimumLength: 5, controls: [1, 2, 3, 2, 1], spikeMode: 'wave' },
   m: { label: 'M 形往返手势', baseLength: 6, minimumLength: 6, spikeMode: 'gesture' },
   'full-width-sweep': { label: '全宽鼓点横扫', baseLength: 9, minimumLength: 9, spikeMode: 'gesture' },
 };
@@ -396,8 +402,20 @@ function widenIsolatedMiddleGaps(row, preferredLane) {
   }
 }
 
-function buildObstacleRow(motifId, lane, nextLane, position, length, flow, cCampLane) {
+function buildObstacleRow(motifId, lane, nextLane, position, length, flow, cCampLane, waveRow) {
   const motif = MOTIFS[motifId];
+  if (waveRow) {
+    const row = [...waveRow];
+    const allowedLanes = lanesMatching(row, (cell) => cell !== SPIKE);
+    return {
+      row,
+      spikeCount: row.filter((cell) => cell === SPIKE).length,
+      safeLaneCount: allowedLanes.length,
+      kind: 'dodge',
+      allowedLanes,
+      preferredLane: null,
+    };
+  }
   const row = [EMPTY, EMPTY, EMPTY, EMPTY, EMPTY];
   let spikeCount = 0;
   let safeLaneCount = LANE_COUNT;
@@ -428,7 +446,7 @@ function buildObstacleRow(motifId, lane, nextLane, position, length, flow, cCamp
   widenIsolatedMiddleGaps(row, nextLane);
   spikeCount = row.filter((cell) => cell === SPIKE).length;
   safeLaneCount = LANE_COUNT - spikeCount;
-  return { row, spikeCount, safeLaneCount };
+  return { row, spikeCount, safeLaneCount, kind: 'target', allowedLanes: [lane], preferredLane: lane };
 }
 
 function lanesMatching(row, predicate) {
@@ -446,10 +464,16 @@ function eventAllowedLanes(item) {
 function solveLaneRoute(items, startLane = START_LANE, startTime = 0) {
   let states = new Map([[startLane, { cost: 0, path: [] }]]);
   let previousTime = startTime;
+  let previousItem = null;
   for (const item of items) {
+    const secondsPerLane = Math.min(
+      FLOW_MODE.minTravelSecondsPerLane,
+      Number(item.travelSecondsPerLane) || Number.POSITIVE_INFINITY,
+      Number(previousItem?.travelSecondsPerLane) || Number.POSITIVE_INFINITY,
+    );
     const maximumSteps = Math.min(
       LANE_COUNT - 1,
-      Math.max(0, Math.floor((item.timeSeconds - previousTime + 1e-6) / FLOW_MODE.minTravelSecondsPerLane)),
+      Math.max(0, Math.floor((item.timeSeconds - previousTime + 1e-6) / secondsPerLane)),
     );
     const nextStates = new Map();
     for (const lane of eventAllowedLanes(item)) {
@@ -467,6 +491,7 @@ function solveLaneRoute(items, startLane = START_LANE, startTime = 0) {
     if (!nextStates.size) return null;
     states = nextStates;
     previousTime = item.timeSeconds;
+    previousItem = item;
   }
   return [...states.values()].sort((left, right) => left.cost - right.cost)[0].path;
 }
@@ -793,7 +818,7 @@ function buildFamilyBarProfiles(phrases, barCount, bars) {
   });
 }
 
-function motifPlanFor({ phrases, barCount, isIntro, familyId, bars, familyIntent }) {
+function motifPlanFor({ phrases, barCount, isIntro, familyId, bars, familyIntent, wavePlan }) {
   const profiles = buildFamilyBarProfiles(phrases, barCount, bars);
   const fallbackMotifs = [
     'focus',
@@ -851,12 +876,23 @@ function motifPlanFor({ phrases, barCount, isIntro, familyId, bars, familyIntent
     previousMotif = motif;
     barInPhrase += span;
   }
-  return { motifs, profiles };
+  if (wavePlan && barCount >= 2) {
+    const starts = Array.from({ length: barCount - 1 }, (_, index) => index)
+      .filter((start) => !isIntro || start >= 2)
+      .sort((left, right) => {
+        return profiles[right].score - profiles[left].score || left - right;
+      });
+    const waveStartBar = starts[0] ?? 0;
+    motifs[waveStartBar] = 'wave';
+    motifs[waveStartBar + 1] = 'wave';
+    return { motifs, profiles, waveStartBar };
+  }
+  return { motifs, profiles, waveStartBar: null };
 }
 
 const BAR_ROLES = ['opening', 'call', 'answer', 'turn', 'lift', 'drive', 'peak', 'cadence'];
 
-function templateMobility(group, auxiliaryCandidates) {
+function templateMobility(group, auxiliaryCandidates, secondsPerLane = STRUCTURAL_TRAVEL_SECONDS_PER_LANE) {
   const slotCount = group[0].items.length;
   return Array.from({ length: slotCount }, (_, slot) => {
     if (slot === 0) return 0;
@@ -871,7 +907,7 @@ function templateMobility(group, auxiliaryCandidates) {
         const checkpoints = [startSeconds, ...subdivisions, endSeconds];
         return checkpoints.slice(1).reduce((capacity, checkpoint, index) => (
           capacity + Math.floor(
-            (checkpoint - checkpoints[index] + 1e-6) / FLOW_MODE.minTravelSecondsPerLane,
+            (checkpoint - checkpoints[index] + 1e-6) / secondsPerLane,
           )
         ), 0);
       })()),
@@ -1001,12 +1037,12 @@ function addChoiceBranches({ slots, mobility, key, blockedSlots = new Set() }) {
 
 function mGesturePhases(mirror) {
   const base = [
-    { kind: 'dodge', row: [EMPTY, EMPTY, SPIKE, SPIKE, SPIKE], role: 'm-left-gate' },
-    { kind: 'target', row: [EMPTY, EMPTY, EMPTY, EMPTY, BREAKABLE], role: 'm-right-strike' },
     { kind: 'dodge', row: [SPIKE, SPIKE, SPIKE, EMPTY, EMPTY], role: 'm-right-gate' },
-    { kind: 'target', row: [EMPTY, EMPTY, EMPTY, EMPTY, BREAKABLE], role: 'm-right-strike' },
-    { kind: 'dodge', row: [EMPTY, EMPTY, SPIKE, SPIKE, SPIKE], role: 'm-left-return-gate' },
-    { kind: 'target', row: [EMPTY, EMPTY, EMPTY, EMPTY, BREAKABLE], role: 'm-final-right-strike' },
+    { kind: 'target', row: [BREAKABLE, EMPTY, EMPTY, EMPTY, EMPTY], role: 'm-left-strike' },
+    { kind: 'dodge', row: [SPIKE, SPIKE, SPIKE, EMPTY, EMPTY], role: 'm-right-return-gate' },
+    { kind: 'dodge', row: [SPIKE, SPIKE, SPIKE, EMPTY, EMPTY], role: 'm-right-ridge' },
+    { kind: 'target', row: [BREAKABLE, EMPTY, EMPTY, EMPTY, EMPTY], role: 'm-second-left-strike' },
+    { kind: 'dodge', row: [SPIKE, SPIKE, SPIKE, EMPTY, EMPTY], role: 'm-final-right-gate' },
   ];
   return base.map((phase) => {
     const row = mirror ? [...phase.row].reverse() : [...phase.row];
@@ -1019,6 +1055,8 @@ function mGesturePhases(mirror) {
     };
   });
 }
+
+const M_GESTURE_SLOT_OFFSETS = [0, 2, 4, 5, 7, 9];
 
 function travelCapacityAtRealTimes(slotTimeSets, fromSlot, toSlot) {
   if (fromSlot < 0 || slotTimeSets.some((slotTimes) => toSlot >= slotTimes.length)) return LANE_COUNT - 1;
@@ -1038,103 +1076,41 @@ function reachableLanesAfter(fromLanes, toLanes, capacity) {
 
 function fitMGesture({ slots, slotTimeSets, startSlot, mirror }) {
   const phases = mGesturePhases(mirror);
-  if (
-    startSlot + phases.length > slots.length
-    || slotTimeSets.some((slotTimes) => slotTimes.length !== slots.length)
-  ) return null;
+  const phaseSlots = M_GESTURE_SLOT_OFFSETS.map((offset) => startSlot + offset);
+  const endSlot = phaseSlots.at(-1);
+  if (endSlot >= slots.length || slotTimeSets.some((slotTimes) => slotTimes.length !== slots.length)) return null;
+  if (slots.slice(startSlot, endSlot + 1).some((slot) => (
+    ['full-width-sweep', 'wave'].includes(slot.pattern)
+  ))) return null;
   const previousSlot = neighbouringEmittedSlot(slots, startSlot, -1);
-  const entryLanes = previousSlot >= 0 ? specAllowedLanes(slots[previousSlot]) : [START_LANE];
-  const maximumPhaseSlot = Math.min(slots.length - 1, startSlot + phases.length * 3);
-  let states = [{
-    lastSlot: previousSlot,
-    reachableLanes: entryLanes,
-    phaseSlots: [],
-    skippedSlotCount: 0,
-  }];
-
+  let reachableLanes = previousSlot >= 0 ? specAllowedLanes(slots[previousSlot]) : [START_LANE];
+  let lastSlot = previousSlot;
   for (let phaseIndex = 0; phaseIndex < phases.length; phaseIndex += 1) {
-    const remainingPhaseCount = phases.length - phaseIndex - 1;
-    const nextStates = [];
-    for (const state of states) {
-      const firstCandidate = phaseIndex === 0 ? startSlot : state.lastSlot + 1;
-      const lastCandidate = phaseIndex === 0
-        ? startSlot
-        : maximumPhaseSlot - remainingPhaseCount;
-      for (let candidateSlot = firstCandidate; candidateSlot <= lastCandidate; candidateSlot += 1) {
-        const capacity = travelCapacityAtRealTimes(slotTimeSets, state.lastSlot, candidateSlot);
-        const reachableLanes = reachableLanesAfter(
-          state.reachableLanes,
-          phases[phaseIndex].allowedLanes,
-          capacity,
-        );
-        if (!reachableLanes.length) continue;
-        nextStates.push({
-          lastSlot: candidateSlot,
-          reachableLanes,
-          phaseSlots: [...state.phaseSlots, candidateSlot],
-          skippedSlotCount: state.skippedSlotCount
-            + Math.max(0, candidateSlot - state.lastSlot - 1),
-        });
-      }
-    }
-    if (!nextStates.length) return null;
-    // Only the earliest state for an equivalent lane set can improve the rest
-    // of the gesture. Keeping that deep invariant here avoids leaking timing
-    // heuristics into the template caller.
-    const bestByState = new Map();
-    for (const state of nextStates) {
-      const key = `${state.lastSlot}:${state.reachableLanes.join('-')}`;
-      const existing = bestByState.get(key);
-      if (!existing || state.skippedSlotCount < existing.skippedSlotCount) bestByState.set(key, state);
-    }
-    states = [...bestByState.values()]
-      .sort((left, right) => left.skippedSlotCount - right.skippedSlotCount || left.lastSlot - right.lastSlot)
-      .slice(0, 48);
-  }
-
-  const placements = [];
-  for (const state of states) {
-    const finalPhaseSlot = state.phaseSlots[state.phaseSlots.length - 1];
-    const possibleExitSlots = Array.from(
-      { length: slots.length - finalPhaseSlot - 1 },
-      (_, index) => finalPhaseSlot + index + 1,
+    reachableLanes = reachableLanesAfter(
+      reachableLanes,
+      phases[phaseIndex].allowedLanes,
+      travelCapacityAtRealTimes(slotTimeSets, lastSlot, phaseSlots[phaseIndex]),
     );
-    if (!possibleExitSlots.length) {
-      placements.push({ ...state, exitSlot: -1, endSlot: finalPhaseSlot });
-      continue;
-    }
-    const exitSlot = possibleExitSlots.find((candidateSlot) => {
-      const capacity = travelCapacityAtRealTimes(slotTimeSets, finalPhaseSlot, candidateSlot);
-      return reachableLanesAfter(
-        state.reachableLanes,
-        specAllowedLanes(slots[candidateSlot]),
-        capacity,
-      ).length > 0;
-    });
-    if (exitSlot === undefined) continue;
-    placements.push({
-      ...state,
-      exitSlot,
-      endSlot: exitSlot - 1,
-      skippedSlotCount: state.skippedSlotCount + Math.max(0, exitSlot - finalPhaseSlot - 1),
-    });
+    if (!reachableLanes.length) return null;
+    lastSlot = phaseSlots[phaseIndex];
   }
-  const placement = placements.sort((left, right) => (
-    left.skippedSlotCount - right.skippedSlotCount
-    || left.endSlot - right.endSlot
-  ))[0];
-  if (!placement) return null;
+  const exitSlot = neighbouringEmittedSlot(slots, endSlot, 1);
+  if (exitSlot >= 0 && !reachableLanesAfter(
+    reachableLanes,
+    specAllowedLanes(slots[exitSlot]),
+    travelCapacityAtRealTimes(slotTimeSets, endSlot, exitSlot),
+  ).length) return null;
 
   return {
     phases,
     mirror,
-    phaseSlots: placement.phaseSlots,
+    phaseSlots,
     startSlot,
-    endSlot: placement.endSlot,
-    span: placement.endSlot - startSlot + 1,
-    skippedSlotCount: placement.skippedSlotCount,
+    endSlot,
+    span: endSlot - startSlot + 1,
+    skippedSlotCount: M_GESTURE_SLOT_OFFSETS.at(-1) + 1 - phases.length,
     durationSeconds: Math.max(...slotTimeSets.map((slotTimes) => (
-      slotTimes[placement.phaseSlots.at(-1)] - slotTimes[startSlot]
+      slotTimes[endSlot] - slotTimes[startSlot]
     ))),
   };
 }
@@ -1169,7 +1145,6 @@ function applyFullWidthSweepPlan({
   slots,
   phrases,
   prototype,
-  coreMobility,
   motifPlan,
   templateId,
   familyId,
@@ -1185,7 +1160,7 @@ function applyFullWidthSweepPlan({
         : (allowedLanes[0] ?? START_LANE),
       barInPhrase: item.barInPhrase,
       beatInBar: item.beatInBar,
-      blocked: spec?.pattern === 'm' || !spec?.emit,
+      blocked: ['m', 'wave'].includes(spec?.pattern) || !spec?.emit,
       sectionRole: spec?.sectionRole
         ?? motifPlan.profiles[item.barInPhrase]?.sectionRole
         ?? 'drive',
@@ -1197,11 +1172,11 @@ function applyFullWidthSweepPlan({
   });
   const plan = planFullWidthSweeps({
     slots: planningSlots,
-    mobility: coreMobility,
+    mobility: templateMobility(phrases, [], SWEEP_TRAVEL_SECONDS_PER_LANE),
     laneCount: LANE_COUNT,
     secondsPerBeat: BEAT_SECONDS,
-    orientationSeed: noise(AUDIO_SEED, trackId, familyId, 'full-width-sweep-orientation'),
-    maximumGestures: 1,
+    orientationSeed: transformId === 'mirror' ? 1 : 0,
+    maximumGestures: 2,
   });
   const gestureById = new Map(plan.gestures.map((gesture) => [gesture.id, gesture]));
   const blockedSlots = new Set();
@@ -1213,24 +1188,31 @@ function applyFullWidthSweepPlan({
     const item = prototype.items[slotIndex];
     const original = slots[slotIndex];
     const gesture = gestureById.get(slotPlan.gestureId);
-    const nextLane = plan.slotPlans[slotIndex + 1]?.lane ?? slotPlan.lane;
     const isEdgeTarget = slotPlan.kind === 'edge-target';
-    const safeLanes = isEdgeTarget
-      ? (slotPlan.lane === 0 ? [0, 1] : [LANE_COUNT - 2, LANE_COUNT - 1])
-      : sweepSafeLanes(slotPlan.lane, nextLane);
+    const gesturePressure = average(gesture.anchorSlots.map((slot) => planningSlots[slot].score));
+    const sweepHazardMode = gesture.sectionRole === 'peak' || gesturePressure >= SWEEP_SPIKE_PRESSURE
+      ? 'spiked'
+      : 'clean';
     const obstacles = [EMPTY, EMPTY, EMPTY, EMPTY, EMPTY];
-    addSpikesOutside(obstacles, safeLanes);
-    if (isEdgeTarget) obstacles[slotPlan.lane] = BREAKABLE;
+    if (isEdgeTarget) {
+      if (sweepHazardMode === 'spiked') {
+        addSpikesOutside(
+          obstacles,
+          slotPlan.lane === 0 ? [0, 1] : [LANE_COUNT - 2, LANE_COUNT - 1],
+        );
+      }
+      obstacles[slotPlan.lane] = BREAKABLE;
+    }
     slots[slotIndex] = {
       ...original,
       obstacles,
-      emit: true,
-      kind: isEdgeTarget ? 'target' : 'dodge',
+      emit: isEdgeTarget,
+      kind: isEdgeTarget ? 'target' : 'travel',
       pattern: 'full-width-sweep',
-      role: isEdgeTarget ? 'full-width-edge-hit' : 'full-width-travel-gate',
-      barRole: isEdgeTarget ? 'edge-drum-hit' : 'lateral-travel',
+      role: isEdgeTarget ? 'full-width-edge-hit' : 'full-width-silent-slot',
+      barRole: isEdgeTarget ? 'edge-drum-hit' : 'silent-lateral-travel',
       downbeatCue: item.beatInBar === 0,
-      allowedLanes: isEdgeTarget ? [slotPlan.lane] : safeLanes,
+      allowedLanes: isEdgeTarget ? [slotPlan.lane] : Array.from({ length: LANE_COUNT }, (_, lane) => lane),
       preferredLane: isEdgeTarget ? slotPlan.lane : null,
       templateId,
       familyId,
@@ -1242,6 +1224,8 @@ function applyFullWidthSweepPlan({
       sweepGestureId: slotPlan.gestureId,
       sweepPhase: slotPlan.kind,
       sweepAnchorIndex: slotPlan.anchorIndex,
+      sweepHazardMode,
+      travelSecondsPerLane: SWEEP_TRAVEL_SECONDS_PER_LANE,
       overridePriority: 0,
     };
   }
@@ -1269,6 +1253,7 @@ function makeCanonicalTemplate({
   mDesiredSectionRoles = [],
   bars,
   familyIntent,
+  wavePlan = null,
   difficultyBoost = 0,
   auxiliaryCandidates = [],
 }) {
@@ -1291,6 +1276,7 @@ function makeCanonicalTemplate({
     familyId,
     bars,
     familyIntent,
+    wavePlan,
   });
   const plan = motifPlan.motifs;
   const slots = Array.from({ length: prototype.items.length }, () => null);
@@ -1310,11 +1296,27 @@ function makeCanonicalTemplate({
       barInPhrase = moduleEndBar;
       continue;
     }
+    const modulePressure = clamp(
+      average(motifPlan.profiles.slice(moduleStartBar, moduleEndBar).map((profile) => profile.score))
+      + difficultyBoost,
+      0,
+      1,
+    );
+    const waveMirror = wavePlan?.mirror ?? (transformId === 'mirror');
+    const waveRows = motif === 'wave' ? buildWaveRows({
+      length: indices.length,
+      mirror: waveMirror,
+    }) : null;
     const rawControls = motif === 'c' ? [2, 3, 4, 4, 3, 2] : MOTIFS[motif].controls;
     const controls = transformId === 'mirror'
       ? rawControls.map((lane) => LANE_COUNT - 1 - lane)
       : rawControls;
-    const desired = samplePath(controls, indices.length);
+    const desired = waveRows
+      ? waveRows.map((row) => {
+        const safeLanes = lanesMatching(row, (cell) => cell !== SPIKE);
+        return waveMirror ? safeLanes.at(-1) : safeLanes[0];
+      })
+      : samplePath(controls, indices.length);
     const forceStart = isBeatAlignedTemplate && moduleStartBar === 0;
     const forceEnd = isBeatAlignedTemplate && moduleEndBar === prototype.barCount;
     if (forceStart) {
@@ -1333,12 +1335,6 @@ function makeCanonicalTemplate({
       });
     previousLane = lanes[lanes.length - 1];
     const cCampLane = transformId === 'mirror' ? 0 : 4;
-    const modulePressure = clamp(
-      average(motifPlan.profiles.slice(moduleStartBar, moduleEndBar).map((profile) => profile.score))
-      + difficultyBoost,
-      0,
-      1,
-    );
     for (let position = 0; position < indices.length; position += 1) {
       const slotIndex = indices[position];
       const item = prototype.items[slotIndex];
@@ -1352,20 +1348,21 @@ function makeCanonicalTemplate({
         indices.length,
         modulePressure,
         cCampLane,
+        waveRows?.[position],
       );
       slots[slotIndex] = {
         obstacles: rowResult.row,
         emit: true,
-        kind: 'target',
+        kind: rowResult.kind,
         pattern: motif,
-        role: item.beatInBar === 0 ? 'downbeat-cue' : 'beat-target',
+        role: motif === 'wave' ? 'wave-gate' : item.beatInBar === 0 ? 'downbeat-cue' : 'beat-target',
         barRole: BAR_ROLES[item.barInPhrase % BAR_ROLES.length],
         downbeatCue: item.beatInBar === 0,
-        allowedLanes: [lane],
-        preferredLane: lane,
+        allowedLanes: rowResult.allowedLanes,
+        preferredLane: rowResult.preferredLane,
         templateId,
         familyId,
-        transformId,
+        transformId: motif === 'wave' ? (waveMirror ? 'mirror' : 'identity') : transformId,
         relativeSlotKey: `${templateId}:bar-${item.barInPhrase}:slot-${item.beatInBar}`,
         blockId: `${templateId}:bars-${moduleStartBar}-${moduleEndBar - 1}`,
         sectionRole: motifPlan.profiles[item.barInPhrase]?.sectionRole ?? familyIntent?.dominantSectionRole ?? 'drive',
@@ -1375,6 +1372,17 @@ function makeCanonicalTemplate({
     }
     barInPhrase = moduleEndBar;
   }
+
+  const fullWidthSweepPlan = applyFullWidthSweepPlan({
+    slots,
+    phrases,
+    prototype,
+    motifPlan,
+    templateId,
+    familyId,
+    transformId,
+    trackId,
+  });
 
   let appliedMStartBar = null;
   let appliedMGesture = null;
@@ -1461,18 +1469,6 @@ function makeCanonicalTemplate({
       }
     }
   }
-
-  const fullWidthSweepPlan = applyFullWidthSweepPlan({
-    slots,
-    phrases,
-    prototype,
-    coreMobility,
-    motifPlan,
-    templateId,
-    familyId,
-    transformId,
-    trackId,
-  });
 
   const auxiliarySensitiveSlots = new Set();
   if (auxiliaryCandidates.length) {
@@ -1583,7 +1579,7 @@ function applyRangeReuse({
   // through a shifted recurrence window can detach it from the timestamps it
   // was validated against, so only the surrounding musical core is reusable.
   if ([...source, ...target].some((entry) => (
-    ['m', 'full-width-sweep'].includes(entry.spec.pattern)
+    ['m', 'full-width-sweep', 'wave'].includes(entry.spec.pattern)
   ))) return null;
   for (let index = 0; index < target.length; index += 1) {
     const sourceSpec = source[index].spec;
@@ -1667,6 +1663,83 @@ function phraseAtTime(phrases, timeSeconds) {
   ));
 }
 
+function addDensityFillRows(events) {
+  const intervalGroups = new Map();
+  const eventsByPhrase = new Map();
+  for (const event of events) {
+    if (!eventsByPhrase.has(event.phraseId)) eventsByPhrase.set(event.phraseId, []);
+    eventsByPhrase.get(event.phraseId).push(event);
+  }
+  for (const phraseEvents of eventsByPhrase.values()) {
+    phraseEvents.sort((left, right) => left.timeSeconds - right.timeSeconds);
+    for (let index = 1; index < phraseEvents.length; index += 1) {
+      const before = phraseEvents[index - 1];
+      const after = phraseEvents[index];
+      const plan = planDensityInterval(before, after);
+      if (!plan) continue;
+      const key = `${before.templateId}:${before.relativeSlotKey}->${after.relativeSlotKey}`;
+      if (!intervalGroups.has(key)) intervalGroups.set(key, []);
+      intervalGroups.get(key).push({ before, after, plan });
+    }
+  }
+
+  const fillEvents = [];
+  const counts = { solid: 0, compact: 0 };
+  for (const intervals of intervalGroups.values()) {
+    const mode = intervals.some((interval) => interval.plan.mode === 'solid') ? 'solid' : 'compact';
+    const fillCount = Math.max(...intervals.map(({ before, after }) => (
+      densityFillCount(after.timeSeconds - before.timeSeconds, mode)
+    )));
+    if (!fillCount) continue;
+    for (const { before, after, plan } of intervals) {
+      const basePattern = before.pattern.replace(/-melody$/, '');
+      for (let fillIndex = 1; fillIndex <= fillCount; fillIndex += 1) {
+        const phase = fillIndex / (fillCount + 1);
+        const event = makeInternalEvent({
+          timeSeconds: before.timeSeconds + (after.timeSeconds - before.timeSeconds) * phase,
+          obstacles: [...plan.obstacles],
+          strength: (Number(before.strength) + Number(after.strength)) / 2,
+          source: 'layout-density-rule',
+          kind: 'dodge',
+          pattern: `${basePattern}-fill`,
+          flow: before.flow + (after.flow - before.flow) * phase,
+          sectionIndex: before._sectionIndex,
+          role: `${mode}-density-gate`,
+          allowedLanes: plan.allowedLanes,
+          preferredLane: null,
+        });
+        Object.assign(event, {
+          familyId: before.familyId,
+          phraseId: before.phraseId,
+          barIndex: before.barIndex,
+          barInPhrase: before.barInPhrase,
+          beatInBar: before.beatInBar,
+          downbeatCue: false,
+          barRole: before.barRole,
+          sectionRole: before.sectionRole,
+          pressure: Number(Math.max(before.pressure, after.pressure).toFixed(3)),
+          relativeSlotKey: `${before.relativeSlotKey}:density-${mode}-${fillIndex}-of-${fillCount}`,
+          occurrenceSlotKey: `${before.phraseId}:density-${before.relativeSlotKey}-${fillIndex}`,
+          layer: 'auxiliary-common',
+          templateId: before.templateId,
+          transformId: before.transformId,
+          barModule: before.barModule,
+          choiceLaneCount: 0,
+          routeBranch: false,
+          densityFill: true,
+          densityMode: mode,
+        });
+        fillEvents.push(event);
+        counts[mode] += 1;
+      }
+    }
+  }
+  return {
+    events: [...events, ...fillEvents].sort((left, right) => left.timeSeconds - right.timeSeconds),
+    counts,
+  };
+}
+
 function retargetBurstAnchor(spec, lane) {
   const previousSpikeCount = spec.obstacles.filter((cell) => cell === SPIKE).length;
   const obstacles = [EMPTY, EMPTY, EMPTY, EMPTY, EMPTY];
@@ -1725,7 +1798,7 @@ function prepareClimaxMelodyBurst({
     // Retargeting either anchor (or a skipped slot between them) would destroy
     // the literal gesture even if auxiliary emission is rejected later.
     if (specs.slice(beforeSlot, afterSlot + 1).some((spec) => (
-      ['m', 'full-width-sweep'].includes(spec.pattern)
+      ['m', 'full-width-sweep', 'wave'].includes(spec.pattern)
     ))) continue;
     if (specs[beforeSlot].kind !== 'target' || specs[afterSlot].kind !== 'target') continue;
     retargetBurstAnchor(specs[beforeSlot], START_LANE);
@@ -1782,10 +1855,10 @@ function summarizeFullWidthSweeps(events, routeGraph) {
       const elapsed = anchors[index].timeSeconds - anchors[index - 1].timeSeconds;
       if (
         Math.abs(anchors[index].lane - anchors[index - 1].lane) === LANE_COUNT - 1
-        && elapsed <= BEAT_SECONDS * 8 + 1e-6
+        && elapsed <= BEAT_SECONDS * 1.35 + 1e-6
       ) transitions += 1;
     }
-    if (anchors.length < 3 || transitions < 2) continue;
+    if (anchors.length < 5 || transitions < 4) continue;
     edgeToEdgeTransitionCount += transitions;
     const intentSections = [...new Set(anchors.map((anchor) => (
       intentSectionAt(anchor.timeSeconds)?.index
@@ -1837,7 +1910,7 @@ function buildEvents(track) {
     flowAnalysis.climaxScores[index] > flowAnalysis.climaxScores[best] ? index : best
   ), climaxPool[0]);
   const climaxTime = sourceEvents[climaxIndex]?.timeSeconds ?? analysis.song.durationSeconds * 0.85;
-  const seed = `${AUDIO_SEED}:${track.id}:responsive-choice-structure-v6`;
+  const seed = `${AUDIO_SEED}:${track.id}:responsive-choice-structure-v9`;
   const structure = normalizeMusicalStructure(sourceEvents);
   const introEndSeconds = structure.phrases.find((phrase) => phrase.startBarIndex === 0)?.endSeconds
     ?? BEAT_SECONDS * 32;
@@ -1897,6 +1970,39 @@ function buildEvents(track) {
       group !== climaxGroup && !standardMCandidates.includes(group)
     )),
   ];
+  const reservedMGroups = new Set();
+  let reservedMCount = 0;
+  if (climaxGroup) {
+    reservedMGroups.add(climaxGroup);
+    reservedMCount += climaxGroup.phrases.length;
+  }
+  for (const group of standardMCandidates) {
+    if (reservedMCount >= 2) break;
+    reservedMGroups.add(group);
+    reservedMCount += group.phrases.length;
+  }
+  const waveCandidates = [...templateGroups.values()].filter((group) => (
+    !reservedMGroups.has(group)
+    && group.phrases[0].barCount >= 2
+    && group.phrases[0].items.length >= 5
+  ));
+  const wavePlans = new Map();
+  const takeWaveGroup = (highPressure) => {
+    waveCandidates.sort((left, right) => {
+      const suitability = (group) => (
+        Number(group.intent?.contour?.kind !== 'oscillating') * 2
+        + Number(group.phrases.length > 1)
+      );
+      const pressure = (group) => average(group.phrases.map((phrase) => phrase.intensity));
+      return suitability(left) - suitability(right)
+        || (pressure(left) - pressure(right)) * (highPressure ? -1 : 1);
+    });
+    return waveCandidates.shift() ?? null;
+  };
+  for (const mirror of [false, true]) {
+    const group = takeWaveGroup(true);
+    if (group) wavePlans.set(group, { mirror });
+  }
   for (const group of orderedTemplateGroups) {
     const prototype = group.phrases[0];
     const familyId = prototype.familyId;
@@ -1934,6 +2040,7 @@ function buildEvents(track) {
       mDesiredSectionRoles,
       bars: structure.bars,
       familyIntent: group.intent,
+      wavePlan: wavePlans.get(group),
       difficultyBoost: group === climaxGroup ? 0.18 : 0,
       auxiliaryCandidates: selectedAuxiliary,
     });
@@ -2028,6 +2135,9 @@ function buildEvents(track) {
             kind: spec.kind === 'dodge' ? 'gate' : 'choice',
             row: rowKey(spec.obstacles),
           }] : []),
+        } : {}),
+        ...(firstSpec.pattern === 'wave' ? {
+          mirrored: firstSpec.transformId === 'mirror',
         } : {}),
       };
       flowSections.push(section);
@@ -2147,6 +2257,8 @@ function buildEvents(track) {
           sweepGestureId: spec.sweepGestureId,
           sweepPhase: spec.sweepPhase,
           sweepAnchorIndex: spec.sweepAnchorIndex,
+          sweepHazardMode: spec.sweepHazardMode,
+          travelSecondsPerLane: spec.travelSecondsPerLane,
         } : {}),
         ...(spec.reusedFrom ? { reusedFrom: spec.reusedFrom, reuseLinkId: spec.reuseLinkId } : {}),
       });
@@ -2191,8 +2303,8 @@ function buildEvents(track) {
     // inside, or immediately after it would turn the visible M back into an
     // unrelated 9–10 row burst.
     if (
-      ['m', 'full-width-sweep'].includes(anchorSpec.pattern)
-      || ['m', 'full-width-sweep'].includes(nextSpec?.pattern)
+      ['m', 'full-width-sweep', 'wave'].includes(anchorSpec.pattern)
+      || ['m', 'full-width-sweep', 'wave'].includes(nextSpec?.pattern)
     ) continue;
     const canonicalKey = `${anchorSpec.templateId}:${anchorSpec.relativeSlotKey}:after-${phaseBucket}`;
     const targetSpec = [...specs.slice(0, previousSlot + 1)].reverse().find((spec) => spec.kind === 'target')
@@ -2433,6 +2545,9 @@ function buildEvents(track) {
       + `time ${deadEvent?.timeSeconds}s, pattern ${deadEvent?.pattern}, layer ${deadEvent?.layer}.`,
     );
   }
+  const densityPlan = addDensityFillRows(combined);
+  combined = densityPlan.events;
+  routeChoiceAnalysis = analyzeRouteGraph(combined, routeAnalysisOptions);
   const strongSweepMetrics = summarizeFullWidthSweeps(combined, routeChoiceAnalysis);
   const literalMGestureWindows = findLiteralMGestures(combined);
   const mGestureSummary = {
@@ -2647,6 +2762,9 @@ function buildEvents(track) {
     auxiliaryCandidateCount: selectedAuxiliary.length,
     auxiliaryNoteCount: acceptedAuxiliary.length,
     rejectedAuxiliaryCount: selectedAuxiliary.length - acceptedAuxiliary.length,
+    densityFillCount: densityPlan.counts.solid + densityPlan.counts.compact,
+    solidDensityFillCount: densityPlan.counts.solid,
+    compactDensityFillCount: densityPlan.counts.compact,
     maximumMelodyRun,
     layoutIntentProfile: {
       algorithm: 'music-description-to-layout-intent-v1',
@@ -2654,7 +2772,7 @@ function buildEvents(track) {
       songProfile: LAYOUT_INTENT.songProfile,
       sections: LAYOUT_INTENT.sections,
     },
-    layoutAlgorithm: 'music-responsive-choice-template-v6',
+    layoutAlgorithm: 'music-responsive-choice-template-v11',
   };
 }
 
@@ -2699,10 +2817,14 @@ function buildLevel(track) {
       auxiliaryCandidateCount: chart.auxiliaryCandidateCount,
       auxiliaryNoteCount: chart.auxiliaryNoteCount,
       rejectedAuxiliaryCount: chart.rejectedAuxiliaryCount,
+      densityFillCount: chart.densityFillCount,
+      solidDensityFillCount: chart.solidDensityFillCount,
+      compactDensityFillCount: chart.compactDensityFillCount,
       maximumMelodyRun: chart.maximumMelodyRun,
       averageLaneMovement: Number(chart.averageMovement.toFixed(3)),
       maximumLaneMovement: chart.maximumMovement,
       minTravelSecondsPerLane: FLOW_MODE.minTravelSecondsPerLane,
+      fullWidthSweepTravelSecondsPerLane: SWEEP_TRAVEL_SECONDS_PER_LANE,
       motifCounts: chart.motifCounts,
       flowSections: chart.flowSections,
       phraseSections: chart.phraseSections,

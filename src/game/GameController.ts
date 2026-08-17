@@ -25,7 +25,7 @@ export interface GameHud {
   doubleHitRows: number;
 }
 
-const DRAG_SENSITIVITY = 2.4;
+const DRAG_SENSITIVITY = 3;
 export const CRASH_EFFECT_DURATION_MS = 1150;
 const CRASH_SCENE_MAX_ADVANCE_SECONDS = 0.07;
 const CRASH_SCENE_DECAY_MS = 180;

@@ -10,6 +10,7 @@ import {
   findLiteralMGestures,
 } from './rhythm/route-analysis.mjs';
 import { COLOR_SCHEME_IDS, colorSchemesDiffer } from './rhythm/color-timeline.mjs';
+import { buildWaveRows } from './rhythm/wave-planner.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const requestedLevelPath = process.argv[2];
@@ -120,7 +121,7 @@ for (const [index, event] of level.colorSchemeEvents.entries()) {
   }
   previousColorSchemeTime = event.timeSeconds;
 }
-assert.equal(level.generation.layoutAlgorithm, 'music-responsive-choice-template-v6');
+assert.equal(level.generation.layoutAlgorithm, 'music-responsive-choice-template-v11');
 assert.match(level.generation.musicalStructureAlgorithm, /beat-this.*librosa.*agglomerative/i);
 assert.ok(['melodic-drive', 'percussive-drive', 'rhythmic-drive', 'balanced-flow'].includes(
   level.generation.layoutIntentProfile.songProfile.dominantStyle,
@@ -174,6 +175,9 @@ let maximumConsecutiveMultiTargetRows = 0;
 let dodgeCount = 0;
 let spikeCount = 0;
 let guidanceRowCount = 0;
+let densityFillCount = 0;
+let solidDensityFillCount = 0;
+let compactDensityFillCount = 0;
 const targetLaneWeights = Array(5).fill(0);
 
 assert.ok(level.events.length > 0, 'The generated level is empty.');
@@ -233,9 +237,25 @@ for (let eventIndex = 0; eventIndex < level.events.length; eventIndex += 1) {
 
   spikeCount += rowSpikes;
   if (rowSpikes) guidanceRowCount += 1;
+  if (event.densityFill) {
+    densityFillCount += 1;
+    solidDensityFillCount += Number(event.densityMode === 'solid');
+    compactDensityFillCount += Number(event.densityMode === 'compact');
+    assert.equal(event.kind, 'dodge', `${label} density fill is not a Gate Row.`);
+    assert.equal(event.layer, 'auxiliary-common', `${label} density fill has the wrong layer.`);
+    assert.equal(event.source, 'layout-density-rule', `${label} density fill has the wrong source.`);
+    assert.match(event.role, /^(solid|compact)-density-gate$/, `${label} density fill has the wrong role.`);
+    assert.ok(rowSpikes > 0, `${label} density fill contains no wall.`);
+  }
   assertNoIsolatedMiddleGap(event.obstacles, label);
   previousTime = event.timeSeconds;
 }
+
+assert.equal(level.generation.densityFillCount, densityFillCount);
+assert.equal(level.generation.solidDensityFillCount, solidDensityFillCount);
+assert.equal(level.generation.compactDensityFillCount, compactDensityFillCount);
+assert.ok(solidDensityFillCount > 0, 'The chart contains no continuous solid fill.');
+assert.ok(compactDensityFillCount > 0, 'The chart contains no compact average fill.');
 
 const survivalRoutes = analyzeRouteGraph(level.events, {
   secondsPerLane: travelSeconds,
@@ -346,11 +366,41 @@ for (const link of level.generation.repeatConsistency.appliedRangeLinks) {
   assert.ok(link.similarity >= 0.88, `${link.id} did not pass the exact-repeat threshold.`);
 }
 
+const waveSections = level.generation.flowSections.filter((section) => section.motif === 'wave');
+assert.ok(waveSections.length > 0, 'The chart contains no rule-generated wave sections.');
+for (const section of waveSections) {
+  assert.ok(section.slotCount >= 5, 'A wave section is too short to complete one crest.');
+  assert.deepEqual(
+    section.templateRows,
+    buildWaveRows({
+      length: section.slotCount,
+      mirror: section.mirrored,
+    }).map((row) => row.join('')),
+    'A wave section does not match the shared depth rule.',
+  );
+}
+if (level.song.durationSeconds >= 120) {
+  assert.deepEqual(
+    new Set(waveSections.map((section) => section.mirrored ? 'mirror' : 'identity')),
+    new Set(['identity', 'mirror']),
+    'A long chart must contain waves in both directions.',
+  );
+  assert.ok(waveSections.some((section) => section.slotCount > 5), 'A long chart has no spliced wave run.');
+}
+
 const mSections = level.generation.flowSections.filter((section) => section.motif === 'm');
 const literalMGestures = findLiteralMGestures(level.events);
+const requiredVisualMTemplate = [
+  '22200', '00000', '10000', '00000', '22200',
+  '22200', '00000', '10000', '00000', '22200',
+];
+assert.ok(
+  mSections.some((section) => section.templateRows?.join(',') === requiredVisualMTemplate.join(',')),
+  `The visible chart lacks the requested ${requiredVisualMTemplate.join('→')} M layout.`,
+);
 assert.ok(
   literalMGestures.some((gesture) => gesture.orientation === 'identity'),
-  'The visible chart lacks the literal 00222→00001→22200→00001→00222→00001 M Gesture.',
+  'The visible chart lacks the literal 22200→10000→22200→22200→10000→22200 M Gesture.',
 );
 if (level.song.durationSeconds >= 120) {
   assert.ok(literalMGestures.length >= 2, 'A long song must contain at least two literal visible M Gestures.');
@@ -419,12 +469,17 @@ for (const gesture of literalMGestures) {
 }
 
 const beatSeconds = 60 / level.song.bpm;
-const physicalFullWidthSeconds = travelSeconds * 4;
+const sweepTravelSeconds = Math.min(
+  travelSeconds,
+  ...level.events.filter((event) => event.pattern === 'full-width-sweep')
+    .map((event) => Number(event.travelSecondsPerLane) || travelSeconds),
+);
+const physicalFullWidthSeconds = sweepTravelSeconds * 4;
 const maximumStrongStrokeSeconds = Math.max(
   physicalFullWidthSeconds + 0.05,
-  Math.min(4.5, beatSeconds * 8),
+  beatSeconds * 1.35,
 );
-const minimumAlternatingGestureSeconds = physicalFullWidthSeconds * 2;
+const minimumAlternatingGestureSeconds = physicalFullWidthSeconds * 4;
 const eligiblePeakIntentSections = intentSections.filter((section) => (
   section.role === 'peak'
   && section.endSeconds - section.startSeconds >= minimumAlternatingGestureSeconds
@@ -448,8 +503,8 @@ const strongSweepMetrics = strongIntentSections.map((section) => ({
 }));
 for (const { section, metrics } of strongSweepMetrics) {
   assert.ok(
-    metrics.maximumAlternatingEdgeStrokeCount >= 2,
-    `${section.id} ${section.role} section has no forced edge-to-edge-to-edge drum sweep.`,
+    metrics.maximumAlternatingEdgeStrokeCount >= 4,
+    `${section.id} ${section.role} section has no continuous five-hit full-width drum sweep.`,
   );
   assert.equal(
     metrics.centerOnlyRouteExists,
@@ -465,6 +520,14 @@ level.events.forEach((event, rowIndex) => {
   if (!declaredSweepGroups.has(id)) declaredSweepGroups.set(id, []);
   declaredSweepGroups.get(id).push({ event, rowIndex });
 });
+const requiredSparseSwayRows = ['22201', '10222', '22201'];
+assert.ok(
+  level.events.some((_, startIndex) => requiredSparseSwayRows.every((row, offset) => {
+    const event = level.events[startIndex + offset];
+    return event?.pattern === 'full-width-sweep' && event.obstacles.join('') === row;
+  })),
+  `The visible chart lacks the requested ${requiredSparseSwayRows.join('→')} sparse edge sway.`,
+);
 const actualSweepGestures = [];
 let actualForcedEdgeTargetCount = 0;
 let actualEdgeToEdgeTransitionCount = 0;
@@ -473,12 +536,20 @@ for (const [id, rows] of declaredSweepGroups) {
     rows.every(({ event }) => event.pattern === 'full-width-sweep' && event.layer === 'core'),
     `${id} contains a non-core or mislabeled row.`,
   );
+  assert.ok(
+    rows.every(({ event }) => event.travelSecondsPerLane === level.generation.fullWidthSweepTravelSecondsPerLane),
+    `${id} does not use the declared full-width movement allowance.`,
+  );
   const anchors = rows.flatMap(({ event, rowIndex }) => {
     if (event.sweepPhase !== 'edge-target') return [];
     const targets = event.obstacles.flatMap((cell, lane) => cell === 1 ? [lane] : []);
     assert.equal(targets.length, 1, `${id} edge hit must display exactly one target.`);
     const [lane] = targets;
     assert.ok(lane === 0 || lane === 4, `${id} edge hit is not on an outer lane.`);
+    const expectedRow = event.sweepHazardMode === 'spiked'
+      ? (lane === 0 ? '10222' : '22201')
+      : (lane === 0 ? '10000' : '00001');
+    assert.equal(event.obstacles.join(''), expectedRow, `${id} has a malformed ${event.sweepHazardMode} edge row.`);
     assert.deepEqual(
       comboRoutes.globallyViableLanesByRow[rowIndex],
       [lane],
@@ -486,7 +557,7 @@ for (const [id, rows] of declaredSweepGroups) {
     );
     return [{ event, rowIndex, lane }];
   });
-  assert.ok(anchors.length >= 3, `${id} has fewer than three forced edge hits.`);
+  assert.ok(anchors.length >= 5, `${id} has fewer than five forced edge hits.`);
   for (let index = 1; index < anchors.length; index += 1) {
     const previous = anchors[index - 1];
     const current = anchors[index];
@@ -533,6 +604,17 @@ assert.equal(
   level.generation.strongSweepMetrics.forcedEdgeTargetCount,
   actualForcedEdgeTargetCount,
 );
+if (level.song.durationSeconds >= 120) {
+  assert.ok(
+    declaredSweepGroups.size >= Math.floor(level.song.durationSeconds / 25),
+    'The chart does not reuse the full-width beat gesture often enough.',
+  );
+  assert.deepEqual(
+    new Set([...declaredSweepGroups.values()].flatMap((rows) => rows.map(({ event }) => event.sweepHazardMode))),
+    new Set(['clean', 'spiked']),
+    'A long chart must contain both clean and spiked full-width beat gestures.',
+  );
+}
 assert.deepEqual(
   level.generation.strongSweepMetrics.gestures,
   actualSweepGestures,
