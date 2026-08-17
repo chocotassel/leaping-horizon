@@ -1,5 +1,6 @@
 import { ObstacleType, type Level, type LevelEvent, type ObstacleRow } from './types';
 import { t } from './i18n';
+import { SCENE_COLOR_HUES, SCENE_COLOR_SCHEMES } from './game/colorSchemes';
 
 function isObstacleRow(value: unknown): value is ObstacleRow {
   return Array.isArray(value) && value.length === 5 && value.every((cell) => (
@@ -15,6 +16,33 @@ export function validateLevel(level: Level): Level {
   }
   if (!level.song.audioUrl.toLowerCase().endsWith('.mp3')) throw new Error(t('error.invalidAudioFormat'));
   if (!Array.isArray(level.events)) throw new Error(t('error.invalidLevelEvents'));
+  if (!Array.isArray(level.colorSchemeEvents) || !level.colorSchemeEvents.length) {
+    throw new Error(t('error.invalidColorSchemeEvents'));
+  }
+
+  let previousColorTime = -Infinity;
+  let previousColorSchemeId: keyof typeof SCENE_COLOR_HUES | null = null;
+  level.colorSchemeEvents.forEach((event, eventIndex) => {
+    const hues = SCENE_COLOR_HUES[event.colorSchemeId];
+    const previousHues = previousColorSchemeId === null ? null : SCENE_COLOR_HUES[previousColorSchemeId];
+    if (
+      !Number.isFinite(event.timeSeconds)
+      || event.timeSeconds < 0
+      || event.timeSeconds > level.song.durationSeconds
+      || event.timeSeconds <= previousColorTime
+      || !Object.prototype.hasOwnProperty.call(SCENE_COLOR_SCHEMES, event.colorSchemeId)
+      || !['section', 'accent'].includes(event.kind)
+      || typeof event.source !== 'string'
+      || !Number.isFinite(event.strength)
+      || event.strength < 0
+      || event.strength > 1
+      || (previousHues && (
+        previousHues.primary === hues.primary || previousHues.accent === hues.accent
+      ))
+    ) throw new Error(t('error.invalidColorSchemeEvent', { index: eventIndex }));
+    previousColorTime = event.timeSeconds;
+    previousColorSchemeId = event.colorSchemeId;
+  });
 
   let previousTime = -Infinity;
   level.events.forEach((event: LevelEvent, eventIndex) => {

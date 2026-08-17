@@ -9,6 +9,7 @@ import {
   analyzeRouteGraph,
   findLiteralMGestures,
 } from './rhythm/route-analysis.mjs';
+import { COLOR_SCHEME_IDS, colorSchemesDiffer } from './rhythm/color-timeline.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const requestedLevelPath = process.argv[2];
@@ -99,6 +100,26 @@ function signatureForPhrase(phraseId) {
 
 assert.equal(level.version, 3);
 assert.equal(level.generation.difficulty, 'flow');
+assert.equal(level.generation.colorSchemeAlgorithm, 'music-wheel-neutral-white-drum-accent-v3');
+assert.ok(Array.isArray(level.colorSchemeEvents) && level.colorSchemeEvents.length > 1);
+assert.equal(level.generation.colorSchemeEventCount, level.colorSchemeEvents.length);
+assert.equal(level.colorSchemeEvents[0].timeSeconds, 0);
+assert.equal(level.colorSchemeEvents[0].colorSchemeId, 'cyanWhite');
+assert.ok(new Set(level.colorSchemeEvents.map((event) => event.colorSchemeId)).size > 1);
+let previousColorSchemeTime = -Infinity;
+for (const [index, event] of level.colorSchemeEvents.entries()) {
+  assert.ok(event.timeSeconds > previousColorSchemeTime, `Color scheme event ${index} is not ordered.`);
+  assert.ok(event.timeSeconds <= level.song.durationSeconds, `Color scheme event ${index} is outside the song.`);
+  assert.ok(COLOR_SCHEME_IDS.includes(event.colorSchemeId), `Color scheme event ${index} uses an unknown preset.`);
+  assert.ok(['section', 'accent'].includes(event.kind), `Color scheme event ${index} has an unknown kind.`);
+  if (index > 0) {
+    assert.ok(
+      colorSchemesDiffer(level.colorSchemeEvents[index - 1].colorSchemeId, event.colorSchemeId),
+      `Color scheme event ${index} repeats a region hue from the previous event.`,
+    );
+  }
+  previousColorSchemeTime = event.timeSeconds;
+}
 assert.equal(level.generation.layoutAlgorithm, 'music-responsive-choice-template-v6');
 assert.match(level.generation.musicalStructureAlgorithm, /beat-this.*librosa.*agglomerative/i);
 assert.ok(['melodic-drive', 'percussive-drive', 'rhythmic-drive', 'balanced-flow'].includes(

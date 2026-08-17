@@ -160,6 +160,7 @@ export class GameController {
   private hits = 0;
   private dodges = 0;
   private nextEventIndex = 0;
+  private nextColorSchemeEventIndex = 0;
   private frameId = 0;
   private finished = false;
   private dead = false;
@@ -218,6 +219,13 @@ export class GameController {
   private loop = (): void => {
     if (this.finished) return;
     const time = this.audio.currentTime;
+    while (
+      this.nextColorSchemeEventIndex < this.level.colorSchemeEvents.length
+      && this.level.colorSchemeEvents[this.nextColorSchemeEventIndex].timeSeconds <= time
+    ) {
+      this.scene.setColorScheme(this.level.colorSchemeEvents[this.nextColorSchemeEventIndex].colorSchemeId);
+      this.nextColorSchemeEventIndex += 1;
+    }
     if (!this.audio.paused && !this.dead) this.judgeObstacles(time);
     this.scene.render(time, this.level, this.states, this.combo, this.audio.spectrum);
 

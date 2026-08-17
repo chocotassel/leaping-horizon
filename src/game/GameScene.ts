@@ -10,6 +10,7 @@ import {
   ObstacleType,
   type LaneIndex,
   type Level,
+  type LevelEvent,
   type ObstacleStateRow,
 } from '../types';
 import { getMaxEventRowsInWindow } from '../chart';
@@ -44,6 +45,8 @@ const FLOATING_CUBE_SPEED = 5.4;
 const FLOATING_CUBE_NEAR_Z = CAMERA_Z + 2;
 const OUTER_SPECTRUM_COUNT = 112;
 const INNER_SPECTRUM_COUNT = 88;
+const RING_PULSE_ANCHOR_COUNT = 12;
+const RING_PULSE_COOLDOWN_SECONDS = 0.18;
 const SPEED_STREAK_COUNT = 42;
 const RING_CENTER_Y = 15;
 const PLAYER_LIMIT_X = 2;
@@ -106,15 +109,23 @@ function getDecorativeMetalColor(index: number): number {
   return index % 5 === 0 ? 0x17324a : index % 3 === 0 ? 0x10243a : 0x09182b;
 }
 
-function colorToCss(color: number): string {
-  return `#${color.toString(16).padStart(6, '0')}`;
+function getRingPulseEnvelope(age: number, strong: boolean): number {
+  if (age < 0) return 0;
+  const attack = 0.032;
+  const hold = strong ? 0.075 : 0.05;
+  const release = strong ? 0.28 : 0.22;
+  if (age < attack) return THREE.MathUtils.smoothstep(age, 0, attack);
+  if (age < attack + hold) return 1;
+  const releaseProgress = (age - attack - hold) / release;
+  return releaseProgress < 1 ? Math.pow(1 - releaseProgress, 2) : 0;
 }
 
-function mixColors(from: number, to: number, amount: number): string {
-  const mixChannel = (shift: number): number => Math.round(
-    ((from >> shift) & 0xff) * (1 - amount) + ((to >> shift) & 0xff) * amount,
-  );
-  return `rgb(${mixChannel(16)}, ${mixChannel(8)}, ${mixChannel(0)})`;
+function getRingPulseWeight(index: number, center: number, count: number, radius: number): number {
+  const distance = Math.abs(index - center);
+  const circularDistance = Math.min(distance, count - distance);
+  return circularDistance < radius
+    ? THREE.MathUtils.smoothstep(radius - circularDistance, 0, radius)
+    : 0;
 }
 
 export class GameScene {
@@ -133,6 +144,7 @@ export class GameScene {
   private readonly particleData: Particle[];
   private readonly outerSpectrumBars: THREE.InstancedMesh;
   private readonly innerSpectrumBars: THREE.InstancedMesh;
+  private readonly ringLayers: THREE.Mesh[] = [];
   private readonly floatingCubes: THREE.InstancedMesh;
   private readonly floatingData: FloatingCube[];
   private readonly speedStreaks: THREE.InstancedMesh;
@@ -154,13 +166,12 @@ export class GameScene {
   private readonly primaryChannels: THREE.Color[] = [];
   private readonly ringCoreChannels: THREE.Color[] = [];
   private readonly hazardChannels: THREE.Color[] = [];
-  private readonly obstacleEdgeChannels: THREE.Color[] = [];
+  private readonly obstacleChannels: THREE.Color[] = [];
   private readonly hazardSurfaceChannels: THREE.Color[] = [];
   private readonly obstacleFrustum = new THREE.Frustum();
   private readonly obstacleBounds = new THREE.Sphere(new THREE.Vector3(), Math.sqrt(3) / 2);
   private readonly lastObstacleTime: number | null;
   private environmentTexture: THREE.Texture | null = null;
-  private obstaclePanelTexture: THREE.CanvasTexture | null = null;
   private colorScheme: SceneColorScheme = SCENE_COLOR_SCHEMES[DEFAULT_SCENE_COLOR_SCHEME_ID];
   private colorSchemeId: SceneColorSchemeId = DEFAULT_SCENE_COLOR_SCHEME_ID;
   private playerX = 0;
@@ -168,6 +179,12 @@ export class GameScene {
   private playerVelocity = 0;
   private playerSpinSpeed = PLAYER_IDLE_SPIN_SPEED;
   private hitImpulse = 0;
+  private nextRingPulseEventIndex = 0;
+  private ringPulseAnchor = 0;
+  private ringPulseStartTime = -Infinity;
+  private ringPulseStrength = 0;
+  private ringPulseStrong = false;
+  private ringHitPulse = 0;
   private feedbackCombo = -1;
   private comboImpactStart = -Infinity;
   private missImpactStart = -Infinity;
@@ -224,7 +241,7 @@ export class GameScene {
       (getMaxEventRowsInWindow(level, APPROACH_SECONDS) + 2) * LANE_CENTERS.length,
     );
     const normalBlockMaterial = this.createMetalMaterial({
-      color: 0xffffff,
+      color: this.colorScheme.obstacle,
       map: obstaclePanelTexture,
       emissiveMap: obstaclePanelTexture,
       metalness: 0.94,
@@ -232,19 +249,20 @@ export class GameScene {
       emissiveIntensity: 0.58,
       envMapIntensity: 2.6,
     });
+    this.obstacleChannels.push(normalBlockMaterial.color);
     this.normalBlocks = this.createInstances(
       new THREE.BoxGeometry(1, 1, 1),
       normalBlockMaterial,
       obstaclePoolSize,
     );
     const normalEdgeMaterial = this.createMetalMaterial({
-      color: this.colorScheme.obstacle.edge,
+      color: this.colorScheme.obstacle,
       metalness: 1,
       roughness: 0.22,
       emissiveIntensity: 0.42,
       envMapIntensity: 3,
     });
-    this.obstacleEdgeChannels.push(normalEdgeMaterial.color);
+    this.obstacleChannels.push(normalEdgeMaterial.color);
     this.normalEdges = this.createInstances(
       new THREE.BoxGeometry(1, 1, 1),
       normalEdgeMaterial,
@@ -397,12 +415,8 @@ export class GameScene {
     this.primaryChannels.forEach((channel) => channel.copy(this.glowColor));
     this.ringCoreChannels.forEach((channel) => channel.copy(this.ringCoreColor));
     this.hazardChannels.forEach((channel) => channel.copy(this.hazardColor));
-    this.obstacleEdgeChannels.forEach((channel) => channel.set(scheme.obstacle.edge));
+    this.obstacleChannels.forEach((channel) => channel.set(scheme.obstacle));
     this.hazardSurfaceChannels.forEach((channel) => channel.set(scheme.hazard));
-    if (this.obstaclePanelTexture) {
-      this.paintObstaclePanelTexture(this.obstaclePanelTexture.image as HTMLCanvasElement, scheme);
-      this.obstaclePanelTexture.needsUpdate = true;
-    }
   }
 
   getColorSchemeId(): SceneColorSchemeId {
@@ -541,7 +555,26 @@ export class GameScene {
     const canvas = document.createElement('canvas');
     canvas.width = 256;
     canvas.height = 256;
-    this.paintObstaclePanelTexture(canvas, this.colorScheme);
+    const context = canvas.getContext('2d')!;
+    const base = context.createLinearGradient(0, 0, 256, 0);
+    base.addColorStop(0, '#242424');
+    base.addColorStop(0.28, '#8a8a8a');
+    base.addColorStop(0.52, '#505050');
+    base.addColorStop(0.78, '#a8a8a8');
+    base.addColorStop(1, '#242424');
+    context.fillStyle = base;
+    context.fillRect(0, 0, 256, 256);
+    for (let stripe = 0; stripe < NORMAL_PANEL_BANDS; stripe += 1) {
+      const y = 18 + stripe * 48;
+      const band = context.createLinearGradient(0, y, 0, y + 30);
+      band.addColorStop(0, '#303030');
+      band.addColorStop(0.18, '#d4d4d4');
+      band.addColorStop(0.52, stripe % 2 === 0 ? '#ffffff' : '#b8b8b8');
+      band.addColorStop(0.84, '#686868');
+      band.addColorStop(1, '#d0d0d0');
+      context.fillStyle = band;
+      context.fillRect(9, y, 238, 30);
+    }
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -549,37 +582,7 @@ export class GameScene {
     texture.magFilter = THREE.LinearFilter;
     texture.generateMipmaps = true;
     texture.anisotropy = Math.min(4, this.renderer.capabilities.getMaxAnisotropy());
-    this.obstaclePanelTexture = texture;
     return texture;
-  }
-
-  private paintObstaclePanelTexture(canvas: HTMLCanvasElement, scheme: SceneColorScheme): void {
-    const context = canvas.getContext('2d')!;
-
-    const base = context.createLinearGradient(0, 0, 256, 0);
-    base.addColorStop(0, colorToCss(scheme.obstacle.panelDark));
-    base.addColorStop(0.28, colorToCss(scheme.obstacle.panelLight));
-    base.addColorStop(0.52, mixColors(scheme.obstacle.panelDark, scheme.obstacle.panelLight, 0.3));
-    base.addColorStop(0.78, mixColors(scheme.obstacle.panelLight, 0xffffff, 0.08));
-    base.addColorStop(1, colorToCss(scheme.obstacle.panelDark));
-    context.fillStyle = base;
-    context.fillRect(0, 0, 256, 256);
-
-    // 深浅条纹交替，切换配色时直接重绘 CanvasTexture。
-    for (let stripe = 0; stripe < NORMAL_PANEL_BANDS; stripe += 1) {
-      const y = 18 + stripe * 48;
-      const stripeColor = stripe % 2 === 0
-        ? scheme.obstacle.stripeLight
-        : scheme.obstacle.stripeDark;
-      const band = context.createLinearGradient(0, y, 0, y + 30);
-      band.addColorStop(0, mixColors(stripeColor, scheme.obstacle.panelDark, 0.38));
-      band.addColorStop(0.18, mixColors(stripeColor, 0xffffff, 0.14));
-      band.addColorStop(0.52, colorToCss(stripeColor));
-      band.addColorStop(0.84, mixColors(stripeColor, scheme.obstacle.panelDark, 0.24));
-      band.addColorStop(1, mixColors(stripeColor, 0xffffff, 0.08));
-      context.fillStyle = band;
-      context.fillRect(9, y, 238, 30);
-    }
   }
 
   private createPerspectiveRoad(): void {
@@ -661,6 +664,7 @@ export class GameScene {
       );
       ring.position.set(0, circleCenterY, layer.z);
       ring.renderOrder = -10;
+      this.ringLayers.push(ring);
       this.rhythmRing.add(ring);
     });
 
@@ -941,7 +945,7 @@ export class GameScene {
     const cameraJitter = this.hitImpulse * Math.sin(time * 115);
     this.camera.position.x += (this.playerX * 0.06 + cameraJitter - this.camera.position.x) * Math.min(1, dt * 11);
     this.camera.position.y = CAMERA_Y + cameraJitter * 0.28;
-    this.updateSpectrum(time, combo, level.song.durationSeconds, level.song.bpm, spectrum);
+    this.updateSpectrum(dt, time, combo, level.song.durationSeconds, level.events, spectrum);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -1004,33 +1008,68 @@ export class GameScene {
     colors.needsUpdate = true;
   }
 
-  private updateSpectrum(time: number, combo: number, duration: number, bpm: number, spectrum: Uint8Array): void {
+  private triggerRingPulse(event: LevelEvent): void {
+    if (
+      !event.downbeatCue
+      && event.timeSeconds - this.ringPulseStartTime < RING_PULSE_COOLDOWN_SECONDS
+    ) return;
+    this.ringPulseAnchor = event.barIndex === undefined
+      ? (this.ringPulseAnchor + 2) % RING_PULSE_ANCHOR_COUNT
+      : event.barIndex * 5 % RING_PULSE_ANCHOR_COUNT;
+    this.ringPulseStartTime = event.timeSeconds;
+    this.ringPulseStrength = event.strength ?? 0.72;
+    this.ringPulseStrong = Boolean(event.downbeatCue);
+  }
+
+  private updateSpectrum(
+    dt: number,
+    time: number,
+    combo: number,
+    duration: number,
+    events: readonly LevelEvent[],
+    spectrum: Uint8Array,
+  ): void {
     const approach = getRingApproach(time, duration, this.lastObstacleTime);
     this.rhythmRing.position.set(
       THREE.MathUtils.lerp(0, this.camera.position.x, approach),
       THREE.MathUtils.lerp(0, this.camera.position.y - RING_CENTER_Y, approach),
       THREE.MathUtils.lerp(OBSTACLE_SPAWN_Z, CAMERA_Z + 2, approach),
     );
-    const beat = 60 / bpm;
-    const beatPhase = (time % beat) / beat;
-    const beatKick = Math.exp(-beatPhase * 6.5);
+    while (
+      this.nextRingPulseEventIndex < events.length
+      && events[this.nextRingPulseEventIndex].timeSeconds <= time
+    ) {
+      this.triggerRingPulse(events[this.nextRingPulseEventIndex]);
+      this.nextRingPulseEventIndex += 1;
+    }
+
+    const pulseAge = time - this.ringPulseStartTime;
+    const pulseEnvelope = getRingPulseEnvelope(pulseAge, this.ringPulseStrong);
+    const innerPulseEnvelope = getRingPulseEnvelope(pulseAge - 0.035, false);
+    const pulsePower = pulseEnvelope * (1.7 + this.ringPulseStrength * 1.2
+      + (this.ringPulseStrong ? 0.4 : 0));
+    this.ringHitPulse *= Math.exp(-9 * dt);
     const comboBoost = Math.min(0.4, combo * 0.006);
     const maxBin = Math.min(55, spectrum.length - 2);
     let averageEnergy = 0;
     for (let bin = 2; bin <= maxBin; bin += 1) averageEnergy += spectrum[bin] / 255;
     averageEnergy /= maxBin - 1;
+    const musicBreath = THREE.MathUtils.clamp(averageEnergy * 0.12, 0, 0.1);
+    const outerPulseCenter = this.ringPulseAnchor / RING_PULSE_ANCHOR_COUNT * OUTER_SPECTRUM_COUNT;
+    const innerPulseCenter = (
+      (this.ringPulseAnchor + RING_PULSE_ANCHOR_COUNT / 2) % RING_PULSE_ANCHOR_COUNT
+    ) / RING_PULSE_ANCHOR_COUNT * INNER_SPECTRUM_COUNT;
+    const ringScale = 1 + pulseEnvelope * (this.ringPulseStrong ? 0.016 : 0.005)
+      + this.ringHitPulse * 0.022;
+    this.ringLayers.forEach((ring) => ring.scale.setScalar(ringScale));
+
     for (let i = 0; i < OUTER_SPECTRUM_COUNT; i += 1) {
       const position = i / OUTER_SPECTRUM_COUNT;
       const angle = position * Math.PI * 2;
-      const frequencyPosition = Math.abs(Math.sin(angle));
-      const bin = 2 + Math.floor(frequencyPosition * (maxBin - 2));
-      const energy = (
-        spectrum[bin - 2] + spectrum[bin - 1] * 2 + spectrum[bin] * 3
-        + spectrum[bin + 1] * 2 + spectrum[bin + 2]
-      ) / (255 * 9);
-      const response = Math.pow(Math.max(0, energy - averageEnergy - 0.035), 0.72);
+      const pulseWeight = getRingPulseWeight(i, outerPulseCenter, OUTER_SPECTRUM_COUNT, 2.8);
       const variation = 1 + Math.sin(angle * 3 + time * 0.16) * 0.035 + Math.sin(angle * 7 - 1.1) * 0.022;
-      const length = (1.05 + response * (3.3 + beatKick * 0.55) + comboBoost * 0.35) * variation;
+      const length = (1.05 + musicBreath + pulseWeight * (pulsePower + this.ringHitPulse * 1.15)
+        + comboBoost * 0.35) * variation;
       const radius = 14.7 + length * 0.5;
       this.position.set(Math.cos(angle) * radius, RING_CENTER_Y + Math.sin(angle) * radius, 0.15);
       this.quaternion.setFromEuler(new THREE.Euler(0, 0, angle - Math.PI / 2));
@@ -1045,15 +1084,12 @@ export class GameScene {
     for (let i = 0; i < INNER_SPECTRUM_COUNT; i += 1) {
       const position = i / INNER_SPECTRUM_COUNT;
       const angle = position * Math.PI * 2;
-      const frequencyPosition = Math.abs(Math.sin(angle));
-      const bin = 2 + Math.floor(frequencyPosition * (maxBin - 2));
-      const energy = (
-        spectrum[bin - 2] + spectrum[bin - 1] * 2 + spectrum[bin] * 3
-        + spectrum[bin + 1] * 2 + spectrum[bin + 2]
-      ) / (255 * 9);
-      const response = Math.pow(Math.max(0, energy - averageEnergy - 0.035), 0.78);
+      const pulseWeight = getRingPulseWeight(i, innerPulseCenter, INNER_SPECTRUM_COUNT, 1.8);
       const variation = 1 + Math.sin(angle * 3 + time * 0.16 + 0.7) * 0.025 + Math.sin(angle * 5 + 0.4) * 0.018;
-      const length = (0.48 + response * 1.15 + comboBoost * 0.16) * variation;
+      const length = (0.48 + musicBreath * 0.5
+        + pulseWeight * (innerPulseEnvelope * (0.8 + this.ringPulseStrength * 0.5)
+          + this.ringHitPulse * 0.45)
+        + comboBoost * 0.16) * variation;
       const radius = 11.3 - length * 0.5;
       this.position.set(Math.cos(angle) * radius, RING_CENTER_Y + Math.sin(angle) * radius, 0.75);
       this.quaternion.setFromEuler(new THREE.Euler(0, 0, angle - Math.PI / 2));
@@ -1187,7 +1223,10 @@ export class GameScene {
 
   burst(x: number, hazard = false): void {
     const count = hazard ? 48 : HIT_PARTICLES_PER_BURST;
-    if (!hazard) this.playerSpinSpeed = PLAYER_HIT_SPIN_SPEED;
+    if (!hazard) {
+      this.playerSpinSpeed = PLAYER_HIT_SPIN_SPEED;
+      this.ringHitPulse = 1;
+    }
     this.hitImpulse = hazard ? 0.2 : 0.075;
     let created = 0;
     for (const particle of this.particleData) {

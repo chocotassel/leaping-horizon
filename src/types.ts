@@ -1,3 +1,5 @@
+import type { SceneColorSchemeId } from './game/colorSchemes';
+
 export const LANE_CENTERS = [-2, -1, 0, 1, 2] as const;
 export type LaneIndex = 0 | 1 | 2 | 3 | 4;
 
@@ -66,7 +68,16 @@ export interface LevelGeneration {
   noteCount: number;
   difficulty?: 'flow';
   confidence?: number;
+  colorSchemeEventCount?: number;
   [key: string]: unknown;
+}
+
+export interface ColorSchemeEvent {
+  timeSeconds: number;
+  colorSchemeId: SceneColorSchemeId;
+  kind: 'section' | 'accent';
+  source: string;
+  strength: number;
 }
 
 /**
@@ -78,6 +89,7 @@ export interface Level {
   version: 3;
   song: Song;
   generation: LevelGeneration;
+  colorSchemeEvents: ColorSchemeEvent[];
   events: LevelEvent[];
 }
 

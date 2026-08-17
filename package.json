@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "generate": "node scripts/generate-level.mjs",
     "preview": "vite preview --host 0.0.0.0",
-    "test:intent": "node --test scripts/rhythm/layout-intent.test.mjs scripts/rhythm/route-analysis.test.mjs scripts/rhythm/wide-sweep-planner.test.mjs",
+    "test:intent": "node --test scripts/rhythm/color-timeline.test.mjs scripts/rhythm/layout-intent.test.mjs scripts/rhythm/route-analysis.test.mjs scripts/rhythm/wide-sweep-planner.test.mjs",
     "test:level": "npm run test:intent && node scripts/level-check.mjs",
     "test:physics": "tsc src/game/physics.ts --ignoreConfig --target ES2020 --module ESNext --moduleResolution Bundler --outDir node_modules/.cache/leaping-horizon-physics-check --skipLibCheck && node scripts/physics-check.mjs",
     "typecheck": "tsc -b"

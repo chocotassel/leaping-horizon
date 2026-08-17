@@ -1,82 +1,76 @@
 export interface SceneColorScheme {
-  /** 道路光线、频谱竖线、背景装饰线、网格和玩家使用的全局主色。 */
+  /** 玩家、道路、频谱、背景线与障碍物共享的主色。 */
   readonly primary: number;
-  readonly obstacle: {
-    readonly panelDark: number;
-    readonly panelLight: number;
-    readonly stripeDark: number;
-    readonly stripeLight: number;
-    readonly edge: number;
-  };
-  /** 地刺使用的反色或高亮中性色。 */
+  /** 障碍物只使用一种基础色；表面明暗由中性纹理和光照产生。 */
+  readonly obstacle: number;
+  /** 地刺与圆环使用色环互补色或中性白。 */
   readonly hazard: number;
-  /** 圆环中央的三层实线，与频谱竖线分离。 */
   readonly ringCore: number;
 }
 
+interface SceneColorHues {
+  readonly primary: number;
+  readonly accent: number | 'white';
+}
+
+/** 主色来自 HSV 色环；白色是减少杂色时允许的唯一中性色。 */
+export const SCENE_COLOR_HUES = {
+  redWhite: { primary: 0, accent: 'white' },
+  redCyan: { primary: 0, accent: 180 },
+  orangeAzure: { primary: 30, accent: 210 },
+  yellowBlue: { primary: 60, accent: 240 },
+  yellowWhite: { primary: 60, accent: 'white' },
+  greenWhite: { primary: 120, accent: 'white' },
+  cyanWhite: { primary: 180, accent: 'white' },
+  cyanRed: { primary: 180, accent: 0 },
+  azureOrange: { primary: 210, accent: 30 },
+  blueWhite: { primary: 240, accent: 'white' },
+  violetWhite: { primary: 270, accent: 'white' },
+  magentaWhite: { primary: 300, accent: 'white' },
+} as const satisfies Record<string, SceneColorHues>;
+
+export type SceneColorSchemeId = keyof typeof SCENE_COLOR_HUES;
+
+export const SCENE_COLOR_SATURATION = 0.84;
+export const SCENE_COLOR_VALUE = 1;
+
+function hsvColor(hue: number): number {
+  const sector = ((hue % 360) + 360) % 360 / 60;
+  const chroma = SCENE_COLOR_VALUE * SCENE_COLOR_SATURATION;
+  const secondary = chroma * (1 - Math.abs(sector % 2 - 1));
+  const match = SCENE_COLOR_VALUE - chroma;
+  const [red, green, blue] = sector < 1 ? [chroma, secondary, 0]
+    : sector < 2 ? [secondary, chroma, 0]
+      : sector < 3 ? [0, chroma, secondary]
+        : sector < 4 ? [0, secondary, chroma]
+          : sector < 5 ? [secondary, 0, chroma]
+            : [chroma, 0, secondary];
+  return (
+    Math.round((red + match) * 255) << 16
+    | Math.round((green + match) * 255) << 8
+    | Math.round((blue + match) * 255)
+  );
+}
+
+function makeColorScheme(hues: SceneColorHues): SceneColorScheme {
+  const primary = hsvColor(hues.primary);
+  const accent = hues.accent === 'white' ? 0xffffff : hsvColor(hues.accent);
+  return { primary, obstacle: primary, hazard: accent, ringCore: accent };
+}
+
 export const SCENE_COLOR_SCHEMES = {
-  deepSpace: {
-    primary: 0x4ddbff,
-    obstacle: {
-      panelDark: 0x071426,
-      panelLight: 0x173a58,
-      stripeDark: 0x0d5f7a,
-      stripeLight: 0xbfefff,
-      edge: 0x4ddbff,
-    },
-    hazard: 0xeaf5ff,
-    ringCore: 0x4ddbff,
-  },
-  amberCyan: {
-    primary: 0xffa21a,
-    obstacle: {
-      panelDark: 0x15110e,
-      panelLight: 0x3e3024,
-      stripeDark: 0x8f5716,
-      stripeLight: 0xffcf61,
-      edge: 0xffa21a,
-    },
-    hazard: 0xffffff,
-    ringCore: 0x35d8ff,
-  },
-  cyanMagenta: {
-    primary: 0x24d8ff,
-    obstacle: {
-      panelDark: 0x0b1519,
-      panelLight: 0x173c47,
-      stripeDark: 0x0c6d82,
-      stripeLight: 0x8bedff,
-      edge: 0x24d8ff,
-    },
-    hazard: 0xff4f9a,
-    ringCore: 0xff4f9a,
-  },
-  violetLime: {
-    primary: 0x9164ff,
-    obstacle: {
-      panelDark: 0x120e1d,
-      panelLight: 0x33265a,
-      stripeDark: 0x4f328f,
-      stripeLight: 0xc8b4ff,
-      edge: 0x9164ff,
-    },
-    hazard: 0xe8ff66,
-    ringCore: 0xe8ff66,
-  },
-  crimsonIce: {
-    primary: 0xff4058,
-    obstacle: {
-      panelDark: 0x1b0b0f,
-      panelLight: 0x4b1d27,
-      stripeDark: 0x831c2d,
-      stripeLight: 0xff9baa,
-      edge: 0xff4058,
-    },
-    hazard: 0xffffff,
-    ringCore: 0x65e7ff,
-  },
-} as const satisfies Record<string, SceneColorScheme>;
+  redWhite: makeColorScheme(SCENE_COLOR_HUES.redWhite),
+  redCyan: makeColorScheme(SCENE_COLOR_HUES.redCyan),
+  orangeAzure: makeColorScheme(SCENE_COLOR_HUES.orangeAzure),
+  yellowBlue: makeColorScheme(SCENE_COLOR_HUES.yellowBlue),
+  yellowWhite: makeColorScheme(SCENE_COLOR_HUES.yellowWhite),
+  greenWhite: makeColorScheme(SCENE_COLOR_HUES.greenWhite),
+  cyanWhite: makeColorScheme(SCENE_COLOR_HUES.cyanWhite),
+  cyanRed: makeColorScheme(SCENE_COLOR_HUES.cyanRed),
+  azureOrange: makeColorScheme(SCENE_COLOR_HUES.azureOrange),
+  blueWhite: makeColorScheme(SCENE_COLOR_HUES.blueWhite),
+  violetWhite: makeColorScheme(SCENE_COLOR_HUES.violetWhite),
+  magentaWhite: makeColorScheme(SCENE_COLOR_HUES.magentaWhite),
+} as const satisfies Record<SceneColorSchemeId, SceneColorScheme>;
 
-export type SceneColorSchemeId = keyof typeof SCENE_COLOR_SCHEMES;
-
-export const DEFAULT_SCENE_COLOR_SCHEME_ID: SceneColorSchemeId = 'deepSpace';
+export const DEFAULT_SCENE_COLOR_SCHEME_ID: SceneColorSchemeId = 'cyanWhite';

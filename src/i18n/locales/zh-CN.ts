@@ -67,6 +67,8 @@ export const zhCN = {
   'error.invalidSongDuration': '歌曲时长必须大于 0。',
   'error.invalidAudioFormat': '游戏音频必须为 MP3 格式。',
   'error.invalidLevelEvents': '关卡事件必须为数组。',
+  'error.invalidColorSchemeEvents': '关卡配色事件必须为数组。',
+  'error.invalidColorSchemeEvent': '配色事件 {index} 无效或顺序错误。',
   'error.eventOutsideSong': '事件 {index} 超出歌曲时长。',
   'error.eventOrder': '事件 {index} 必须晚于前一个事件。',
   'error.invalidEventLanes': '事件 {index} 必须包含 5 条有效轨道。',

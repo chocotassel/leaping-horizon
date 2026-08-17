@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
 import { deriveLayoutIntent } from './rhythm/layout-intent.mjs';
+import { planColorSchemeEvents } from './rhythm/color-timeline.mjs';
 import {
   analyzeRouteGraph,
   chooseMGesturePlacement,
@@ -17,6 +18,7 @@ const inputPath = resolve(root, process.argv[2]);
 const levelPath = resolve(root, process.argv[3]);
 const analysis = JSON.parse(await readFile(inputPath, 'utf8'));
 const LAYOUT_INTENT = deriveLayoutIntent(analysis);
+const COLOR_SCHEME_EVENTS = planColorSchemeEvents(analysis, LAYOUT_INTENT);
 
 const EMPTY = 0;
 const BREAKABLE = 1;
@@ -2714,9 +2716,12 @@ function buildLevel(track) {
       climaxTimeSeconds: chart.climaxTimeSeconds,
       layoutIntentProfile: chart.layoutIntentProfile,
       layoutAlgorithm: chart.layoutAlgorithm,
+      colorSchemeAlgorithm: 'music-wheel-neutral-white-drum-accent-v3',
+      colorSchemeEventCount: COLOR_SCHEME_EVENTS.length,
       timingPolicy: analysis.timingPolicy,
       audioCompression: analysis.song.audioCompression,
     },
+    colorSchemeEvents: COLOR_SCHEME_EVENTS,
     events: chart.events,
   };
 }

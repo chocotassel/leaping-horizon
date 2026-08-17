@@ -6949,23 +6949,152 @@
       ]
     },
     "layoutAlgorithm": "music-responsive-choice-template-v6",
+    "colorSchemeAlgorithm": "music-wheel-neutral-white-drum-accent-v3",
+    "colorSchemeEventCount": 18,
     "timingPolicy": "All event times are mature detector peaks in seconds; no BPM grid or snapping is used.",
     "audioCompression": {
-      "sourceFormat": "WAV",
-      "sourceSampleRate": 48000,
+      "sourceFormat": "MP3",
+      "sourceSampleRate": 32000,
       "sourceChannels": 2,
-      "sourceBytes": 31649452,
+      "sourceBytes": 1979037,
       "format": "MP3",
       "codec": "MPEG Layer III",
-      "bitrateMode": "constant",
-      "bitrateKbps": 96,
+      "bitrateMode": "existing",
       "compressionLevel": null,
       "sampleRate": 32000,
       "channels": 2,
       "compressedBytes": 1979037,
-      "sizeRatio": 0.0625
+      "sizeRatio": 1
     }
   },
+  "colorSchemeEvents": [
+    {
+      "timeSeconds": 0,
+      "colorSchemeId": "cyanWhite",
+      "kind": "section",
+      "source": "song-start",
+      "strength": 0
+    },
+    {
+      "timeSeconds": 9.34,
+      "colorSchemeId": "redCyan",
+      "kind": "section",
+      "source": "S02",
+      "strength": 0.694
+    },
+    {
+      "timeSeconds": 17.6,
+      "colorSchemeId": "greenWhite",
+      "kind": "section",
+      "source": "S03",
+      "strength": 0.591
+    },
+    {
+      "timeSeconds": 34.16,
+      "colorSchemeId": "yellowBlue",
+      "kind": "section",
+      "source": "S04",
+      "strength": 0.447
+    },
+    {
+      "timeSeconds": 58.98,
+      "colorSchemeId": "violetWhite",
+      "kind": "section",
+      "source": "S05",
+      "strength": 0.75
+    },
+    {
+      "timeSeconds": 59.89587,
+      "colorSchemeId": "cyanRed",
+      "kind": "accent",
+      "source": "librosa-percussive",
+      "strength": 0.887
+    },
+    {
+      "timeSeconds": 60.279,
+      "colorSchemeId": "violetWhite",
+      "kind": "accent",
+      "source": "librosa-percussive",
+      "strength": 0.887
+    },
+    {
+      "timeSeconds": 60.92916,
+      "colorSchemeId": "cyanRed",
+      "kind": "accent",
+      "source": "librosa-percussive",
+      "strength": 0.887
+    },
+    {
+      "timeSeconds": 61.31229,
+      "colorSchemeId": "violetWhite",
+      "kind": "accent",
+      "source": "librosa-percussive",
+      "strength": 0.887
+    },
+    {
+      "timeSeconds": 61.83474,
+      "colorSchemeId": "cyanRed",
+      "kind": "accent",
+      "source": "librosa-percussive",
+      "strength": 0.887
+    },
+    {
+      "timeSeconds": 62.34558,
+      "colorSchemeId": "violetWhite",
+      "kind": "accent",
+      "source": "librosa-percussive",
+      "strength": 0.887
+    },
+    {
+      "timeSeconds": 62.86803,
+      "colorSchemeId": "cyanRed",
+      "kind": "accent",
+      "source": "librosa-percussive",
+      "strength": 0.887
+    },
+    {
+      "timeSeconds": 63.62268,
+      "colorSchemeId": "violetWhite",
+      "kind": "accent",
+      "source": "librosa-percussive",
+      "strength": 0.887
+    },
+    {
+      "timeSeconds": 67.26,
+      "colorSchemeId": "azureOrange",
+      "kind": "section",
+      "source": "S06",
+      "strength": 0.678
+    },
+    {
+      "timeSeconds": 116.84,
+      "colorSchemeId": "blueWhite",
+      "kind": "section",
+      "source": "S08",
+      "strength": 0.343
+    },
+    {
+      "timeSeconds": 125.1,
+      "colorSchemeId": "orangeAzure",
+      "kind": "section",
+      "source": "S09",
+      "strength": 0.517
+    },
+    {
+      "timeSeconds": 133.34,
+      "colorSchemeId": "azureOrange",
+      "kind": "section",
+      "source": "S10",
+      "strength": 0.672
+    },
+    {
+      "timeSeconds": 158.04,
+      "colorSchemeId": "orangeAzure",
+      "kind": "section",
+      "source": "S11",
+      "strength": 0.579
+    }
+  ],
   "events": [
     {
       "timeSeconds": 1.58,

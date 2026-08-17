@@ -38,6 +38,7 @@ N_FFT = 1_024
 MIN_OUTPUT_GAP_SECONDS = 0.12
 COLORS = {
     "librosa-onset": "#35e4ed",
+    "librosa-percussive": "#ff4058",
     "basic-pitch": "#b879ff",
     "beat-this": "#ffc857",
 }
@@ -1181,6 +1182,10 @@ def main() -> None:
     )
 
     librosa_selected = nms_detector_events(librosa_display_events, MIN_OUTPUT_GAP_SECONDS)
+    percussive_selected = nms_detector_events(
+        [event for event in detectors.get("percussive", []) if event.score >= 0.62],
+        MIN_OUTPUT_GAP_SECONDS,
+    )
     basic_pitch_display_events = nms_detector_events(
         [event for event in basic_pitch_events if event.score >= 0.62],
         MIN_OUTPUT_GAP_SECONDS,
@@ -1192,6 +1197,13 @@ def main() -> None:
             [
                 event_payload(event.time, event.score, [event.source])
                 for event in librosa_selected
+            ],
+        ),
+        create_event_source(
+            "librosa-percussive",
+            [
+                event_payload(event.time, event.score, [event.source])
+                for event in percussive_selected
             ],
         ),
     ]
