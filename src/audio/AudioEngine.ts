@@ -102,8 +102,9 @@ export class AudioEngine {
   }
 
   async start(): Promise<void> {
+    const track = this.loadTrack();
     if (this.context.state === 'suspended') void this.context.resume();
-    const buffer = await this.loadTrack();
+    const buffer = await track;
     if (this.stopped) return;
     this.buffer = buffer;
     this.startedAt = this.context.currentTime;

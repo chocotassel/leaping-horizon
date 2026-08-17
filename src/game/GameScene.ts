@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { RGBShiftShader } from 'three/examples/jsm/shaders/RGBShiftShader.js';
 import { t } from '../i18n';
 import dartBladesSvg from '../assets/dart-blades.svg?raw';
 import dartCornersSvg from '../assets/dart-corners.svg?raw';
@@ -72,6 +77,9 @@ const TRAIL_LENGTH = 9.8;
 const TRAIL_HEAD_Z_OFFSET = 0.66;
 const TRAIL_HEAD_Y_OFFSET = 0.06;
 const TRAIL_SURFACE_Y = 0.025;
+const COLOR_TRANSITION_SECONDS = 0.52;
+const COLOR_TRANSITION_RGB_SHIFT = 0.016;
+const COLOR_TRANSITION_MAX_PIXEL_RATIO = 1.25;
 const NORMAL_EDGE_THICKNESS = 0.075;
 const NORMAL_EDGE_LENGTH = 1.08;
 const NORMAL_EDGE_TRANSFORMS = [
@@ -177,6 +185,10 @@ export class GameScene {
   private readonly obstacleFrustum = new THREE.Frustum();
   private readonly obstacleBounds = new THREE.Sphere(new THREE.Vector3(), Math.sqrt(3) / 2);
   private readonly lastObstacleTime: number | null;
+  private composer: EffectComposer | null = null;
+  private rgbShiftPass: ShaderPass | null = null;
+  private outputPass: OutputPass | null = null;
+  private colorTransitionWarmed = false;
   private environmentTexture: THREE.Texture | null = null;
   private colorScheme: SceneColorScheme = SCENE_COLOR_SCHEMES[DEFAULT_SCENE_COLOR_SCHEME_ID];
   private colorSchemeId: SceneColorSchemeId = DEFAULT_SCENE_COLOR_SCHEME_ID;
@@ -200,6 +212,7 @@ export class GameScene {
   private missImpactStart = -Infinity;
   private crashed = false;
   private crashElapsed = 0;
+  private colorTransitionElapsed = COLOR_TRANSITION_SECONDS;
   private disposed = false;
 
   constructor(canvas: HTMLCanvasElement, level: Level) {
@@ -357,6 +370,7 @@ export class GameScene {
     this.drawCombo(0);
     this.drawMiss();
     this.missSprite.visible = false;
+    this.prepareColorTransition();
   }
 
   private createInstances(geometry: THREE.BufferGeometry, material: THREE.Material, count: number): THREE.InstancedMesh {
@@ -431,7 +445,37 @@ export class GameScene {
     return material;
   }
 
+  private prepareColorTransition(): void {
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.rgbShiftPass = new ShaderPass(RGBShiftShader);
+    this.outputPass = new OutputPass();
+    this.composer.addPass(this.rgbShiftPass);
+    this.composer.addPass(this.outputPass);
+    this.composer.setPixelRatio(Math.min(
+      this.renderer.getPixelRatio(),
+      this.renderProfile.lowGeometry ? 0.75 : COLOR_TRANSITION_MAX_PIXEL_RATIO,
+    ));
+  }
+
+  private warmColorTransition(): void {
+    if (this.colorTransitionWarmed || !this.composer || !this.rgbShiftPass) return;
+    this.rgbShiftPass.uniforms.amount.value = 0;
+    this.composer.renderToScreen = false;
+    this.composer.render(0);
+    this.renderer.getContext().finish();
+    this.composer.renderToScreen = true;
+    this.renderer.render(this.scene, this.camera);
+    this.renderer.getContext().finish();
+    this.colorTransitionWarmed = true;
+  }
+
+  private startColorTransition(): void {
+    this.colorTransitionElapsed = 0;
+  }
+
   setColorScheme(colorSchemeId: SceneColorSchemeId): void {
+    const changed = colorSchemeId !== this.colorSchemeId;
     const scheme = SCENE_COLOR_SCHEMES[colorSchemeId];
     this.colorSchemeId = colorSchemeId;
     this.colorScheme = scheme;
@@ -445,6 +489,7 @@ export class GameScene {
     this.hazardChannels.forEach((channel) => channel.copy(this.hazardColor));
     this.obstacleChannels.forEach((channel) => channel.set(scheme.obstacle));
     this.hazardSurfaceChannels.forEach((channel) => channel.set(scheme.hazard));
+    if (changed && !this.crashed) this.startColorTransition();
   }
 
   getColorSchemeId(): SceneColorSchemeId {
@@ -937,14 +982,21 @@ export class GameScene {
     this.camera.setViewOffset(width, height, 0, (targetNdcY - playerNdcY) * height / 2, width, height);
     this.rhythmRing.rotation.x = this.camera.rotation.x;
     this.rhythmRing.scale.setScalar(viewport.ringScale);
-    this.renderer.setPixelRatio(getRenderPixelRatio(
+    const pixelRatio = getRenderPixelRatio(
       this.renderProfile,
       width,
       height,
       devicePixelRatio,
       this.renderer.capabilities.isWebGL2,
-    ));
+    );
+    this.renderer.setPixelRatio(pixelRatio);
     this.renderer.setSize(width, height, false);
+    this.composer?.setPixelRatio(Math.min(
+      pixelRatio,
+      this.renderProfile.lowGeometry ? 0.75 : COLOR_TRANSITION_MAX_PIXEL_RATIO,
+    ));
+    this.composer?.setSize(width, height);
+    this.warmColorTransition();
   }
 
   movePlayerNormalized(normalizedDeltaX: number): void {
@@ -962,6 +1014,20 @@ export class GameScene {
   render(time: number, level: Level, states: ObstacleStateRow[], combo: number, spectrum: Uint8Array): void {
     if (this.disposed) return;
     const dt = Math.min(this.clock.getDelta(), 0.05);
+    this.colorTransitionElapsed = Math.min(
+      COLOR_TRANSITION_SECONDS,
+      this.colorTransitionElapsed + dt,
+    );
+    const transitionImpact = Math.pow(Math.max(
+      0,
+      1 - this.colorTransitionElapsed / COLOR_TRANSITION_SECONDS,
+    ), 2);
+    const transitionShakeX = transitionImpact * (
+      Math.sin(this.colorTransitionElapsed * 97) * 0.24
+      + Math.sin(this.colorTransitionElapsed * 163) * 0.08
+    );
+    const transitionShakeY = transitionImpact
+      * Math.sin(this.colorTransitionElapsed * 127 + 0.7) * 0.13;
     if (this.crashed) this.crashElapsed += dt;
     if (!this.crashed) {
       const oldX = this.playerX;
@@ -997,20 +1063,34 @@ export class GameScene {
         + Math.sin(this.crashElapsed * 173) * 0.08
       );
       this.camera.position.x += (
-        this.playerX * 0.06 + cameraJitter + crashJitterX - this.camera.position.x
+        this.playerX * 0.06 + cameraJitter + crashJitterX + transitionShakeX
+          - this.camera.position.x
       ) * Math.min(1, dt * 20);
-      this.camera.position.y = CAMERA_Y + cameraJitter * 0.28 + crashJitterY;
+      this.camera.position.y = CAMERA_Y + cameraJitter * 0.28 + crashJitterY + transitionShakeY;
       this.camera.position.z = CAMERA_Z + crashShake * Math.sin(this.crashElapsed * 73) * 0.09;
-      this.camera.rotation.z = crashShake * Math.sin(this.crashElapsed * 67) * 0.018;
-      this.renderer.toneMappingExposure = 1.02 + Math.exp(-this.crashElapsed * 10) * 0.82;
+      this.camera.rotation.z = crashShake * Math.sin(this.crashElapsed * 67) * 0.018
+        + transitionImpact * Math.sin(this.colorTransitionElapsed * 83) * 0.012;
+      this.renderer.toneMappingExposure = 1.02 + Math.exp(-this.crashElapsed * 10) * 0.82
+        + transitionImpact * 0.32;
     } else {
       this.camera.position.x += (
-        this.playerX * 0.06 + cameraJitter - this.camera.position.x
-      ) * Math.min(1, dt * 11);
-      this.camera.position.y = CAMERA_Y + cameraJitter * 0.28;
+        this.playerX * 0.06 + cameraJitter + transitionShakeX - this.camera.position.x
+      ) * Math.min(1, dt * (transitionImpact > 0 ? 38 : 11));
+      this.camera.position.y = CAMERA_Y + cameraJitter * 0.28 + transitionShakeY;
+      this.camera.position.z = CAMERA_Z + transitionImpact
+        * Math.sin(this.colorTransitionElapsed * 109) * 0.045;
+      this.camera.rotation.z = transitionImpact
+        * Math.sin(this.colorTransitionElapsed * 83) * 0.012;
+      this.renderer.toneMappingExposure = 1.02 + transitionImpact * 0.32;
     }
     this.updateSpectrum(dt, time, level.song.durationSeconds, level.events, spectrum);
-    this.renderer.render(this.scene, this.camera);
+    if (transitionImpact > 0 && this.composer && this.rgbShiftPass) {
+      this.rgbShiftPass.uniforms.amount.value = COLOR_TRANSITION_RGB_SHIFT * transitionImpact;
+      this.rgbShiftPass.uniforms.angle.value = 0;
+      this.composer.render(dt);
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   private updateTrail(): void {
@@ -1406,6 +1486,9 @@ export class GameScene {
       const materials = Array.isArray(object.material) ? object.material : [object.material];
       materials.forEach((material) => material.dispose());
     });
+    this.rgbShiftPass?.dispose();
+    this.outputPass?.dispose();
+    this.composer?.dispose();
     this.renderer.dispose();
     this.comboTexture.dispose();
     this.comboSprite.material.dispose();

@@ -77,9 +77,9 @@ export function GameScreen({
       const canvas = canvasRef.current;
       if (canvas) controller.resize(canvas.clientWidth, canvas.clientHeight);
     };
+    controller.start();
     resize();
     window.addEventListener('resize', resize);
-    controller.start();
     return () => {
       window.removeEventListener('resize', resize);
       controller.destroy();
