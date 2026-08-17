@@ -1,5 +1,6 @@
 import { BrandHeader } from './BrandHeader';
 import { t } from '../i18n';
+import packageJson from '../../package.json';
 
 interface StartScreenProps {
   soundEnabled: boolean;
@@ -49,6 +50,8 @@ export function StartScreen({ soundEnabled, onToggleSound, onEnter }: StartScree
             : t('start.musicHint')}
         </p>
       </section>
+
+      <span className="start-version">v{packageJson.version}</span>
     </main>
   );
 }

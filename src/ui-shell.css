@@ -292,6 +292,17 @@
 
 .start-actions > .shell-primary-button { height: clamp(54px, 7.2cqh, 108px); }
 
+.start-version {
+  position: absolute;
+  z-index: 4;
+  right: 2.4%;
+  bottom: calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 1.2%);
+  color: rgb(145 168 194 / 0.72);
+  font: 600 clamp(9px, 2cqw, 13px)/1 monospace;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+}
+
 .music-toggle {
   position: relative;
   width: 100%;
