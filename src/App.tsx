@@ -32,14 +32,18 @@ export default function App() {
     setMusicEnabled((enabled) => {
       const next = !enabled;
       AudioEngine.setMusicEnabled(next);
-      if (next) void AudioEngine.unlock();
+      if (next && screen !== 'game') void AudioEngine.unlock();
       return next;
     });
-  }, []);
+  }, [screen]);
 
   const startGame = useCallback(() => {
     void AudioEngine.unlock();
     setScreen('game');
+  }, []);
+
+  const prepareGame = useCallback(() => {
+    void AudioEngine.unlock();
   }, []);
 
   return (
@@ -57,12 +61,22 @@ export default function App() {
             level={level}
             levels={LEVELS}
             musicEnabled={musicEnabled}
+            onPrepareStart={prepareGame}
             onSelectLevel={setLevelId}
             onToggleMusic={toggleMusic}
-            onStart={startGame}
+            onStart={() => setScreen('game')}
           />
         )}
-        {screen === 'game' && <GameScreen level={level} onDeath={crash} onFinish={finish} />}
+        {screen === 'game' && (
+          <GameScreen
+            level={level}
+            musicEnabled={musicEnabled}
+            onDeath={crash}
+            onExit={() => setScreen('home')}
+            onFinish={finish}
+            onToggleMusic={toggleMusic}
+          />
+        )}
         {screen === 'result' && result && (
           <ResultScreen
             result={result}

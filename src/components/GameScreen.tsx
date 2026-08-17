@@ -4,11 +4,21 @@ import { type GameResult, type Level } from '../types';
 
 interface GameScreenProps {
   level: Level;
+  musicEnabled: boolean;
   onDeath: (result: GameResult) => void;
+  onExit: () => void;
   onFinish: (result: GameResult) => void;
+  onToggleMusic: () => void;
 }
 
-export function GameScreen({ level, onDeath, onFinish }: GameScreenProps) {
+export function GameScreen({
+  level,
+  musicEnabled,
+  onDeath,
+  onExit,
+  onFinish,
+  onToggleMusic,
+}: GameScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<GameController | null>(null);
@@ -71,6 +81,16 @@ export function GameScreen({ level, onDeath, onFinish }: GameScreenProps) {
     if (typeof next === 'boolean') setPaused(next);
   };
 
+  const togglePauseMusic = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    onToggleMusic();
+  };
+
+  const exitGame = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    onExit();
+  };
+
   return (
     <main
       ref={stageRef}
@@ -127,7 +147,26 @@ export function GameScreen({ level, onDeath, onFinish }: GameScreenProps) {
           <div className="pause-orbit" aria-hidden="true"><i /><span>Ⅱ</span></div>
           <span>航行暂停</span>
           <strong>PAUSED</strong>
-          <button type="button" onPointerDown={stopGamePointer} onClick={togglePause}>继续航行</button>
+          <button
+            className={`pause-music-toggle ${musicEnabled ? 'is-enabled' : ''}`}
+            type="button"
+            aria-pressed={musicEnabled}
+            onPointerDown={stopGamePointer}
+            onClick={togglePauseMusic}
+          >
+            <span aria-hidden="true">♪</span>
+            <strong>游戏音乐</strong>
+            <small>{musicEnabled ? '已开启' : '已关闭'}</small>
+            <i aria-hidden="true" />
+          </button>
+          <div className="pause-actions">
+            <button className="pause-primary-button" type="button" onPointerDown={stopGamePointer} onClick={togglePause}>
+              继续航行
+            </button>
+            <button className="pause-exit-button" type="button" onPointerDown={stopGamePointer} onClick={exitGame}>
+              结束并返回选歌
+            </button>
+          </div>
         </div>
       )}
 

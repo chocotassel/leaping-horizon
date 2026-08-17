@@ -227,24 +227,84 @@ button { font: inherit; }
 .pause-orbit > span { position: relative; z-index: 1; color: var(--cyan); font: 500 38px/1 'Arial Narrow', sans-serif; letter-spacing: 0.08em; }
 
 .pause-overlay > span { color: var(--cyan); font-size: 10px; font-weight: 800; letter-spacing: 0.2em; }
-.pause-overlay > strong { margin: 7px 0 27px; color: #eaf5ff; font: italic 900 clamp(47px, 14cqw, 70px)/1 'Arial Narrow', 'Bahnschrift Condensed', sans-serif; letter-spacing: 0.02em; }
+.pause-overlay > strong { margin: 7px 0 22px; color: #eaf5ff; font: italic 900 clamp(47px, 14cqw, 70px)/1 'Arial Narrow', 'Bahnschrift Condensed', sans-serif; letter-spacing: 0.02em; }
 .pause-overlay button {
-  min-width: 202px;
-  min-height: 54px;
-  padding: 12px 24px;
-  border: 1px solid rgb(205 247 255 / 0.74);
-  border-radius: 12px;
-  color: #03131e;
-  background: var(--cyan);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.45);
-  font-weight: 900;
-  letter-spacing: 0.12em;
   cursor: pointer;
   transition: transform 180ms ease, filter 180ms ease;
 }
 .pause-overlay button:hover { filter: brightness(1.06); }
 .pause-overlay button:active { transform: scale(0.985); }
 .pause-overlay button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+
+.pause-music-toggle {
+  width: min(86%, 420px);
+  min-height: 68px;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 18px;
+  border: 1px solid rgb(106 175 221 / 0.42);
+  border-radius: 12px;
+  color: #dceaf7;
+  background: rgb(6 24 45 / 0.88);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
+  text-align: left;
+}
+
+.pause-music-toggle > span { color: var(--cyan); font-size: 22px; }
+.pause-music-toggle > strong { font-size: 15px; letter-spacing: 0.08em; }
+.pause-music-toggle > small { color: #7f9ab3; font-size: 11px; letter-spacing: 0.08em; }
+.pause-music-toggle > i {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  border: 1px solid rgb(117 159 196 / 0.42);
+  border-radius: 999px;
+  background: #193049;
+}
+.pause-music-toggle > i::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #9bacc0;
+  transition: left 180ms ease, background-color 180ms ease;
+}
+.pause-music-toggle.is-enabled > i { background: rgb(77 219 255 / 0.8); }
+.pause-music-toggle.is-enabled > i::after { left: 20px; background: #fff; }
+
+.pause-actions {
+  width: min(86%, 420px);
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.pause-primary-button,
+.pause-exit-button {
+  min-height: 54px;
+  padding: 12px 24px;
+  border-radius: 12px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.pause-primary-button {
+  border: 1px solid rgb(205 247 255 / 0.74);
+  color: #03131e;
+  background: var(--cyan);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.45);
+}
+
+.pause-exit-button {
+  border: 1px solid rgb(109 158 196 / 0.38);
+  color: #a8bed2;
+  background: rgb(5 19 37 / 0.72);
+}
 
 @keyframes hud-wave { to { height: 20px; opacity: 0.95; } }
 @keyframes pause-spin { to { transform: rotate(360deg); } }
@@ -254,7 +314,9 @@ button { font: inherit; }
   .game-beat-wave { top: calc(env(safe-area-inset-top, 0px) + 69px); }
   .route-progress { bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); }
   .pause-orbit { width: 124px; margin-bottom: 16px; }
-  .pause-overlay > strong { margin-bottom: 20px; }
+  .pause-overlay > strong { margin-bottom: 16px; }
+  .pause-music-toggle { min-height: 56px; }
+  .pause-primary-button, .pause-exit-button { min-height: 48px; }
 }
 
 @media (orientation: landscape) {
