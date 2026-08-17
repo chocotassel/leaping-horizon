@@ -26,6 +26,20 @@ export interface GameHud {
 }
 
 const DRAG_SENSITIVITY = 2.4;
+export const CRASH_EFFECT_DURATION_MS = 1150;
+const CRASH_SCENE_MAX_ADVANCE_SECONDS = 0.07;
+const CRASH_SCENE_DECAY_MS = 180;
+
+export function getCrashEffectProgress(startedAt: number, now: number): number {
+  return Math.min(1, Math.max(0, (now - startedAt) / CRASH_EFFECT_DURATION_MS));
+}
+
+export function getCrashSceneTime(startTime: number, elapsedMs: number): number {
+  const elapsed = Math.max(0, elapsedMs);
+  return startTime + CRASH_SCENE_MAX_ADVANCE_SECONDS * (
+    1 - Math.exp(-elapsed / CRASH_SCENE_DECAY_MS)
+  );
+}
 
 export interface RunJudgmentState {
   score: number;
@@ -185,6 +199,8 @@ export class GameController {
   private frameId = 0;
   private finished = false;
   private dead = false;
+  private crashStartedAt: number | null = null;
+  private crashSongTime = 0;
   private pointerId: number | null = null;
   private lastPointerX = 0;
   private lastHudUpdate = 0;
@@ -218,6 +234,7 @@ export class GameController {
   }
 
   setPointer(pointerId: number, normalizedX: number): void {
+    if (this.dead) return;
     if (this.pointerId === null) {
       this.pointerId = pointerId;
       this.lastPointerX = normalizedX;
@@ -232,6 +249,7 @@ export class GameController {
   }
 
   async togglePause(): Promise<boolean> {
+    if (this.dead) return false;
     if (this.audio.paused) await this.audio.resume();
     else await this.audio.pause();
     return this.audio.paused;
@@ -239,7 +257,10 @@ export class GameController {
 
   private loop = (): void => {
     if (this.finished) return;
-    const time = this.audio.currentTime;
+    const now = performance.now();
+    const time = this.crashStartedAt === null
+      ? this.audio.currentTime
+      : getCrashSceneTime(this.crashSongTime, now - this.crashStartedAt);
     while (
       this.nextColorSchemeEventIndex < this.level.colorSchemeEvents.length
       && this.level.colorSchemeEvents[this.nextColorSchemeEventIndex].timeSeconds <= time
@@ -262,6 +283,14 @@ export class GameController {
 
     if (time >= this.level.song.durationSeconds && !this.dead) {
       this.finish();
+      return;
+    }
+    if (
+      this.crashStartedAt !== null
+      && getCrashEffectProgress(this.crashStartedAt, now) >= 1
+    ) {
+      this.finished = true;
+      this.callbacks.onDeath(this.getResult());
       return;
     }
     this.frameId = requestAnimationFrame(this.loop);
@@ -298,10 +327,10 @@ export class GameController {
 
       if (resolution.outcome === 'crash') {
         this.dead = true;
-        this.finished = true;
+        this.crashSongTime = time;
+        this.crashStartedAt = performance.now();
         this.scene.crash(resolution.impactX ?? this.scene.getPlayerX());
-        void this.audio.pause();
-        this.callbacks.onDeath(this.getResult());
+        this.audio.crash();
         return;
       }
       if (resolution.outcome === 'target-hit') {

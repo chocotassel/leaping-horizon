@@ -4,6 +4,16 @@ type WindowWithWebkitAudio = Window & typeof globalThis & {
   webkitAudioContext?: typeof AudioContext;
 };
 
+function createCrashDistortionCurve(): Float32Array<ArrayBuffer> {
+  const curve = new Float32Array(256);
+  const drive = 3.2;
+  for (let index = 0; index < curve.length; index += 1) {
+    const input = index / (curve.length - 1) * 2 - 1;
+    curve[index] = Math.tanh(input * drive) / Math.tanh(drive);
+  }
+  return curve;
+}
+
 /** 加载关卡音频；资源不可用时退回本地合成音轨。 */
 export class AudioEngine {
   private static sharedContext: AudioContext | null = null;
@@ -13,6 +23,8 @@ export class AudioEngine {
   private source: AudioBufferSourceNode | null = null;
   private gain: GainNode;
   private analyser: AnalyserNode;
+  private distortion: WaveShaperNode;
+  private filter: BiquadFilterNode;
   private spectrumData: Uint8Array<ArrayBuffer>;
   private startedAt = 0;
   private pausedAt = 0;
@@ -21,6 +33,7 @@ export class AudioEngine {
   private readonly bpm: number;
   private readonly audioUrl: string;
   private stopped = false;
+  private crashing = false;
 
   /** 必须从用户点击回调直接调用，以满足移动浏览器的音频播放策略。 */
   static async unlock(): Promise<void> {
@@ -50,12 +63,20 @@ export class AudioEngine {
     AudioEngine.sharedContext = this.context;
     this.gain = this.context.createGain();
     this.analyser = this.context.createAnalyser();
+    this.distortion = this.context.createWaveShaper();
+    this.filter = this.context.createBiquadFilter();
     this.analyser.fftSize = 256;
     this.analyser.smoothingTimeConstant = 0.62;
+    this.distortion.oversample = '2x';
+    this.filter.type = 'lowpass';
+    this.filter.frequency.value = this.context.sampleRate * 0.48;
+    this.filter.Q.value = 0.0001;
     this.spectrumData = new Uint8Array(this.analyser.frequencyBinCount);
     this.gain.gain.value = AudioEngine.musicEnabled ? 0.48 : 0;
     AudioEngine.activeGains.add(this.gain);
-    this.analyser.connect(this.gain);
+    this.analyser.connect(this.distortion);
+    this.distortion.connect(this.filter);
+    this.filter.connect(this.gain);
     this.gain.connect(this.context.destination);
     this.duration = duration;
     this.bpm = bpm;
@@ -144,11 +165,41 @@ export class AudioEngine {
     this.isPaused = false;
   }
 
+  crash(): void {
+    if (this.crashing || !this.source) return;
+    this.crashing = true;
+    const now = this.context.currentTime;
+    const end = now + 1.05;
+
+    this.distortion.curve = createCrashDistortionCurve();
+    this.source.playbackRate.cancelScheduledValues(now);
+    this.source.playbackRate.setValueAtTime(Math.max(0.01, this.source.playbackRate.value), now);
+    this.source.playbackRate.exponentialRampToValueAtTime(0.42, end);
+    this.source.detune.cancelScheduledValues(now);
+    this.source.detune.setValueAtTime(this.source.detune.value, now);
+    this.source.detune.linearRampToValueAtTime(-500, end);
+
+    this.filter.frequency.cancelScheduledValues(now);
+    this.filter.frequency.setValueAtTime(this.context.sampleRate * 0.48, now);
+    this.filter.frequency.exponentialRampToValueAtTime(280, end);
+    this.filter.Q.cancelScheduledValues(now);
+    this.filter.Q.setValueAtTime(0.0001, now);
+    this.filter.Q.linearRampToValueAtTime(7, end * 0.78 + now * 0.22);
+
+    if (this.gain.gain.value > 0) {
+      this.gain.gain.cancelScheduledValues(now);
+      this.gain.gain.setValueAtTime(this.gain.gain.value, now);
+      this.gain.gain.exponentialRampToValueAtTime(0.0001, end);
+    }
+  }
+
   stop(): void {
     this.stopped = true;
     try { this.source?.stop(); } catch { /* already stopped */ }
     this.source?.disconnect();
     this.analyser.disconnect();
+    this.distortion.disconnect();
+    this.filter.disconnect();
     this.gain.disconnect();
     AudioEngine.activeGains.delete(this.gain);
     this.source = null;

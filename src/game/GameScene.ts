@@ -93,6 +93,7 @@ interface Particle {
   sz: number;
   spinX: number;
   spinY: number;
+  colorMix: number;
 }
 
 interface FloatingCube {
@@ -189,6 +190,7 @@ export class GameScene {
   private comboImpactStart = -Infinity;
   private missImpactStart = -Infinity;
   private crashed = false;
+  private crashElapsed = 0;
   private disposed = false;
 
   constructor(canvas: HTMLCanvasElement, level: Level) {
@@ -320,6 +322,7 @@ export class GameScene {
       sz: 1,
       spinX: 0,
       spinY: 0,
+      colorMix: 0,
     }));
 
     const comboFeedback = this.createFeedback(640, 480);
@@ -920,6 +923,7 @@ export class GameScene {
   render(time: number, level: Level, states: ObstacleStateRow[], combo: number, spectrum: Uint8Array): void {
     if (this.disposed) return;
     const dt = Math.min(this.clock.getDelta(), 0.05);
+    if (this.crashed) this.crashElapsed += dt;
     if (!this.crashed) {
       const oldX = this.playerX;
       this.playerX = moveTowards(this.playerX, this.targetPlayerX, PLAYER_MAX_LATERAL_SPEED * dt);
@@ -943,8 +947,29 @@ export class GameScene {
     this.updateParticles(dt);
     this.hitImpulse *= Math.pow(0.015, dt);
     const cameraJitter = this.hitImpulse * Math.sin(time * 115);
-    this.camera.position.x += (this.playerX * 0.06 + cameraJitter - this.camera.position.x) * Math.min(1, dt * 11);
-    this.camera.position.y = CAMERA_Y + cameraJitter * 0.28;
+    if (this.crashed) {
+      const crashShake = Math.exp(-this.crashElapsed * 3.1);
+      const crashJitterX = crashShake * (
+        Math.sin(this.crashElapsed * 91) * 0.34
+        + Math.sin(this.crashElapsed * 147) * 0.15
+      );
+      const crashJitterY = crashShake * (
+        Math.sin(this.crashElapsed * 113 + 0.8) * 0.18
+        + Math.sin(this.crashElapsed * 173) * 0.08
+      );
+      this.camera.position.x += (
+        this.playerX * 0.06 + cameraJitter + crashJitterX - this.camera.position.x
+      ) * Math.min(1, dt * 20);
+      this.camera.position.y = CAMERA_Y + cameraJitter * 0.28 + crashJitterY;
+      this.camera.position.z = CAMERA_Z + crashShake * Math.sin(this.crashElapsed * 73) * 0.09;
+      this.camera.rotation.z = crashShake * Math.sin(this.crashElapsed * 67) * 0.018;
+      this.renderer.toneMappingExposure = 1.02 + Math.exp(-this.crashElapsed * 10) * 0.82;
+    } else {
+      this.camera.position.x += (
+        this.playerX * 0.06 + cameraJitter - this.camera.position.x
+      ) * Math.min(1, dt * 11);
+      this.camera.position.y = CAMERA_Y + cameraJitter * 0.28;
+    }
     this.updateSpectrum(dt, time, combo, level.song.durationSeconds, level.events, spectrum);
     this.renderer.render(this.scene, this.camera);
   }
@@ -1222,7 +1247,7 @@ export class GameScene {
   }
 
   burst(x: number, hazard = false): void {
-    const count = hazard ? 48 : HIT_PARTICLES_PER_BURST;
+    const count = hazard ? 64 : HIT_PARTICLES_PER_BURST;
     if (!hazard) {
       this.playerSpinSpeed = PLAYER_HIT_SPIN_SPEED;
       this.ringHitPulse = 1;
@@ -1231,31 +1256,35 @@ export class GameScene {
     let created = 0;
     for (const particle of this.particleData) {
       if (particle.active || created >= count) continue;
-      const angle = (created / count) * Math.PI * 2;
-      const speed = 1.7 + (created % 6) * 0.35;
+      const angle = (created / count) * Math.PI * 2 + (created % 5) * 0.07;
+      const speed = (hazard ? 3 : 1.7) + (created % 6) * (hazard ? 0.48 : 0.35);
       particle.active = true;
       particle.x = x;
       particle.y = 0.55;
       particle.z = PLAYER_Z;
       particle.vx = Math.cos(angle) * speed;
-      particle.vy = 1.3 + (created % 5) * 0.55;
+      particle.vy = (hazard ? 2 : 1.3) + (created % 5) * (hazard ? 0.72 : 0.55);
       particle.vz = Math.sin(angle) * speed;
-      particle.life = hazard ? 0.95 : 0.72;
+      particle.life = hazard ? 1.15 : 0.72;
       particle.maxLife = particle.life;
-      particle.sx = 0.55 + (created % 4) * 0.24;
-      particle.sy = 0.45 + (created % 3) * 0.18;
-      particle.sz = 0.6 + (created % 5) * 0.2;
-      particle.spinX = 3 + (created % 6) * 1.4;
-      particle.spinY = 4 + (created % 7) * 1.2;
+      particle.sx = (hazard ? 0.8 : 0.55) + (created % 4) * 0.24;
+      particle.sy = (hazard ? 0.32 : 0.45) + (created % 3) * 0.18;
+      particle.sz = (hazard ? 0.9 : 0.6) + (created % 5) * 0.2;
+      particle.spinX = (hazard ? 7 : 3) + (created % 6) * 1.4;
+      particle.spinY = (hazard ? 8 : 4) + (created % 7) * 1.2;
+      particle.colorMix = hazard ? (created % 4 === 0 ? 0.9 : created % 3 === 0 ? 0.35 : 0) : 0;
       created += 1;
     }
   }
 
   crash(x: number): void {
+    if (this.crashed) return;
     this.crashed = true;
+    this.crashElapsed = 0;
     this.player.visible = false;
     this.trailMesh.visible = false;
-    this.burst(x, true);
+    this.ringHitPulse = 1.2;
+    this.burst(THREE.MathUtils.lerp(this.playerX, x, 0.25), true);
   }
 
   private updateParticles(dt: number): void {
@@ -1282,7 +1311,10 @@ export class GameScene {
       this.quaternion.setFromEuler(new THREE.Euler(age * particle.spinX, age * particle.spinY, age * 2.7));
       this.matrix.compose(this.position, this.quaternion, this.scale);
       this.particles.setMatrixAt(i, this.matrix);
-      this.particles.setColorAt(i, this.glowColor);
+      this.particles.setColorAt(
+        i,
+        this.tempColor.copy(this.glowColor).lerp(this.hazardColor, particle.colorMix),
+      );
     }
     this.particles.instanceMatrix.needsUpdate = true;
     if (this.particles.instanceColor) this.particles.instanceColor.needsUpdate = true;

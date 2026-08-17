@@ -28,13 +28,21 @@ const vite = await createServer({
   server: { middlewareMode: true },
 });
 try {
-  const { countChoiceRows, countMultiTargetRows, resolveEventRow } = await vite.ssrLoadModule('/src/game/GameController.ts');
+  const {
+    countChoiceRows,
+    countMultiTargetRows,
+    getCrashEffectProgress,
+    getCrashSceneTime,
+    resolveEventRow,
+  } = await vite.ssrLoadModule('/src/game/GameController.ts');
   const { getEarnedStars } = await vite.ssrLoadModule('/src/game/stars.ts');
   const { LocalDataManager, isLevelUnlocked, recordLevelResult } = await vite.ssrLoadModule('/src/data/localData.ts');
   const { formatNumber, locale, t } = await vite.ssrLoadModule('/src/i18n/index.ts');
   assert.equal(locale, 'zh-CN');
   assert.equal(t('songSelect.positionLabel', { current: 1, total: 2 }), '第 1 首，共 2 首');
   assert.equal(formatNumber(12345), '12,345');
+  assert.equal(getCrashEffectProgress(100, 675), 0.5);
+  assert.ok(getCrashSceneTime(10, 1000) < 10.08);
   const initialRun = { score: 0, combo: 0, maxCombo: 0, hits: 0, doubleHitRows: 0, dodges: 0 };
   const resolution = resolveEventRow({
     event: {
