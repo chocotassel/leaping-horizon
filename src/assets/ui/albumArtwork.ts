@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { t } from '../../i18n';
 const coverModules = import.meta.glob<string>('../../songs/*/cover.jpeg', {
   eager: true,
   import: 'default',
@@ -7,7 +8,7 @@ const coverModules = import.meta.glob<string>('../../songs/*/cover.jpeg', {
 const artworkByLevelId: Record<string, string> = {};
 Object.entries(coverModules).forEach(([path, artwork]) => {
   const songId = path.match(/\/songs\/([^/]+)\/cover\.jpeg$/)?.[1];
-  if (!songId) throw new Error(`Invalid song cover path: ${path}`);
+  if (!songId) throw new Error(t('error.invalidCoverPath', { path }));
   artworkByLevelId[`${songId}-flow`] = artwork;
 });
 

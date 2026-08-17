@@ -1,3 +1,5 @@
+import { t } from '../i18n';
+
 type WindowWithWebkitAudio = Window & typeof globalThis & {
   webkitAudioContext?: typeof AudioContext;
 };
@@ -41,7 +43,7 @@ export class AudioEngine {
   constructor(duration: number, bpm: number, audioUrl: string) {
     const AudioContextClass = window.AudioContext ||
       (window as WindowWithWebkitAudio).webkitAudioContext;
-    if (!AudioContextClass) throw new Error('Web Audio is not supported.');
+    if (!AudioContextClass) throw new Error(t('error.webAudioUnsupported'));
     this.context = AudioEngine.sharedContext && AudioEngine.sharedContext.state !== 'closed'
       ? AudioEngine.sharedContext
       : new AudioContextClass({ latencyHint: 'interactive', sampleRate: 22050 });
@@ -76,10 +78,10 @@ export class AudioEngine {
   private async loadTrack(): Promise<AudioBuffer> {
     try {
       const response = await fetch(this.audioUrl);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new Error(t('error.httpStatus', { status: response.status }));
       return await this.context.decodeAudioData(await response.arrayBuffer());
     } catch (error) {
-      console.warn('Unable to load level audio; using the local fallback track.', error);
+      console.warn(t('warning.audioFallback'), error);
       return this.createTrack();
     }
   }

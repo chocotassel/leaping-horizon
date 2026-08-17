@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
+import { t } from '../i18n';
 import dartBladesSvg from '../assets/dart-blades.svg?raw';
 import dartCornersSvg from '../assets/dart-corners.svg?raw';
 import dartTriangleSvg from '../assets/dart-triangle.svg?raw';
@@ -443,16 +444,18 @@ export class GameScene {
     context.shadowColor = 'rgba(255,255,255,0.45)';
     context.shadowBlur = 8;
     context.font = "700 64px 'Arial Narrow', sans-serif";
-    context.fillText('C O M B O', 320, 26);
+    context.fillText(t('game.feedbackCombo'), 320, 26);
     context.shadowColor = 'rgba(77,219,255,0.38)';
     context.shadowBlur = 18;
     context.font = "700 230px 'Arial Narrow', sans-serif";
-    context.fillText(`× ${combo}`, 320, 112, 580);
+    context.fillText(t('game.feedbackComboValue', { value: combo }), 320, 112, 580);
     context.fillStyle = '#4ddbff';
     context.shadowColor = 'rgba(77,219,255,0.55)';
     context.shadowBlur = 8;
     context.font = "700 52px 'Arial Narrow', sans-serif";
-    context.fillText(`S C O R E  ×${Math.min(15, Math.max(1, Math.floor(combo / 8) + 1))}`, 320, 404);
+    context.fillText(t('game.feedbackScoreMultiplier', {
+      value: Math.min(15, Math.max(1, Math.floor(combo / 8) + 1)),
+    }), 320, 404);
     this.feedbackCombo = combo;
     this.comboTexture.needsUpdate = true;
   }
@@ -466,7 +469,7 @@ export class GameScene {
     context.shadowColor = '#4ddbff';
     context.shadowBlur = 20;
     context.font = "italic 700 130px 'Arial Narrow', sans-serif";
-    context.fillText('M I S S', 256, 128);
+    context.fillText(t('game.feedbackMiss'), 256, 128);
     this.missTexture.needsUpdate = true;
   }
 

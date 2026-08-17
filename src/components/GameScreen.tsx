@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { GameController } from '../game/GameController';
+import { t } from '../i18n';
 import { type GameResult, type Level } from '../types';
 
 interface GameScreenProps {
@@ -105,16 +106,16 @@ export function GameScreen({
       <header className="game-hud">
         <div className="score-block">
           <strong>{String(hud.score).padStart(6, '0')}</strong>
-          <span>本次得分</span>
+          <span>{t('game.score')}</span>
         </div>
         <div className={`combo-block ${hud.combo > 0 ? 'is-active' : ''}`}>
-          <span>COMBO</span>
+          <span>{t('game.combo')}</span>
           <strong>{hud.combo}</strong>
         </div>
         <button
           className="pause-button"
           type="button"
-          aria-label={paused ? '继续游戏' : '暂停游戏'}
+          aria-label={paused ? t('game.resume') : t('game.pause')}
           onPointerDown={stopGamePointer}
           onClick={togglePause}
         >
@@ -127,13 +128,13 @@ export function GameScreen({
       <div
         className="route-progress"
         role="progressbar"
-        aria-label="航行进度"
+        aria-label={t('game.progress')}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.floor(hud.progress * 100)}
       >
         <div className="route-progress-copy">
-          <span>航行进度</span>
+          <span>{t('game.progress')}</span>
           <strong>{Math.floor(hud.progress * 100)}%</strong>
         </div>
         <div className="route-progress-track">
@@ -145,8 +146,8 @@ export function GameScreen({
       {paused && (
         <div className="pause-overlay">
           <div className="pause-orbit" aria-hidden="true"><i /><span>Ⅱ</span></div>
-          <span>航行暂停</span>
-          <strong>PAUSED</strong>
+          <span>{t('game.paused')}</span>
+          <strong>{t('game.pausedState')}</strong>
           <button
             className={`pause-music-toggle ${musicEnabled ? 'is-enabled' : ''}`}
             type="button"
@@ -155,16 +156,16 @@ export function GameScreen({
             onClick={togglePauseMusic}
           >
             <span aria-hidden="true">♪</span>
-            <strong>游戏音乐</strong>
-            <small>{musicEnabled ? '已开启' : '已关闭'}</small>
+            <strong>{t('game.music')}</strong>
+            <small>{musicEnabled ? t('common.enabled') : t('common.disabled')}</small>
             <i aria-hidden="true" />
           </button>
           <div className="pause-actions">
             <button className="pause-primary-button" type="button" onPointerDown={stopGamePointer} onClick={togglePause}>
-              继续航行
+              {t('game.continue')}
             </button>
             <button className="pause-exit-button" type="button" onPointerDown={stopGamePointer} onClick={exitGame}>
-              结束并返回选歌
+              {t('game.exit')}
             </button>
           </div>
         </div>

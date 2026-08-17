@@ -1,4 +1,5 @@
 import { ObstacleType, type Level, type LevelEvent, type ObstacleRow } from './types';
+import { t } from './i18n';
 
 function isObstacleRow(value: unknown): value is ObstacleRow {
   return Array.isArray(value) && value.length === 5 && value.every((cell) => (
@@ -7,25 +8,25 @@ function isObstacleRow(value: unknown): value is ObstacleRow {
 }
 
 export function validateLevel(level: Level): Level {
-  if (level.version !== 3) throw new Error(`Unsupported level version ${String(level.version)}.`);
-  if (!Number.isFinite(level.song.bpm) || level.song.bpm <= 0) throw new Error('Song BPM must be greater than 0.');
+  if (level.version !== 3) throw new Error(t('error.unsupportedLevelVersion', { version: level.version }));
+  if (!Number.isFinite(level.song.bpm) || level.song.bpm <= 0) throw new Error(t('error.invalidSongBpm'));
   if (!Number.isFinite(level.song.durationSeconds) || level.song.durationSeconds <= 0) {
-    throw new Error('Song duration must be greater than 0.');
+    throw new Error(t('error.invalidSongDuration'));
   }
-  if (!level.song.audioUrl.toLowerCase().endsWith('.mp3')) throw new Error('Game audio must be MP3.');
-  if (!Array.isArray(level.events)) throw new Error('Level events must be an array.');
+  if (!level.song.audioUrl.toLowerCase().endsWith('.mp3')) throw new Error(t('error.invalidAudioFormat'));
+  if (!Array.isArray(level.events)) throw new Error(t('error.invalidLevelEvents'));
 
   let previousTime = -Infinity;
   level.events.forEach((event: LevelEvent, eventIndex) => {
     if (!Number.isFinite(event.timeSeconds) || event.timeSeconds < 0 || event.timeSeconds > level.song.durationSeconds) {
-      throw new Error(`Event ${eventIndex} is outside the song.`);
+      throw new Error(t('error.eventOutsideSong', { index: eventIndex }));
     }
     if (event.timeSeconds <= previousTime) {
-      throw new Error(`Event ${eventIndex} is not strictly later than the preceding event.`);
+      throw new Error(t('error.eventOrder', { index: eventIndex }));
     }
-    if (!isObstacleRow(event.obstacles)) throw new Error(`Event ${eventIndex} must contain exactly 5 valid lanes.`);
+    if (!isObstacleRow(event.obstacles)) throw new Error(t('error.invalidEventLanes', { index: eventIndex }));
     if (event.obstacles.every((type) => type === ObstacleType.Empty)) {
-      throw new Error(`Event ${eventIndex} is empty and should not be stored.`);
+      throw new Error(t('error.emptyEvent', { index: eventIndex }));
     }
     previousTime = event.timeSeconds;
   });
@@ -53,12 +54,12 @@ export const LEVELS = Object.entries(levelModules)
   .sort(([left], [right]) => left.localeCompare(right))
   .map(([path, module]) => {
     const audioUrl = audioModules[path.replace(/level\.json$/, 'audio.mp3')];
-    if (!audioUrl) throw new Error(`Missing audio.mp3 next to ${path}.`);
+    if (!audioUrl) throw new Error(t('error.missingAudio', { path }));
     const level = module.default as Level;
     return validateLevel({ ...level, song: { ...level.song, audioUrl } });
   });
 
-if (!LEVELS.length) throw new Error('No generated level files were found.');
+if (!LEVELS.length) throw new Error(t('error.noLevels'));
 
 export const DEFAULT_LEVEL_ID = LEVELS[0].id;
 

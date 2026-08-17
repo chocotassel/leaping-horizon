@@ -29,6 +29,10 @@ const vite = await createServer({
 });
 try {
   const { countChoiceRows, resolveEventRow } = await vite.ssrLoadModule('/src/game/GameController.ts');
+  const { formatNumber, locale, t } = await vite.ssrLoadModule('/src/i18n/index.ts');
+  assert.equal(locale, 'zh-CN');
+  assert.equal(t('songSelect.positionLabel', { current: 1, total: 2 }), '第 1 首，共 2 首');
+  assert.equal(formatNumber(12345), '12,345');
   const initialRun = { score: 0, combo: 0, maxCombo: 0, hits: 0, dodges: 0 };
   const resolution = resolveEventRow({
     event: {
