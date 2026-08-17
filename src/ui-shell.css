@@ -1188,8 +1188,10 @@
   background: var(--space-cyan);
   box-shadow: 0 0 7px rgb(var(--space-cyan-rgb) / 0.48);
   will-change: transform, opacity;
-  animation: result-spectrum-playing 1440ms var(--spectrum-delay) ease-in-out infinite;
+  animation: result-spectrum-playing 1400ms var(--spectrum-delay) ease-in-out infinite alternate;
 }
+
+.result-score-stage.is-spectrum-stopped .result-spectrum i { animation-play-state: paused; }
 
 .result-metrics {
   position: relative;
@@ -1281,10 +1283,8 @@
 @keyframes vinyl-turn { to { transform: rotate(360deg); } }
 @keyframes result-ring-in { from { opacity: 0; transform: scale(0.76) rotate(-9deg); } }
 @keyframes result-spectrum-playing {
-  0%, 100% { opacity: 0.58; transform: scaleY(var(--spectrum-rest)); }
-  28% { opacity: 0.88; transform: scaleY(var(--spectrum-high)); }
-  52% { opacity: 0.7; transform: scaleY(var(--spectrum-low)); }
-  76% { opacity: 1; transform: scaleY(var(--spectrum-peak)); }
+  from { opacity: 0.62; transform: scaleY(var(--spectrum-rest)); }
+  to { opacity: 1; transform: scaleY(var(--spectrum-peak)); }
 }
 @media (max-height: 760px) {
   .brand-header { top: 4.2%; }

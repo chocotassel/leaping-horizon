@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import type { GameResult, Level } from '../types';
 import { albumArtworkStyle } from '../assets/ui/albumArtwork';
 import { formatNumber, t } from '../i18n';
@@ -18,23 +18,26 @@ const SPECTRUM_LINES = [
   18, 22, 30, 42, 58, 74, 63, 48, 34, 22, 16, 24, 39,
   61, 86, 72, 54, 38, 27, 19, 28, 44, 65, 52, 31,
 ];
-const SPECTRUM_PHASES = [0, -288, -864, -576, -1152];
-
 function spectrumStyle(height: number, index: number): CSSProperties {
-  const scale = height / 100;
+  const peak = (0.38 + height / 100 * 0.55) * 0.5;
   return {
-    '--spectrum-rest': scale * 0.34,
-    '--spectrum-low': scale * 0.56,
-    '--spectrum-high': scale * 0.78,
-    '--spectrum-peak': scale,
-    '--spectrum-delay': `${SPECTRUM_PHASES[index % SPECTRUM_PHASES.length]}ms`,
+    '--spectrum-rest': peak * 0.42,
+    '--spectrum-peak': peak,
+    '--spectrum-delay': `${-((index * 7) % SPECTRUM_LINES.length) / SPECTRUM_LINES.length * 1400}ms`,
   } as CSSProperties;
 }
 
 export function ResultScreen({ result, level, outcome, onReplay, onHome }: ResultScreenProps) {
+  const [spectrumStopped, setSpectrumStopped] = useState(false);
   const accuracy = result.total ? Math.round((result.hits / result.total) * 100) : 0;
   const rank = accuracy >= 95 ? 'S' : accuracy >= 85 ? 'A' : accuracy >= 70 ? 'B' : 'C';
   const completed = outcome === 'complete';
+
+  useEffect(() => {
+    setSpectrumStopped(false);
+    const timeoutId = window.setTimeout(() => setSpectrumStopped(true), 2000);
+    return () => window.clearTimeout(timeoutId);
+  }, [result]);
 
   return (
     <main className={`screen result-screen ${completed ? 'is-complete' : 'is-crashed'}`}>
@@ -56,7 +59,7 @@ export function ResultScreen({ result, level, outcome, onReplay, onHome }: Resul
       </section>
 
       <section
-        className="result-score-stage"
+        className={`result-score-stage${spectrumStopped ? ' is-spectrum-stopped' : ''}`}
         aria-label={t('result.scoreLabel', { score: formatNumber(result.score) })}
       >
         <span className="result-spectrum result-spectrum-left" aria-hidden="true">
