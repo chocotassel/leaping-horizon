@@ -40,7 +40,7 @@ import {
   type SpectrumCluster,
 } from './spectrumRing';
 import {
-  getCameraZoom,
+  getGameplayViewport,
   getRenderPixelRatio,
   selectRenderProfile,
   type RenderProfile,
@@ -54,6 +54,7 @@ const HIT_PARTICLE_LIFETIME_SECONDS = 0.72;
 const MIN_PARTICLE_POOL_SIZE = 96;
 const CAMERA_Y = 6.8;
 const CAMERA_Z = 9.35;
+const CAMERA_TARGET_Z = -14.9;
 const FLOATING_CUBE_COUNT = 64;
 const FLOATING_CUBE_SPEED = 5.4;
 // 穿过相机后再循环，避免仍在画面内时突然重置到远处。
@@ -71,7 +72,6 @@ const TRAIL_LENGTH = 9.8;
 const TRAIL_HEAD_Z_OFFSET = 0.66;
 const TRAIL_HEAD_Y_OFFSET = 0.06;
 const TRAIL_SURFACE_Y = 0.025;
-const PLAYER_BOTTOM_RATIO = 0.32;
 const NORMAL_EDGE_THICKNESS = 0.075;
 const NORMAL_EDGE_LENGTH = 1.08;
 const NORMAL_EDGE_TRANSFORMS = [
@@ -230,7 +230,7 @@ export class GameScene {
     this.scene.background = new THREE.Color(0x030712);
     this.scene.fog = new THREE.Fog(0x071225, 105, 430);
     this.camera.position.set(0, CAMERA_Y, CAMERA_Z);
-    this.camera.lookAt(0, 0, -14.9);
+    this.camera.lookAt(0, 0, CAMERA_TARGET_Z);
 
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     this.environmentTexture = pmrem.fromScene(new RoomEnvironment(), 0.03).texture;
@@ -464,7 +464,7 @@ export class GameScene {
       fog: false,
       toneMapped: false,
     }));
-    sprite.position.set(0, RING_CENTER_Y, 0.8);
+    sprite.position.set(0, 0, 0.8);
     sprite.renderOrder = 20;
     this.rhythmRing.add(sprite);
     return { canvas, texture, sprite };
@@ -654,10 +654,9 @@ export class GameScene {
     this.createBackgroundGrid();
 
     this.createPerspectiveRoad();
-    this.rhythmRing.position.z = RING_SPAWN_Z;
+    this.rhythmRing.position.set(0, RING_CENTER_Y, RING_SPAWN_Z);
     this.scene.add(this.rhythmRing);
 
-    const circleCenterY = RING_CENTER_Y;
     // 中间粗环属于圆环实线，内外细环与频谱竖线共用主色。
     const ringLayers: Array<{
       radius: number;
@@ -683,7 +682,7 @@ export class GameScene {
         new THREE.TorusGeometry(layer.radius, layer.tube, lowPower ? 6 : 10, lowPower ? 64 : 96),
         ringMaterial,
       );
-      ring.position.set(0, circleCenterY, layer.z);
+      ring.position.set(0, 0, layer.z);
       ring.renderOrder = -10;
       this.ringLayers.push(ring);
       this.rhythmRing.add(ring);
@@ -915,14 +914,22 @@ export class GameScene {
 
   resize(width: number, height: number): void {
     if (!width || !height) return;
+    const viewport = getGameplayViewport(width / height);
     this.camera.clearViewOffset();
     this.camera.aspect = width / height;
-    this.camera.zoom = getCameraZoom(this.camera.aspect);
+    this.camera.rotation.set(
+      -Math.atan2(CAMERA_Y - viewport.cameraTargetY, CAMERA_Z - CAMERA_TARGET_Z),
+      0,
+      0,
+    );
+    this.camera.zoom = viewport.cameraZoom;
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
     const playerNdcY = this.position.set(0, 0.32, PLAYER_Z).project(this.camera).y;
-    const targetNdcY = PLAYER_BOTTOM_RATIO * 2 - 1;
+    const targetNdcY = viewport.playerBottomRatio * 2 - 1;
     this.camera.setViewOffset(width, height, 0, (targetNdcY - playerNdcY) * height / 2, width, height);
+    this.rhythmRing.rotation.x = this.camera.rotation.x;
+    this.rhythmRing.scale.setScalar(viewport.ringScale);
     this.renderer.setPixelRatio(getRenderPixelRatio(
       this.renderProfile,
       width,
@@ -1084,7 +1091,7 @@ export class GameScene {
     const approach = getRingApproach(time, duration, this.lastObstacleTime);
     this.rhythmRing.position.set(
       THREE.MathUtils.lerp(0, this.camera.position.x, approach),
-      THREE.MathUtils.lerp(0, this.camera.position.y - RING_CENTER_Y, approach),
+      THREE.MathUtils.lerp(RING_CENTER_Y, this.camera.position.y, approach),
       THREE.MathUtils.lerp(RING_SPAWN_Z, CAMERA_Z + 2, approach),
     );
     const lowEnergy = getSpectrumEnergy(spectrum, 1, 14);
@@ -1150,7 +1157,7 @@ export class GameScene {
       const variation = 1 + Math.sin(angle * 3 + time * 0.13) * 0.018 + Math.sin(angle * 7 - 1.1) * 0.012;
       const length = (1 + musicBreath) * this.outerSpectrumHeights[i] * variation;
       const radius = 14.7 + length * 0.5;
-      this.position.set(Math.cos(angle) * radius, RING_CENTER_Y + Math.sin(angle) * radius, 0.15);
+      this.position.set(Math.cos(angle) * radius, Math.sin(angle) * radius, 0.15);
       this.quaternion.setFromEuler(new THREE.Euler(0, 0, angle - Math.PI / 2));
       this.scale.set(2.5, length, 2);
       this.matrix.compose(this.position, this.quaternion, this.scale);
@@ -1178,7 +1185,7 @@ export class GameScene {
       const variation = 1 + Math.sin(angle * 3 + time * 0.15 + 0.7) * 0.014 + Math.sin(angle * 5 + 0.4) * 0.01;
       const length = (0.52 + musicBreath * 0.35) * this.innerSpectrumHeights[i] * variation;
       const radius = 11.3 - length * 0.5;
-      this.position.set(Math.cos(angle) * radius, RING_CENTER_Y + Math.sin(angle) * radius, 0.75);
+      this.position.set(Math.cos(angle) * radius, Math.sin(angle) * radius, 0.75);
       this.quaternion.setFromEuler(new THREE.Euler(0, 0, angle - Math.PI / 2));
       this.scale.set(2.2, length, 1.8);
       this.matrix.compose(this.position, this.quaternion, this.scale);

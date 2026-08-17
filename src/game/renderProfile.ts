@@ -1,4 +1,5 @@
 export const DESIGN_ASPECT = 9 / 16;
+const TALL_ASPECT = 9 / 21;
 
 export type RenderTier = 'low' | 'balanced' | 'high';
 
@@ -83,4 +84,16 @@ export function getRenderPixelRatio(
 export function getCameraZoom(aspect: number): number {
   if (!Number.isFinite(aspect) || aspect <= 0) return 1;
   return Math.min(1, aspect / DESIGN_ASPECT);
+}
+
+export function getGameplayViewport(aspect: number) {
+  const tallness = Number.isFinite(aspect) && aspect > 0
+    ? Math.max(0, Math.min(1, (DESIGN_ASPECT - aspect) / (DESIGN_ASPECT - TALL_ASPECT)))
+    : 0;
+  return {
+    cameraTargetY: -6 * tallness,
+    cameraZoom: getCameraZoom(aspect),
+    playerBottomRatio: 0.32 + 0.1 * tallness,
+    ringScale: 1 - 0.1 * tallness,
+  };
 }
