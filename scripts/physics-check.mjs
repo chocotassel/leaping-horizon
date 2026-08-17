@@ -41,7 +41,7 @@ try {
     run: initialRun,
   });
   assert.equal(resolution.outcome, 'target-hit');
-  assert.deepEqual(resolution.states, ['hit', null, 'hit', null, null]);
+  assert.deepEqual(resolution.states, ['miss', null, 'hit', null, null]);
   assert.deepEqual(resolution.run, { score: 104, combo: 1, maxCombo: 1, hits: 1, dodges: 0 });
   const repeatedResolution = resolveEventRow({
     event: {
@@ -55,6 +55,20 @@ try {
   });
   assert.equal(repeatedResolution.outcome, 'none');
   assert.deepEqual(repeatedResolution.run, resolution.run);
+
+  const overlappingResolution = resolveEventRow({
+    event: {
+      timeSeconds: 1,
+      kind: 'target',
+      obstacles: [0, 1, 1, 1, 0],
+    },
+    states: [null, 'pending', 'pending', 'pending', null],
+    playerX: -0.5,
+    run: initialRun,
+  });
+  assert.equal(overlappingResolution.outcome, 'target-hit');
+  assert.deepEqual(overlappingResolution.states, [null, 'hit', 'hit', 'miss', null]);
+  assert.deepEqual(overlappingResolution.run, resolution.run);
 
   const consecutiveResolution = resolveEventRow({
     event: {

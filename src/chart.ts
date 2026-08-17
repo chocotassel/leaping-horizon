@@ -50,7 +50,7 @@ export const LEVELS = Object.entries(levelModules)
 
 if (!LEVELS.length) throw new Error('No generated level files were found.');
 
-export const DEFAULT_LEVEL_ID = LEVELS.find((level) => level.song.title === 'Slice at Two')?.id ?? LEVELS[0].id;
+export const DEFAULT_LEVEL_ID = LEVELS[0].id;
 
 export function getLevelById(levelId: string | null | undefined): Level {
   return LEVELS.find((level) => level.id === levelId)

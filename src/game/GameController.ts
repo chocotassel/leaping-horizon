@@ -44,24 +44,21 @@ interface ResolveEventRowOptions {
   run: RunJudgmentState;
 }
 
-function closestPendingCollision(
+function pendingCollisions(
   event: LevelEvent,
   states: ObstacleStateRow,
   playerX: number,
   type: ObstacleType,
-): LaneIndex | null {
-  let closestLane: LaneIndex | null = null;
-  let closestDistance = Infinity;
+): LaneIndex[] {
+  const lanes: LaneIndex[] = [];
   for (let laneIndex = 0; laneIndex < LANE_CENTERS.length; laneIndex += 1) {
     const lane = laneIndex as LaneIndex;
     if (event.obstacles[lane] !== type || states[lane] !== 'pending') continue;
-    const distance = Math.abs(playerX - LANE_CENTERS[lane]);
-    if (overlapsPlayer(playerX, LANE_CENTERS[lane]) && distance < closestDistance) {
-      closestLane = lane;
-      closestDistance = distance;
-    }
+    if (overlapsPlayer(playerX, LANE_CENTERS[lane])) lanes.push(lane);
   }
-  return closestLane;
+  return lanes.sort((left, right) => (
+    Math.abs(playerX - LANE_CENTERS[left]) - Math.abs(playerX - LANE_CENTERS[right])
+  ));
 }
 
 /** Resolve one due musical row atomically, so lane order cannot change its outcome. */
@@ -82,13 +79,13 @@ export function resolveEventRow({
 
   // Hazards are resolved before targets across the whole row. A player spanning
   // adjacent lanes must never survive because the target happened to be visited first.
-  const spikeLane = closestPendingCollision(
+  const [spikeLane] = pendingCollisions(
     event,
     currentStates,
     playerX,
     ObstacleType.Spike,
   );
-  if (spikeLane !== null) {
+  if (spikeLane !== undefined) {
     states[spikeLane] = 'hit';
     run.combo = 0;
     return result('crash', spikeLane);
@@ -101,7 +98,7 @@ export function resolveEventRow({
     const hasPendingTarget = event.obstacles.some((type, lane) => (
       type === ObstacleType.Breakable && currentStates[lane] === 'pending'
     ));
-    const targetLane = closestPendingCollision(
+    const targetLanes = pendingCollisions(
       event,
       currentStates,
       playerX,
@@ -113,14 +110,14 @@ export function resolveEventRow({
       if (states[lane] !== 'pending') continue;
       const type = event.obstacles[lane];
       if (type === ObstacleType.Breakable) {
-        states[lane] = alreadySatisfied || targetLane !== null ? 'hit' : 'miss';
+        states[lane] = !alreadySatisfied && targetLanes.includes(lane) ? 'hit' : 'miss';
       } else if (type === ObstacleType.Spike) {
         states[lane] = 'miss';
       }
     }
 
     if (alreadySatisfied || !hasPendingTarget) return result('none');
-    if (targetLane === null) {
+    if (targetLanes.length === 0) {
       run.combo = 0;
       return result('target-miss');
     }
@@ -129,7 +126,7 @@ export function resolveEventRow({
     run.maxCombo = Math.max(run.maxCombo, run.combo);
     run.hits += 1;
     run.score += 100 + Math.min(200, run.combo * 4);
-    return result('target-hit', targetLane);
+    return result('target-hit', targetLanes[0]);
   }
 
   const hasPendingObstacle = currentStates.some((state) => state === 'pending');
@@ -275,8 +272,6 @@ export class GameController {
         this.scene.burst(resolution.impactX ?? this.scene.getPlayerX());
       } else if (resolution.outcome === 'target-miss') {
         this.scene.flashMiss(time);
-      } else if (resolution.outcome === 'dodge') {
-        this.scene.burst(this.scene.getPlayerX());
       }
     }
   }
