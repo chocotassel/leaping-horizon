@@ -5,14 +5,17 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import { isLevelUnlocked, type GameData } from '../data/localData';
 import type { Level } from '../types';
 import { albumArtworkStyle } from '../assets/ui/albumArtwork';
 import { t } from '../i18n';
 import { BrandHeader } from './BrandHeader';
+import { StarRating } from './StarRating';
 
 interface HomeScreenProps {
   level: Level;
   levels: readonly Level[];
+  gameData: GameData;
   soundEnabled: boolean;
   onSelectLevel: (levelId: string) => void;
   onPrepareStart: () => void;
@@ -37,11 +40,12 @@ function artistLabel(level: Level): string {
     : level.song.artist;
 }
 
-function VinylDisc() {
+function VinylDisc({ locked = false }: { locked?: boolean }) {
   return (
-    <span className="vinyl-disc" aria-hidden="true">
+    <span className={`vinyl-disc${locked ? ' is-locked' : ''}`} aria-hidden="true">
       <i className="vinyl-pulse-ring" />
       <i className="vinyl-label"><span className="label-flight-path" /></i>
+      {locked && <i className="vinyl-lock" />}
     </span>
   );
 }
@@ -49,6 +53,7 @@ function VinylDisc() {
 export function HomeScreen({
   level,
   levels,
+  gameData,
   soundEnabled,
   onSelectLevel,
   onPrepareStart,
@@ -72,6 +77,10 @@ export function HomeScreen({
   const activeIndex = Math.max(0, levels.findIndex((option) => option.id === level.id));
   const previousLevel = levels[(activeIndex - 1 + levels.length) % levels.length];
   const nextLevel = levels[(activeIndex + 1) % levels.length];
+  const unlocked = isLevelUnlocked(levels, level.id, gameData);
+  const previousUnlocked = isLevelUnlocked(levels, previousLevel.id, gameData);
+  const nextUnlocked = isLevelUnlocked(levels, nextLevel.id, gameData);
+  const stars = gameData.levels[level.id]?.stars ?? 0;
 
   useEffect(() => () => {
     if (startTimerRef.current !== null) window.clearTimeout(startTimerRef.current);
@@ -101,7 +110,7 @@ export function HomeScreen({
   };
 
   const handleStart = () => {
-    if (starting || switchDirection) return;
+    if (!unlocked || starting || switchDirection) return;
     onPrepareStart();
     setStarting(true);
     const delay = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 80 : 720;
@@ -225,11 +234,11 @@ export function HomeScreen({
               if (!suppressClickRef.current) selectWithTransition(previousLevel.id, 'previous');
             }}
           >
-            <VinylDisc />
+            <VinylDisc locked={!previousUnlocked} />
           </button>
 
           <div className="vinyl-current" key={level.id} style={albumArtworkStyle(level.id)}>
-            <VinylDisc />
+            <VinylDisc locked={!unlocked} />
           </div>
 
           <button
@@ -242,10 +251,18 @@ export function HomeScreen({
               if (!suppressClickRef.current) selectWithTransition(nextLevel.id, 'next');
             }}
           >
-            <VinylDisc />
+            <VinylDisc locked={!nextUnlocked} />
           </button>
 
           <div className="orbit-scanner" aria-hidden="true"><i><span /></i></div>
+        </div>
+
+        <div className="vinyl-rating-slot">
+          <StarRating
+            className="song-level-stars"
+            label={t('songSelect.starsLabel', { stars })}
+            value={stars}
+          />
         </div>
 
         <div className="vinyl-track-details">
@@ -281,10 +298,10 @@ export function HomeScreen({
         className="shell-primary-button song-start-button"
         type="button"
         aria-busy={starting}
-        disabled={navigationLocked}
+        disabled={navigationLocked || !unlocked}
         onClick={handleStart}
       >
-        {starting ? t('songSelect.starting') : t('songSelect.start')}
+        {starting ? t('songSelect.starting') : unlocked ? t('songSelect.start') : t('songSelect.locked')}
       </button>
     </main>
   );

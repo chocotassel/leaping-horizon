@@ -109,6 +109,9 @@ export interface GameResult {
   hits: number;
   /** Number of Choice Rows in the level; this is the accuracy denominator. */
   total: number;
+  /** Multi-target Choice Rows where at least two Target Cells were collected. */
+  doubleHitRows: number;
+  totalMultiTargetRows: number;
   dodges: number;
   totalDodges: number;
 }

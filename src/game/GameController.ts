@@ -10,12 +10,19 @@ import {
 } from '../types';
 import { GameScene } from './GameScene';
 import type { SceneColorSchemeId } from './colorSchemes';
-import { overlapsPlayer } from './physics';
+import { overlapsCollectibleTarget, overlapsPlayer } from './physics';
 
 interface GameCallbacks {
-  onHud: (score: number, combo: number, progress: number) => void;
+  onHud: (hud: GameHud) => void;
   onDeath: (result: GameResult) => void;
   onFinish: (result: GameResult) => void;
+}
+
+export interface GameHud {
+  combo: number;
+  progress: number;
+  hits: number;
+  doubleHitRows: number;
 }
 
 const DRAG_SENSITIVITY = 2.4;
@@ -25,6 +32,7 @@ export interface RunJudgmentState {
   combo: number;
   maxCombo: number;
   hits: number;
+  doubleHitRows: number;
   dodges: number;
 }
 
@@ -54,7 +62,8 @@ function pendingCollisions(
   for (let laneIndex = 0; laneIndex < LANE_CENTERS.length; laneIndex += 1) {
     const lane = laneIndex as LaneIndex;
     if (event.obstacles[lane] !== type || states[lane] !== 'pending') continue;
-    if (overlapsPlayer(playerX, LANE_CENTERS[lane])) lanes.push(lane);
+    const overlaps = type === ObstacleType.Breakable ? overlapsCollectibleTarget : overlapsPlayer;
+    if (overlaps(playerX, LANE_CENTERS[lane])) lanes.push(lane);
   }
   return lanes.sort((left, right) => (
     Math.abs(playerX - LANE_CENTERS[left]) - Math.abs(playerX - LANE_CENTERS[right])
@@ -125,6 +134,10 @@ export function resolveEventRow({
     run.combo += 1;
     run.maxCombo = Math.max(run.maxCombo, run.combo);
     run.hits += 1;
+    if (
+      targetLanes.length >= 2
+      && event.obstacles.filter((type) => type === ObstacleType.Breakable).length > 1
+    ) run.doubleHitRows += 1;
     run.score += 100 + Math.min(200, run.combo * 4);
     return result('target-hit', targetLanes[0]);
   }
@@ -148,6 +161,13 @@ export function countChoiceRows(events: readonly LevelEvent[]): number {
   return events.filter((event) => event.kind === 'target').length;
 }
 
+export function countMultiTargetRows(events: readonly LevelEvent[]): number {
+  return events.filter((event) => (
+    event.kind === 'target'
+    && event.obstacles.filter((type) => type === ObstacleType.Breakable).length > 1
+  )).length;
+}
+
 export class GameController {
   private readonly scene: GameScene;
   private readonly audio: AudioEngine;
@@ -158,6 +178,7 @@ export class GameController {
   private combo = 0;
   private maxCombo = 0;
   private hits = 0;
+  private doubleHitRows = 0;
   private dodges = 0;
   private nextEventIndex = 0;
   private nextColorSchemeEventIndex = 0;
@@ -230,7 +251,12 @@ export class GameController {
     this.scene.render(time, this.level, this.states, this.combo, this.audio.spectrum);
 
     if (time - this.lastHudUpdate > 0.045 || time >= this.level.song.durationSeconds) {
-      this.callbacks.onHud(this.score, this.combo, Math.min(1, time / this.level.song.durationSeconds));
+      this.callbacks.onHud({
+        combo: this.combo,
+        progress: Math.min(1, time / this.level.song.durationSeconds),
+        hits: this.hits,
+        doubleHitRows: this.doubleHitRows,
+      });
       this.lastHudUpdate = time;
     }
 
@@ -257,6 +283,7 @@ export class GameController {
           combo: this.combo,
           maxCombo: this.maxCombo,
           hits: this.hits,
+          doubleHitRows: this.doubleHitRows,
           dodges: this.dodges,
         },
       });
@@ -265,6 +292,7 @@ export class GameController {
       this.combo = resolution.run.combo;
       this.maxCombo = resolution.run.maxCombo;
       this.hits = resolution.run.hits;
+      this.doubleHitRows = resolution.run.doubleHitRows;
       this.dodges = resolution.run.dodges;
       this.nextEventIndex += 1;
 
@@ -296,6 +324,8 @@ export class GameController {
       maxCombo: this.maxCombo,
       hits: this.hits,
       total: countChoiceRows(this.level.events),
+      doubleHitRows: this.doubleHitRows,
+      totalMultiTargetRows: countMultiTargetRows(this.level.events),
       dodges: this.dodges,
       totalDodges: this.level.events.filter((event) => event.kind === 'dodge').length,
     };

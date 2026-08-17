@@ -8,6 +8,8 @@ import { GameScreen } from './components/GameScreen';
 import { HomeScreen } from './components/HomeScreen';
 import { ResultScreen, type ResultOutcome } from './components/ResultScreen';
 import { StartScreen } from './components/StartScreen';
+import { gameDataManager, recordLevelResult } from './data/localData';
+import { getEarnedStars } from './game/stars';
 import type { GameResult } from './types';
 
 type Screen = 'start' | 'home' | 'game' | 'result';
@@ -21,19 +23,29 @@ export default function App() {
   const level = useMemo(() => getLevelById(levelId), [levelId]);
   const [screen, setScreen] = useState<Screen>('start');
   const [soundEnabled, setSoundEnabled] = useState(false);
+  const [gameData, setGameData] = useState(() => gameDataManager.read());
   const [result, setResult] = useState<GameResult | null>(null);
+  const [resultStars, setResultStars] = useState(0);
   const [resultOutcome, setResultOutcome] = useState<ResultOutcome>('complete');
-  const finish = useCallback((nextResult: GameResult) => {
+
+  const showResult = useCallback((nextResult: GameResult, outcome: ResultOutcome) => {
+    const stars = getEarnedStars(nextResult, outcome === 'complete');
+    const nextGameData = recordLevelResult(gameData, level.id, nextResult, stars);
+    gameDataManager.write(nextGameData);
+    setGameData(nextGameData);
     setResult(nextResult);
-    setResultOutcome('complete');
+    setResultStars(stars);
+    setResultOutcome(outcome);
     setScreen('result');
-  }, []);
+  }, [gameData, level.id]);
+
+  const finish = useCallback((nextResult: GameResult) => {
+    showResult(nextResult, 'complete');
+  }, [showResult]);
 
   const crash = useCallback((nextResult: GameResult) => {
-    setResult(nextResult);
-    setResultOutcome('crashed');
-    setScreen('result');
-  }, []);
+    showResult(nextResult, 'crashed');
+  }, [showResult]);
 
   const toggleSound = useCallback(() => {
     setSoundEnabled((enabled) => {
@@ -76,6 +88,7 @@ export default function App() {
           <HomeScreen
             level={level}
             levels={LEVELS}
+            gameData={gameData}
             soundEnabled={soundEnabled}
             onPrepareStart={prepareGame}
             onSelectLevel={setLevelId}
@@ -96,6 +109,7 @@ export default function App() {
         {screen === 'result' && result && (
           <ResultScreen
             result={result}
+            stars={resultStars}
             level={level}
             outcome={resultOutcome}
             onReplay={startGame}

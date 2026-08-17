@@ -6,6 +6,7 @@ export const MIN_RING_APPROACH_SECONDS = 2;
 export const PLAYER_MAX_LATERAL_SPEED = 8;
 
 const HORIZONTAL_COLLISION_DISTANCE = (0.9 + 1) / 2;
+const HORIZONTAL_TARGET_COLLECTION_DISTANCE = 1.05;
 
 export function getObstacleZ(secondsUntilBeat: number): number {
   const progress = 1 - secondsUntilBeat / APPROACH_SECONDS;
@@ -14,6 +15,10 @@ export function getObstacleZ(secondsUntilBeat: number): number {
 
 export function overlapsPlayer(playerX: number, obstacleX: number): boolean {
   return Math.abs(playerX - obstacleX) < HORIZONTAL_COLLISION_DISTANCE;
+}
+
+export function overlapsCollectibleTarget(playerX: number, targetX: number): boolean {
+  return Math.abs(playerX - targetX) < HORIZONTAL_TARGET_COLLECTION_DISTANCE;
 }
 
 export function moveTowards(current: number, target: number, maximumDelta: number): number {

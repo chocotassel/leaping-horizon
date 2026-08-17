@@ -26,6 +26,35 @@ body,
 
 button { font: inherit; }
 
+.star-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.16em;
+}
+
+.star-rating-star {
+  --star-fill: 0;
+  position: relative;
+  display: inline-block;
+  color: rgb(144 171 194 / 0.28);
+  font-style: normal;
+  line-height: 1;
+  text-shadow: 0 0 8px rgb(4 13 26 / 0.76);
+}
+
+.star-rating-star::before,
+.star-rating-star > span::before { content: '★'; }
+
+.star-rating-star > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--star-fill) * 100%);
+  overflow: hidden;
+  color: #ffe276;
+  filter: drop-shadow(0 0 5px rgb(255 202 72 / 0.48));
+  white-space: nowrap;
+}
+
 .app-shell {
   width: 100%;
   height: 100%;
@@ -97,23 +126,19 @@ button { font: inherit; }
   align-items: start;
 }
 
-.score-block {
+.game-star-progress {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  gap: 6px;
 }
-.score-block strong {
-  font: italic 900 clamp(27px, 7.5cqw, 38px)/1 'Arial Narrow', 'Bahnschrift Condensed', sans-serif;
-  letter-spacing: 0.05em;
-  text-shadow: 0 7px 22px rgb(0 6 18 / 0.54);
-}
-.score-block span {
-  margin-top: 5px;
+.game-star-progress > span {
   color: #88a3bc;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.12em;
 }
+.game-star-progress .star-rating { font-size: clamp(17px, 4.6cqw, 23px); }
 
 .combo-block {
   display: flex;

@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { GameController } from '../game/GameController';
+import {
+  GameController,
+  countChoiceRows,
+  countMultiTargetRows,
+  type GameHud,
+} from '../game/GameController';
+import { getStarProgress } from '../game/stars';
 import { t } from '../i18n';
 import { type GameResult, type Level } from '../types';
+import { StarRating } from './StarRating';
 
 interface GameScreenProps {
   level: Level;
@@ -23,12 +30,25 @@ export function GameScreen({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<GameController | null>(null);
-  const [hud, setHud] = useState({ score: 0, combo: 0, progress: 0 });
+  const [hud, setHud] = useState<GameHud>({
+    combo: 0,
+    progress: 0,
+    hits: 0,
+    doubleHitRows: 0,
+  });
   const [paused, setPaused] = useState(false);
+  const total = countChoiceRows(level.events);
+  const totalMultiTargetRows = countMultiTargetRows(level.events);
+  const starProgress = getStarProgress({
+    hits: hud.hits,
+    total,
+    doubleHitRows: hud.doubleHitRows,
+    totalMultiTargetRows,
+  }, hud.progress);
   useEffect(() => {
     if (!canvasRef.current || !stageRef.current) return;
     const controller = new GameController(canvasRef.current, level, {
-      onHud: (score, combo, progress) => setHud({ score, combo, progress }),
+      onHud: setHud,
       onDeath: (result) => {
         setPaused(false);
         onDeath(result);
@@ -104,9 +124,12 @@ export function GameScreen({
       <canvas ref={canvasRef} className="game-canvas" />
       <div className="game-vignette" />
       <header className="game-hud">
-        <div className="score-block">
-          <strong>{String(hud.score).padStart(6, '0')}</strong>
-          <span>{t('game.score')}</span>
+        <div className="game-star-progress">
+          <span>{t('game.starProgress')}</span>
+          <StarRating
+            label={t('game.starProgressLabel')}
+            progress={starProgress}
+          />
         </div>
         <div className={`combo-block ${hud.combo > 0 ? 'is-active' : ''}`}>
           <span>{t('game.combo')}</span>

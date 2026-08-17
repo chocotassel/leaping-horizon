@@ -1,13 +1,16 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import type { GameResult, Level } from '../types';
 import { albumArtworkStyle } from '../assets/ui/albumArtwork';
+import { getAccuracyPercent } from '../game/stars';
 import { formatNumber, t } from '../i18n';
 import { BrandHeader } from './BrandHeader';
+import { StarRating } from './StarRating';
 
 export type ResultOutcome = 'complete' | 'crashed';
 
 interface ResultScreenProps {
   result: GameResult;
+  stars: number;
   level: Level;
   outcome: ResultOutcome;
   onReplay: () => void;
@@ -27,10 +30,9 @@ function spectrumStyle(height: number, index: number): CSSProperties {
   } as CSSProperties;
 }
 
-export function ResultScreen({ result, level, outcome, onReplay, onHome }: ResultScreenProps) {
+export function ResultScreen({ result, stars, level, outcome, onReplay, onHome }: ResultScreenProps) {
   const [spectrumStopped, setSpectrumStopped] = useState(false);
-  const accuracy = result.total ? Math.round((result.hits / result.total) * 100) : 0;
-  const rank = accuracy >= 95 ? 'S' : accuracy >= 85 ? 'A' : accuracy >= 70 ? 'B' : 'C';
+  const accuracy = getAccuracyPercent(result);
   const completed = outcome === 'complete';
 
   useEffect(() => {
@@ -60,7 +62,7 @@ export function ResultScreen({ result, level, outcome, onReplay, onHome }: Resul
 
       <section
         className={`result-score-stage${spectrumStopped ? ' is-spectrum-stopped' : ''}`}
-        aria-label={t('result.scoreLabel', { score: formatNumber(result.score) })}
+        aria-label={t('result.summaryLabel', { score: formatNumber(result.score), stars })}
       >
         <span className="result-spectrum result-spectrum-left" aria-hidden="true">
           {SPECTRUM_LINES.map((height, index) => (
@@ -71,7 +73,11 @@ export function ResultScreen({ result, level, outcome, onReplay, onHome }: Resul
           <div className="result-score-ring-copy">
             <span>{t('result.score')}</span>
             <strong>{formatNumber(result.score)}</strong>
-            <small>{t('result.rank', { rank })}</small>
+            <StarRating
+              className="result-stars"
+              label={t('result.starsLabel', { stars })}
+              value={stars}
+            />
           </div>
         </div>
         <span className="result-spectrum result-spectrum-right" aria-hidden="true">
