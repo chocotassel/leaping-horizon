@@ -95,10 +95,13 @@ button { font: inherit; }
 
 /* Game */
 .game-screen {
+  --game-danger: #ff3448;
   touch-action: none;
   user-select: none;
   background: #030712;
 }
+
+.game-screen.is-crashed { --cyan: var(--game-danger); }
 
 .game-canvas {
   display: block;
@@ -114,6 +117,30 @@ button { font: inherit; }
     linear-gradient(to bottom, rgb(2 8 20 / 0.38), transparent 24%, transparent 72%, rgb(1 5 13 / 0.56)),
     radial-gradient(ellipse at center, transparent 44%, rgb(1 6 16 / 0.24));
 }
+
+.game-crash-atmosphere {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 67%, rgb(255 56 75 / 0.5), transparent 24%),
+    radial-gradient(ellipse at 50% 108%, rgb(190 0 28 / 0.72), transparent 56%),
+    linear-gradient(180deg, rgb(90 0 15 / 0.08), rgb(255 18 48 / 0.34));
+  transform: scale(1.08);
+}
+
+.game-screen.is-crashed .game-crash-atmosphere {
+  animation: crash-atmosphere-in 1150ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.game-screen.is-crashed .game-beat-wave::before,
+.game-screen.is-crashed .game-beat-wave::after {
+  background: linear-gradient(90deg, transparent, rgb(255 52 72 / 0.64));
+}
+
+.game-screen.is-crashed .game-beat-wave i { background: var(--game-danger); }
 
 .game-hud {
   position: absolute;
@@ -350,6 +377,12 @@ button { font: inherit; }
 }
 
 @keyframes hud-wave { to { height: 20px; opacity: 0.95; } }
+@keyframes crash-atmosphere-in {
+  0% { opacity: 0; transform: scale(1.08); }
+  12% { opacity: 0.96; transform: scale(1); }
+  38% { opacity: 0.58; }
+  100% { opacity: 0.42; transform: scale(1.015); }
+}
 @keyframes pause-spin { to { transform: rotate(360deg); } }
 
 @media (max-height: 700px) {

@@ -158,6 +158,7 @@ export class GameScene {
   private readonly scale = new THREE.Vector3(1, 1, 1);
   private readonly tempColor = new THREE.Color();
   private readonly glowColor = new THREE.Color(SCENE_COLOR_SCHEMES[DEFAULT_SCENE_COLOR_SCHEME_ID].primary);
+  private readonly crashColor = new THREE.Color(0xff3448);
   private readonly ringCoreColor = new THREE.Color(SCENE_COLOR_SCHEMES[DEFAULT_SCENE_COLOR_SCHEME_ID].ringCore);
   private readonly hazardColor = new THREE.Color(SCENE_COLOR_SCHEMES[DEFAULT_SCENE_COLOR_SCHEME_ID].hazard);
   private readonly primaryChannels: THREE.Color[] = [];
@@ -1310,7 +1311,7 @@ export class GameScene {
       particle.sz = (hazard ? 0.9 : 0.6) + (created % 5) * 0.2;
       particle.spinX = (hazard ? 7 : 3) + (created % 6) * 1.4;
       particle.spinY = (hazard ? 8 : 4) + (created % 7) * 1.2;
-      particle.colorMix = hazard ? (created % 4 === 0 ? 0.9 : created % 3 === 0 ? 0.35 : 0) : 0;
+      particle.colorMix = hazard ? 0.78 + created % 4 * 0.07 : 0;
       created += 1;
     }
   }
@@ -1319,6 +1320,7 @@ export class GameScene {
     if (this.crashed) return;
     this.crashed = true;
     this.crashElapsed = 0;
+    this.setColorScheme('redWhite');
     this.player.visible = false;
     this.trailMesh.visible = false;
     this.ringHitPulse = 1.2;
@@ -1351,7 +1353,7 @@ export class GameScene {
       this.particles.setMatrixAt(i, this.matrix);
       this.particles.setColorAt(
         i,
-        this.tempColor.copy(this.glowColor).lerp(this.hazardColor, particle.colorMix),
+        this.tempColor.copy(this.glowColor).lerp(this.crashColor, particle.colorMix),
       );
     }
     this.particles.instanceMatrix.needsUpdate = true;

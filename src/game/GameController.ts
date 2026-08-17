@@ -12,8 +12,9 @@ import { GameScene } from './GameScene';
 import type { SceneColorSchemeId } from './colorSchemes';
 import { overlapsCollectibleTarget, overlapsPlayer } from './physics';
 
-interface GameCallbacks {
+export interface GameCallbacks {
   onHud: (hud: GameHud) => void;
+  onCrash?: () => void;
   onDeath: (result: GameResult) => void;
   onFinish: (result: GameResult) => void;
 }
@@ -329,6 +330,7 @@ export class GameController {
         this.dead = true;
         this.crashSongTime = time;
         this.crashStartedAt = performance.now();
+        this.callbacks.onCrash?.();
         this.scene.crash(resolution.impactX ?? this.scene.getPlayerX());
         this.audio.crash();
         return;

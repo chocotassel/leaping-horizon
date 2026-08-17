@@ -6,7 +6,11 @@ import { AudioEngine } from './audio/AudioEngine';
 import { DEFAULT_LEVEL_ID, LEVELS, getLevelById } from './chart';
 import { GameScreen } from './components/GameScreen';
 import { HomeScreen } from './components/HomeScreen';
-import { ResultScreen, type ResultOutcome } from './components/ResultScreen';
+import {
+  getResultPresentation,
+  ResultScreen,
+  type ResultOutcome,
+} from './components/ResultScreen';
 import { StartScreen } from './components/StartScreen';
 import { gameDataManager, recordLevelResult } from './data/localData';
 import { getEarnedStars } from './game/stars';
@@ -111,7 +115,7 @@ export default function App() {
             result={result}
             stars={resultStars}
             level={level}
-            outcome={resultOutcome}
+            presentation={getResultPresentation(resultOutcome)}
             onReplay={startGame}
             onHome={() => setScreen('home')}
           />

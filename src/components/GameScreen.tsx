@@ -37,6 +37,7 @@ export function GameScreen({
     doubleHitRows: 0,
   });
   const [paused, setPaused] = useState(false);
+  const [crashed, setCrashed] = useState(false);
   const total = countChoiceRows(level.events);
   const totalMultiTargetRows = countMultiTargetRows(level.events);
   const starProgress = getStarProgress({
@@ -49,6 +50,10 @@ export function GameScreen({
     if (!canvasRef.current || !stageRef.current) return;
     const controller = new GameController(canvasRef.current, level, {
       onHud: setHud,
+      onCrash: () => {
+        setCrashed(true);
+        setPaused(false);
+      },
       onDeath: (result) => {
         setPaused(false);
         onDeath(result);
@@ -115,7 +120,7 @@ export function GameScreen({
   return (
     <main
       ref={stageRef}
-      className="screen game-screen"
+      className={`screen game-screen${crashed ? ' is-crashed' : ''}`}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -123,6 +128,7 @@ export function GameScreen({
     >
       <canvas ref={canvasRef} className="game-canvas" />
       <div className="game-vignette" />
+      <div className="game-crash-atmosphere" aria-hidden="true" />
       <header className="game-hud">
         <div className="game-star-progress">
           <span>{t('game.starProgress')}</span>

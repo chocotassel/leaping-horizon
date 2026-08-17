@@ -8,13 +8,41 @@ import { StarRating } from './StarRating';
 
 export type ResultOutcome = 'complete' | 'crashed';
 
-interface ResultScreenProps {
+export type ResultTone = 'success' | 'danger';
+
+export interface ResultPresentation {
+  tone: ResultTone;
+  status: string;
+  title: string;
+  subtitle: string;
+  replayLabel: string;
+}
+
+export interface ResultScreenProps {
   result: GameResult;
   stars: number;
   level: Level;
-  outcome: ResultOutcome;
+  presentation: ResultPresentation;
   onReplay: () => void;
   onHome: () => void;
+}
+
+export function getResultPresentation(outcome: ResultOutcome): ResultPresentation {
+  return outcome === 'complete'
+    ? {
+        tone: 'success',
+        status: t('result.statusComplete'),
+        title: t('result.titleComplete'),
+        subtitle: t('result.subtitleComplete'),
+        replayLabel: t('result.replayComplete'),
+      }
+    : {
+        tone: 'danger',
+        status: t('result.statusCrashed'),
+        title: t('result.titleCrashed'),
+        subtitle: t('result.subtitleCrashed'),
+        replayLabel: t('result.replayCrashed'),
+      };
 }
 
 const SPECTRUM_LINES = [
@@ -30,10 +58,9 @@ function spectrumStyle(height: number, index: number): CSSProperties {
   } as CSSProperties;
 }
 
-export function ResultScreen({ result, stars, level, outcome, onReplay, onHome }: ResultScreenProps) {
+export function ResultScreen({ result, stars, level, presentation, onReplay, onHome }: ResultScreenProps) {
   const [spectrumStopped, setSpectrumStopped] = useState(false);
   const accuracy = getAccuracyPercent(result);
-  const completed = outcome === 'complete';
 
   useEffect(() => {
     setSpectrumStopped(false);
@@ -42,7 +69,7 @@ export function ResultScreen({ result, stars, level, outcome, onReplay, onHome }
   }, [result]);
 
   return (
-    <main className={`screen result-screen ${completed ? 'is-complete' : 'is-crashed'}`}>
+    <main className={`screen result-screen is-${presentation.tone}`}>
       <BrandHeader />
 
       <section className="result-track" style={albumArtworkStyle(level.id)}>
@@ -55,9 +82,9 @@ export function ResultScreen({ result, stars, level, outcome, onReplay, onHome }
       </section>
 
       <section className="result-message">
-        <span className="result-status">{completed ? t('result.statusComplete') : t('result.statusCrashed')}</span>
-        <h1>{completed ? t('result.titleComplete') : t('result.titleCrashed')}</h1>
-        <p>{completed ? t('result.subtitleComplete') : t('result.subtitleCrashed')}</p>
+        <span className="result-status">{presentation.status}</span>
+        <h1>{presentation.title}</h1>
+        <p>{presentation.subtitle}</p>
       </section>
 
       <section
@@ -95,7 +122,7 @@ export function ResultScreen({ result, stars, level, outcome, onReplay, onHome }
 
       <div className="result-actions">
         <button className="shell-primary-button" type="button" onClick={onReplay}>
-          {completed ? t('result.replayComplete') : t('result.replayCrashed')}
+          {presentation.replayLabel}
         </button>
         <button className="shell-text-button" type="button" onClick={onHome}>{t('result.backToSongs')}</button>
       </div>
