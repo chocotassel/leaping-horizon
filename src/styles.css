@@ -102,6 +102,7 @@ button { font: inherit; }
 /* Game */
 .game-screen {
   --game-danger: #ff3448;
+  padding: 0;
   touch-action: none;
   user-select: none;
   background: #030712;
