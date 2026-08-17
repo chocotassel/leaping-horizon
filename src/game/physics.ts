@@ -2,6 +2,7 @@ export const PLAYER_Z = -2.4;
 export const APPROACH_SECONDS = 5;
 export const OBSTACLE_SPAWN_Z = -126;
 export const RING_SPAWN_Z = -64;
+export const OBSTACLE_DESPAWN_SECONDS = 0.6;
 export const MIN_RING_APPROACH_SECONDS = 2;
 /** Runtime hard cap; level generation deliberately reserves a larger movement margin. */
 export const PLAYER_MAX_LATERAL_SPEED = 30;
@@ -30,6 +31,21 @@ export function moveTowards(current: number, target: number, maximumDelta: numbe
 
 export function shouldRenderObstacle(state: 'pending' | 'hit' | 'miss' | null): boolean {
   return state === 'pending' || state === 'miss';
+}
+
+export function findFirstVisibleEventIndex(
+  events: readonly { timeSeconds: number }[],
+  time: number,
+): number {
+  const earliestTime = time - OBSTACLE_DESPAWN_SECONDS;
+  let low = 0;
+  let high = events.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (events[middle].timeSeconds < earliestTime) low = middle + 1;
+    else high = middle;
+  }
+  return low;
 }
 
 export function getRingApproach(time: number, duration: number, lastObstacleTime: number | null): number {

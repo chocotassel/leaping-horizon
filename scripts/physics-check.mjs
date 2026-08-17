@@ -18,6 +18,12 @@ assert.equal(physics.RING_SPAWN_Z, -64);
 assert.ok(physics.getObstacleZ(-0.1) - physics.PLAYER_Z > 2);
 assert.equal(physics.shouldRenderObstacle('miss'), true);
 assert.equal(physics.shouldRenderObstacle('hit'), false);
+assert.ok(physics.getObstacleZ(-physics.OBSTACLE_DESPAWN_SECONDS) > 12);
+assert.equal(physics.findFirstVisibleEventIndex([
+  { timeSeconds: 1 },
+  { timeSeconds: 2 },
+  { timeSeconds: 3 },
+], 2.7), 2);
 assert.equal(physics.getRingApproach(38, 40.5, 38.1), 0);
 assert.equal(physics.getRingApproach(38.1, 40.5, 38.1), 0);
 assert.equal(physics.getRingApproach(40.5, 40.5, 38.1), 1);
@@ -38,6 +44,7 @@ try {
     resolveEventRow,
   } = await vite.ssrLoadModule('/src/game/GameController.ts');
   const { getEarnedStars } = await vite.ssrLoadModule('/src/game/stars.ts');
+  const { getMaxObstacleCountInWindow, LEVELS } = await vite.ssrLoadModule('/src/chart.ts');
   const { getResultPresentation } = await vite.ssrLoadModule('/src/components/ResultScreen.tsx');
   const { LocalDataManager, isLevelUnlocked, recordLevelResult } = await vite.ssrLoadModule('/src/data/localData.ts');
   const { formatNumber, locale, t } = await vite.ssrLoadModule('/src/i18n/index.ts');
@@ -191,6 +198,22 @@ try {
     { timeSeconds: 2, kind: 'dodge', obstacles: [2, 2, 0, 0, 0] },
     { timeSeconds: 3, kind: 'target', obstacles: [0, 1, 0, 0, 0] },
   ]), 1);
+  assert.equal(getMaxObstacleCountInWindow({ events: [
+    { timeSeconds: 0, obstacles: [1, 1, 0, 0, 0] },
+    { timeSeconds: 0.5, obstacles: [1, 0, 2, 0, 0] },
+    { timeSeconds: 2, obstacles: [0, 0, 2, 2, 0] },
+  ] }, 1, 1), 3);
+  assert.equal(getMaxObstacleCountInWindow({ events: [
+    { timeSeconds: 0, obstacles: [1, 1, 0, 0, 0] },
+    { timeSeconds: 0.5, obstacles: [1, 0, 2, 0, 0] },
+    { timeSeconds: 2, obstacles: [0, 0, 2, 2, 0] },
+  ] }, 2, 1), 2);
+  assert.deepEqual(Object.keys(LEVELS[0].generation).sort(), ['algorithm', 'noteCount']);
+  assert.ok(LEVELS.every((level) => level.events.every((event) => (
+    Object.keys(event).every((key) => (
+      ['timeSeconds', 'obstacles', 'kind', 'downbeatCue', 'barIndex'].includes(key)
+    ))
+  ))));
 
   const starResult = {
     score: 1000,

@@ -14,9 +14,7 @@ export interface RenderProfile {
 interface DeviceCapabilities {
   hardwareConcurrency?: number;
   deviceMemory?: number;
-  devicePixelRatio?: number;
-  screenWidth?: number;
-  screenHeight?: number;
+  mobile?: boolean;
 }
 
 export function selectRenderProfile(capabilities: DeviceCapabilities): RenderProfile {
@@ -28,16 +26,12 @@ export function selectRenderProfile(capabilities: DeviceCapabilities): RenderPro
     && (capabilities.deviceMemory ?? 0) > 0
     ? capabilities.deviceMemory
     : undefined;
-  const shortSide = Math.min(capabilities.screenWidth ?? 0, capabilities.screenHeight ?? 0);
-  const longSide = Math.max(capabilities.screenWidth ?? 0, capabilities.screenHeight ?? 0);
-  const proMaxClassDisplay = (capabilities.devicePixelRatio ?? 0) >= 3
-    && shortSide >= 420
-    && longSide >= 900;
-  const tier: RenderTier = proMaxClassDisplay
-    ? 'high'
-    : memory !== undefined && memory <= 2
-    || cores !== undefined && cores <= 4
-      ? 'low'
+  const lowPower = memory !== undefined && memory <= 2
+    || cores !== undefined && cores <= 3;
+  const tier: RenderTier = lowPower
+    ? 'low'
+    : capabilities.mobile
+      ? 'balanced'
       : cores !== undefined && cores >= 6 || memory !== undefined && memory >= 8
         ? 'high'
         : 'balanced';
@@ -55,6 +49,13 @@ export function selectRenderProfile(capabilities: DeviceCapabilities): RenderPro
     lowGeometry: false,
     maxPixelRatio: 3,
     maxRenderPixels: 4_000_000,
+  };
+  if (capabilities.mobile) return {
+    tier,
+    antialias: false,
+    lowGeometry: true,
+    maxPixelRatio: 1.5,
+    maxRenderPixels: 1_800_000,
   };
   return {
     tier,

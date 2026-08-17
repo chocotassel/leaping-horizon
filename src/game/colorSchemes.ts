@@ -1,6 +1,8 @@
 export interface SceneColorScheme {
-  /** 玩家、道路、频谱、背景线与障碍物共享的主色。 */
+  /** 道路、频谱、背景线与障碍物共享的主色。 */
   readonly primary: number;
+  /** 飞镖专用高亮色；保持主色色相，但降低饱和度以提高可见度。 */
+  readonly player: number;
   /** 主色的小幅偏色，用于道路细边、尾焰内芯与装饰线。 */
   readonly detail: number;
   /** 障碍物只使用一种基础色；表面明暗由中性纹理和光照产生。 */
@@ -35,6 +37,7 @@ export type SceneColorSchemeId = keyof typeof SCENE_COLOR_HUES;
 
 export const SCENE_COLOR_SATURATION = 0.84;
 export const SCENE_COLOR_VALUE = 1;
+const PLAYER_COLOR_SATURATION = SCENE_COLOR_SATURATION * 0.72;
 
 function hsvColor(hue: number, saturation = SCENE_COLOR_SATURATION): number {
   const sector = ((hue % 360) + 360) % 360 / 60;
@@ -56,9 +59,10 @@ function hsvColor(hue: number, saturation = SCENE_COLOR_SATURATION): number {
 
 function makeColorScheme(hues: SceneColorHues): SceneColorScheme {
   const primary = hsvColor(hues.primary);
+  const player = hsvColor(hues.primary, PLAYER_COLOR_SATURATION);
   const detail = hsvColor(hues.primary + 20, SCENE_COLOR_SATURATION * 0.94);
   const accent = hues.accent === 'white' ? 0xffffff : hsvColor(hues.accent);
-  return { primary, detail, obstacle: primary, hazard: accent, ringCore: accent };
+  return { primary, player, detail, obstacle: primary, hazard: accent, ringCore: accent };
 }
 
 export const SCENE_COLOR_SCHEMES = {

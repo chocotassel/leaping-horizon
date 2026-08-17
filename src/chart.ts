@@ -71,6 +71,28 @@ export function getMaxEventRowsInWindow(level: Level, windowSeconds: number): nu
   return maximum;
 }
 
+export function getMaxObstacleCountInWindow(
+  level: Pick<Level, 'events'>,
+  type: ObstacleType,
+  windowSeconds: number,
+): number {
+  let start = 0;
+  let current = 0;
+  let maximum = 0;
+  const counts = level.events.map((event) => (
+    event.obstacles.reduce((count, obstacle) => count + Number(obstacle === type), 0)
+  ));
+  for (let end = 0; end < level.events.length; end += 1) {
+    current += counts[end];
+    while (level.events[end].timeSeconds - level.events[start].timeSeconds > windowSeconds) {
+      current -= counts[start];
+      start += 1;
+    }
+    maximum = Math.max(maximum, current);
+  }
+  return maximum;
+}
+
 const levelModules = import.meta.glob<{ default: unknown }>('./songs/*/level.json', { eager: true });
 const audioModules = import.meta.glob<string>('./songs/*/audio.mp3', {
   eager: true,

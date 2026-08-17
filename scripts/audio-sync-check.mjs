@@ -11,31 +11,42 @@ const param = (value = 0) => ({
   linearRampToValueAtTime(next) { this.value = next; },
   setValueAtTime(next) { this.value = next; },
 });
-const audioNode = () => ({ connect() {}, disconnect() {} });
+const audioNode = (kind) => ({
+  kind,
+  connections: [],
+  connect(target) { this.connections.push(target); },
+  disconnect() { this.connections.length = 0; },
+});
 
 class FakeAudioContext {
   static instance;
+  static instances = [];
 
-  constructor() {
+  constructor(options) {
     FakeAudioContext.instance = this;
+    FakeAudioContext.instances.push(this);
+    this.options = options;
     this.currentTime = 0;
-    this.destination = {};
+    this.destination = audioNode('destination');
+    this.analysers = [];
     this.sampleRate = 22050;
     this.sources = [];
     this.state = 'running';
   }
 
   createAnalyser() {
-    return { ...audioNode(), frequencyBinCount: 128, getByteFrequencyData() {} };
+    this.analyser = { ...audioNode('analyser'), frequencyBinCount: 128, getByteFrequencyData() {} };
+    this.analysers.push(this.analyser);
+    return this.analyser;
   }
 
   createBiquadFilter() {
-    return { ...audioNode(), frequency: param(), Q: param() };
+    return { ...audioNode('filter'), frequency: param(), Q: param() };
   }
 
   createBufferSource() {
     const source = {
-      ...audioNode(),
+      ...audioNode('source'),
       detune: param(),
       playbackRate: param(1),
       start: (_when = 0, offset = 0) => { source.startOffset = offset; },
@@ -46,11 +57,11 @@ class FakeAudioContext {
   }
 
   createGain() {
-    return { ...audioNode(), gain: param() };
+    return { ...audioNode('gain'), gain: param() };
   }
 
   createWaveShaper() {
-    return audioNode();
+    return audioNode('distortion');
   }
 
   decodeAudioData() {
@@ -64,6 +75,11 @@ class FakeAudioContext {
 
   suspend() {
     this.state = 'suspended';
+    return Promise.resolve();
+  }
+
+  close() {
+    this.state = 'closed';
     return Promise.resolve();
   }
 }
@@ -88,9 +104,11 @@ const { AudioEngine } = require(`${outputDir}/leaping-horizon-audio-engine.js`);
 AudioEngine.setMusicEnabled(false);
 await AudioEngine.unlock();
 const engine = new AudioEngine(60, 120, 'data:audio/mp3;base64,AA==');
-const context = FakeAudioContext.instance;
+let context = FakeAudioContext.instance;
 await engine.start();
 
+assert.equal(context.options?.sampleRate, undefined, 'AudioContext must use the output device sample rate');
+assert.equal(context.analyser.connections[0].kind, 'gain', 'normal music must bypass crash DSP');
 assert.equal(context.sources.length, 0, 'muted music should not start at the beginning');
 context.currentTime = 12;
 AudioEngine.setMusicEnabled(true);
@@ -109,7 +127,12 @@ assert.equal(context.sources.at(-1).startOffset, 15, 'resume should restart musi
 context.currentTime = 19;
 assert.equal(engine.currentTime, 16, 'game time should continue from the paused position');
 
-engine.stop();
+const degradedContext = context;
+await AudioEngine.recover();
+context = FakeAudioContext.instance;
+assert.notEqual(context, degradedContext, 'route recovery must replace the AudioContext');
+assert.equal(degradedContext.state, 'closed');
+assert.equal(context.sources.at(-1).startOffset, 16, 'route recovery must preserve game time');
 
 let finishDecode;
 context.decodeAudioData = () => new Promise((resolve) => { finishDecode = resolve; });
@@ -119,6 +142,16 @@ await loadingEngine.pause();
 finishDecode({ duration: 60 });
 await start;
 assert.equal(loadingEngine.paused, true, 'pausing during audio decode must stay paused');
+engine.crash();
+assert.ok(
+  context.analysers.some((analyser) => analyser.connections[0]?.kind === 'distortion'),
+  'only a crash enables DSP',
+);
+engine.stop();
+assert.equal(context.state, 'running', 'a shared context stays alive while another game uses it');
 loadingEngine.stop();
+assert.equal(context.state, 'closed', 'the last game must release a potentially degraded context');
+await AudioEngine.unlock();
+assert.equal(FakeAudioContext.instances.length, 3, 'the next session must get a fresh context');
 
 console.log('audio sync check passed');

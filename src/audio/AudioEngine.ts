@@ -4,6 +4,13 @@ type WindowWithWebkitAudio = Window & typeof globalThis & {
   webkitAudioContext?: typeof AudioContext;
 };
 
+function createAudioContext(): AudioContext {
+  const AudioContextClass = window.AudioContext ||
+    (window as WindowWithWebkitAudio).webkitAudioContext;
+  if (!AudioContextClass) throw new Error(t('error.webAudioUnsupported'));
+  return new AudioContextClass();
+}
+
 function createCrashDistortionCurve(): Float32Array<ArrayBuffer> {
   const curve = new Float32Array(256);
   const drive = 3.2;
@@ -29,11 +36,11 @@ export class AudioEngine {
   private context: AudioContext;
   private source: AudioBufferSourceNode | null = null;
   private buffer: AudioBuffer | null = null;
-  private gain: GainNode;
-  private analyser: AnalyserNode;
-  private distortion: WaveShaperNode;
-  private filter: BiquadFilterNode;
-  private spectrumData: Uint8Array<ArrayBuffer>;
+  private gain!: GainNode;
+  private analyser!: AnalyserNode;
+  private distortion!: WaveShaperNode;
+  private filter!: BiquadFilterNode;
+  private spectrumData!: Uint8Array<ArrayBuffer>;
   private startedAt = 0;
   private pausedAt = 0;
   private isPaused = false;
@@ -46,12 +53,40 @@ export class AudioEngine {
   /** 必须从用户点击回调直接调用，以满足移动浏览器的音频播放策略。 */
   static async unlock(): Promise<void> {
     if (!this.sharedContext || this.sharedContext.state === 'closed') {
-      const AudioContextClass = window.AudioContext ||
-        (window as WindowWithWebkitAudio).webkitAudioContext;
-      if (!AudioContextClass) return;
-      this.sharedContext = new AudioContextClass({ latencyHint: 'interactive', sampleRate: 22050 });
+      this.sharedContext = createAudioContext();
+      this.activeEngines.forEach((engine) => {
+        engine.replaceContext(this.sharedContext!, engine.currentTime);
+      });
     }
-    if (this.sharedContext.state === 'suspended') await this.sharedContext.resume();
+    try {
+      if (this.sharedContext.state !== 'running') await this.sharedContext.resume();
+    } catch { /* the next user gesture will retry */ }
+    if (this.sharedContext.state === 'running') {
+      this.activeEngines.forEach((engine) => engine.syncSource());
+    }
+  }
+
+  /** Rebuild Web Audio after page/output-route changes that can corrupt iOS contexts. */
+  static async recover(): Promise<void> {
+    const previous = this.sharedContext;
+    if (!previous) return;
+    const engines = Array.from(this.activeEngines, (engine) => ({
+      engine,
+      time: engine.currentTime,
+    }));
+    this.sharedContext = null;
+    if (engines.length === 0) {
+      try { await previous.close(); } catch { /* already closed */ }
+      return;
+    }
+    const context = createAudioContext();
+    this.sharedContext = context;
+    engines.forEach(({ engine, time }) => engine.replaceContext(context, time));
+    try { await previous.close(); } catch { /* already closed */ }
+    try {
+      if (context.state !== 'running') await context.resume();
+    } catch { /* the next user gesture will retry */ }
+    if (context.state === 'running') engines.forEach(({ engine }) => engine.syncSource());
   }
 
   static setMusicEnabled(enabled: boolean): void {
@@ -67,18 +102,24 @@ export class AudioEngine {
       const source = context.createBufferSource();
       source.buffer = buffer;
       source.connect(context.destination);
+      source.onended = () => source.disconnect();
       source.start();
     }).catch(() => {});
   }
 
   constructor(duration: number, bpm: number, audioUrl: string) {
-    const AudioContextClass = window.AudioContext ||
-      (window as WindowWithWebkitAudio).webkitAudioContext;
-    if (!AudioContextClass) throw new Error(t('error.webAudioUnsupported'));
     this.context = AudioEngine.sharedContext && AudioEngine.sharedContext.state !== 'closed'
       ? AudioEngine.sharedContext
-      : new AudioContextClass({ latencyHint: 'interactive', sampleRate: 22050 });
+      : createAudioContext();
     AudioEngine.sharedContext = this.context;
+    this.connectGraph();
+    AudioEngine.activeEngines.add(this);
+    this.duration = duration;
+    this.bpm = bpm;
+    this.audioUrl = audioUrl;
+  }
+
+  private connectGraph(): void {
     this.gain = this.context.createGain();
     this.analyser = this.context.createAnalyser();
     this.distortion = this.context.createWaveShaper();
@@ -91,19 +132,31 @@ export class AudioEngine {
     this.filter.Q.value = 0.0001;
     this.spectrumData = new Uint8Array(this.analyser.frequencyBinCount);
     this.gain.gain.value = 0.48;
-    AudioEngine.activeEngines.add(this);
-    this.analyser.connect(this.distortion);
+    this.analyser.connect(this.gain);
     this.distortion.connect(this.filter);
     this.filter.connect(this.gain);
     this.gain.connect(this.context.destination);
-    this.duration = duration;
-    this.bpm = bpm;
-    this.audioUrl = audioUrl;
+  }
+
+  private disconnectGraph(): void {
+    this.stopSource();
+    this.analyser.disconnect();
+    this.distortion.disconnect();
+    this.filter.disconnect();
+    this.gain.disconnect();
+  }
+
+  private replaceContext(context: AudioContext, time: number): void {
+    this.disconnectGraph();
+    this.context = context;
+    this.startedAt = context.currentTime - time;
+    if (this.isPaused) this.pausedAt = time;
+    this.connectGraph();
   }
 
   async start(): Promise<void> {
     const track = this.loadTrack();
-    if (this.context.state === 'suspended') void this.context.resume();
+    await AudioEngine.unlock();
     const buffer = await track;
     if (this.stopped) return;
     this.buffer = buffer;
@@ -171,6 +224,7 @@ export class AudioEngine {
   }
 
   get currentTime(): number {
+    if (!this.buffer) return 0;
     if (this.isPaused) return this.pausedAt;
     return Math.min(this.duration, Math.max(0, this.context.currentTime - this.startedAt));
   }
@@ -193,7 +247,7 @@ export class AudioEngine {
 
   async resume(): Promise<void> {
     if (!this.isPaused) return;
-    await this.context.resume();
+    await AudioEngine.unlock();
     this.startedAt = this.context.currentTime - this.pausedAt;
     this.isPaused = false;
     this.syncSource();
@@ -205,6 +259,8 @@ export class AudioEngine {
     const now = this.context.currentTime;
     const end = now + 1.05;
 
+    this.analyser.disconnect();
+    this.analyser.connect(this.distortion);
     this.distortion.curve = createCrashDistortionCurve();
     this.source.playbackRate.cancelScheduledValues(now);
     this.source.playbackRate.setValueAtTime(Math.max(0.01, this.source.playbackRate.value), now);
@@ -229,11 +285,12 @@ export class AudioEngine {
 
   stop(): void {
     this.stopped = true;
-    this.stopSource();
-    this.analyser.disconnect();
-    this.distortion.disconnect();
-    this.filter.disconnect();
-    this.gain.disconnect();
+    this.disconnectGraph();
     AudioEngine.activeEngines.delete(this);
+    if (AudioEngine.activeEngines.size === 0 && AudioEngine.sharedContext === this.context) {
+      const context = this.context;
+      AudioEngine.sharedContext = null;
+      void context.close().catch(() => {});
+    }
   }
 }

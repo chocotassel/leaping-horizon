@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import babel from '@rollup/plugin-babel';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
-import { base64AssetPlugin } from './vite.base64-plugin.ts';
+import { base64AssetPlugin, runtimeLevelPlugin } from './vite.base64-plugin.ts';
 
 function android8CssPlugin(): Plugin {
   const legacyValue = (value: string): string => {
@@ -85,6 +85,7 @@ export default defineConfig({
   publicDir: false,
   plugins: [
     base64AssetPlugin(),
+    runtimeLevelPlugin(),
     offlineRuntimePlugin(),
     android8CssPlugin(),
     react(),

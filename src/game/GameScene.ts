@@ -18,7 +18,7 @@ import {
   type LevelEvent,
   type ObstacleStateRow,
 } from '../types';
-import { getMaxEventRowsInWindow } from '../chart';
+import { getMaxEventRowsInWindow, getMaxObstacleCountInWindow } from '../chart';
 import {
   DEFAULT_SCENE_COLOR_SCHEME_ID,
   SCENE_COLOR_SCHEMES,
@@ -27,9 +27,11 @@ import {
 } from './colorSchemes';
 import {
   APPROACH_SECONDS,
+  findFirstVisibleEventIndex,
   getObstacleZ,
   getRingApproach,
   moveTowards,
+  OBSTACLE_DESPAWN_SECONDS,
   OBSTACLE_SPAWN_Z,
   PLAYER_MAX_LATERAL_SPEED,
   PLAYER_Z,
@@ -72,6 +74,9 @@ const PLAYER_LIMIT_X = 2;
 const PLAYER_IDLE_SPIN_SPEED = 1.5;
 const PLAYER_HIT_SPIN_SPEED = 48;
 const PLAYER_SPIN_RECOVERY = 4;
+const PLAYER_VISUAL_SCALE = 1.28;
+const PLAYER_REFLECTION_SIZE = 1.7;
+const PLAYER_REFLECTION_OPACITY = 0.48;
 const TRAIL_SEGMENT_COUNT = 26;
 const TRAIL_LENGTH = 9.8;
 const TRAIL_HEAD_Z_OFFSET = 0.66;
@@ -96,7 +101,39 @@ const NORMAL_EDGE_TRANSFORMS = [
   [0.5, -0.5, 0, NORMAL_EDGE_THICKNESS, NORMAL_EDGE_THICKNESS, NORMAL_EDGE_LENGTH],
   [0.5, 0.5, 0, NORMAL_EDGE_THICKNESS, NORMAL_EDGE_THICKNESS, NORMAL_EDGE_LENGTH],
 ] as const;
+const SPIKE_OFFSETS = [
+  [0, 0],
+  [-0.28, -0.28],
+  [0.28, -0.28],
+  [-0.28, 0.28],
+  [0.28, 0.28],
+] as const;
 const hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
+
+interface RingTransform {
+  angle: number;
+  x: number;
+  y: number;
+  rotation: THREE.Quaternion;
+}
+
+function createRingTransforms(count: number): RingTransform[] {
+  return Array.from({ length: count }, (_, index) => {
+    const angle = index / count * Math.PI * 2;
+    return {
+      angle,
+      x: Math.cos(angle),
+      y: Math.sin(angle),
+      rotation: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, angle - Math.PI / 2)),
+    };
+  });
+}
+
+function markInstanceMatrixUpdate(mesh: THREE.InstancedMesh, count: number): void {
+  if (count <= 0) return;
+  mesh.instanceMatrix.addUpdateRange(0, count * 16);
+  mesh.instanceMatrix.needsUpdate = true;
+}
 
 interface Particle {
   active: boolean;
@@ -124,7 +161,7 @@ interface FloatingCube {
   phase: number;
 }
 
-type SceneColorRole = 'primary' | 'detail' | 'ringCore' | 'hazard';
+type SceneColorRole = 'primary' | 'player' | 'detail' | 'ringCore' | 'hazard';
 
 function getDecorativeMetalColor(index: number): number {
   return index % 5 === 0 ? 0x17324a : index % 3 === 0 ? 0x10243a : 0x09182b;
@@ -144,6 +181,7 @@ export class GameScene {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(76, 1, 0.1, 900);
   private readonly player = new THREE.Group();
+  private readonly playerReflection: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   private readonly rhythmRing = new THREE.Group();
   private readonly trailMesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
   private readonly trailHistory = new Float32Array(TRAIL_SEGMENT_COUNT);
@@ -169,14 +207,17 @@ export class GameScene {
   private readonly matrix = new THREE.Matrix4();
   private readonly position = new THREE.Vector3();
   private readonly quaternion = new THREE.Quaternion();
+  private readonly euler = new THREE.Euler();
   private readonly scale = new THREE.Vector3(1, 1, 1);
   private readonly tempColor = new THREE.Color();
   private readonly glowColor = new THREE.Color(SCENE_COLOR_SCHEMES[DEFAULT_SCENE_COLOR_SCHEME_ID].primary);
+  private readonly playerColor = new THREE.Color(SCENE_COLOR_SCHEMES[DEFAULT_SCENE_COLOR_SCHEME_ID].player);
   private readonly detailColor = new THREE.Color(SCENE_COLOR_SCHEMES[DEFAULT_SCENE_COLOR_SCHEME_ID].detail);
   private readonly crashColor = new THREE.Color(0xff3448);
   private readonly ringCoreColor = new THREE.Color(SCENE_COLOR_SCHEMES[DEFAULT_SCENE_COLOR_SCHEME_ID].ringCore);
   private readonly hazardColor = new THREE.Color(SCENE_COLOR_SCHEMES[DEFAULT_SCENE_COLOR_SCHEME_ID].hazard);
   private readonly primaryChannels: THREE.Color[] = [];
+  private readonly playerChannels: THREE.Color[] = [];
   private readonly detailChannels: THREE.Color[] = [];
   private readonly ringCoreChannels: THREE.Color[] = [];
   private readonly hazardChannels: THREE.Color[] = [];
@@ -203,6 +244,10 @@ export class GameScene {
   private innerSpectrumClusters: SpectrumCluster[] = [];
   private readonly outerSpectrumHeights = new Float32Array(OUTER_SPECTRUM_COUNT).fill(1);
   private readonly innerSpectrumHeights = new Float32Array(INNER_SPECTRUM_COUNT).fill(1);
+  private readonly outerSpectrumTransforms = createRingTransforms(OUTER_SPECTRUM_COUNT);
+  private readonly innerSpectrumTransforms = createRingTransforms(INNER_SPECTRUM_COUNT);
+  private readonly outerSpectrumAmplitudes: number[] = [];
+  private readonly innerSpectrumAmplitudes: number[] = [];
   private previousSpectrum: Uint8Array | null = null;
   private outerSpectrumImpact = 0;
   private innerSpectrumImpact = 0;
@@ -220,9 +265,7 @@ export class GameScene {
     this.renderProfile = selectRenderProfile({
       deviceMemory: nav.deviceMemory,
       hardwareConcurrency: navigator.hardwareConcurrency,
-      devicePixelRatio,
-      screenWidth: screen.width,
-      screenHeight: screen.height,
+      mobile: navigator.maxTouchPoints > 0,
     });
     this.lastObstacleTime = level.events.length
       ? level.events[level.events.length - 1].timeSeconds
@@ -231,7 +274,7 @@ export class GameScene {
       canvas,
       antialias: this.renderProfile.antialias,
       alpha: false,
-      powerPreference: 'high-performance',
+      powerPreference: this.renderProfile.tier === 'high' ? 'high-performance' : 'default',
     });
     this.renderer.setPixelRatio(getRenderPixelRatio(
       this.renderProfile,
@@ -249,8 +292,10 @@ export class GameScene {
     this.camera.lookAt(0, 0, CAMERA_TARGET_Z);
 
     const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.environmentTexture = pmrem.fromScene(new RoomEnvironment(), 0.03).texture;
+    const roomEnvironment = new RoomEnvironment();
+    this.environmentTexture = pmrem.fromScene(roomEnvironment, 0.03).texture;
     this.scene.environment = this.environmentTexture;
+    roomEnvironment.dispose();
     pmrem.dispose();
 
     this.scene.add(new THREE.HemisphereLight(0xeaf5ff, 0x020814, 1.6));
@@ -269,12 +314,18 @@ export class GameScene {
     this.floatingData = environment.floatingData;
     this.speedStreaks = environment.speedStreaks;
     this.trailMesh = this.createPlayer();
+    this.playerReflection = this.createPlayerReflection();
 
     const steelTexture = this.createSteelTexture();
     const obstaclePanelTexture = this.createObstaclePanelTexture();
-    const obstaclePoolSize = Math.max(
+    const obstacleWindowSeconds = APPROACH_SECONDS + OBSTACLE_DESPAWN_SECONDS;
+    const normalBlockPoolSize = Math.max(
       LANE_CENTERS.length,
-      (getMaxEventRowsInWindow(level, APPROACH_SECONDS) + 2) * LANE_CENTERS.length,
+      getMaxObstacleCountInWindow(level, ObstacleType.Breakable, obstacleWindowSeconds),
+    );
+    const spikePoolSize = Math.max(
+      LANE_CENTERS.length,
+      getMaxObstacleCountInWindow(level, ObstacleType.Spike, obstacleWindowSeconds),
     );
     const normalBlockMaterial = this.createMetalMaterial({
       color: this.colorScheme.obstacle,
@@ -289,7 +340,7 @@ export class GameScene {
     this.normalBlocks = this.createInstances(
       new THREE.BoxGeometry(1, 1, 1),
       normalBlockMaterial,
-      obstaclePoolSize,
+      normalBlockPoolSize,
     );
     const normalEdgeMaterial = this.createMetalMaterial({
       color: this.colorScheme.obstacle,
@@ -302,7 +353,7 @@ export class GameScene {
     this.normalEdges = this.createInstances(
       new THREE.BoxGeometry(1, 1, 1),
       normalEdgeMaterial,
-      obstaclePoolSize * NORMAL_EDGES_PER_OBSTACLE,
+      normalBlockPoolSize * NORMAL_EDGES_PER_OBSTACLE,
     );
 
     const spikeBaseMaterial = this.createMetalMaterial({
@@ -317,19 +368,19 @@ export class GameScene {
     this.spikeBases = this.createInstances(
       new THREE.BoxGeometry(1, 0.08, 1),
       spikeBaseMaterial,
-      obstaclePoolSize,
+      spikePoolSize,
     );
     const spikeConeMaterial = this.createMetalMaterial({
       color: this.colorScheme.hazard,
       metalness: 0.98,
       roughness: 0.14,
-      emissiveIntensity: 0.95,
+      emissiveIntensity: 0.4,
     }, 'hazard');
     this.hazardSurfaceChannels.push(spikeConeMaterial.color);
     this.spikeCones = this.createInstances(
       new THREE.ConeGeometry(0.2, 0.9, 4),
       spikeConeMaterial,
-      obstaclePoolSize * SPIKES_PER_OBSTACLE,
+      spikePoolSize * SPIKES_PER_OBSTACLE,
     );
 
     const particlePoolSize = Math.max(
@@ -383,6 +434,7 @@ export class GameScene {
   }
 
   private getRoleColor(role: SceneColorRole): THREE.Color {
+    if (role === 'player') return this.playerColor;
     if (role === 'detail') return this.detailColor;
     if (role === 'ringCore') return this.ringCoreColor;
     if (role === 'hazard') return this.hazardColor;
@@ -390,6 +442,7 @@ export class GameScene {
   }
 
   private getRoleChannels(role: SceneColorRole): THREE.Color[] {
+    if (role === 'player') return this.playerChannels;
     if (role === 'detail') return this.detailChannels;
     if (role === 'ringCore') return this.ringCoreChannels;
     if (role === 'hazard') return this.hazardChannels;
@@ -480,10 +533,12 @@ export class GameScene {
     this.colorSchemeId = colorSchemeId;
     this.colorScheme = scheme;
     this.glowColor.set(scheme.primary);
+    this.playerColor.set(scheme.player);
     this.detailColor.set(scheme.detail);
     this.ringCoreColor.set(scheme.ringCore);
     this.hazardColor.set(scheme.hazard);
     this.primaryChannels.forEach((channel) => channel.copy(this.glowColor));
+    this.playerChannels.forEach((channel) => channel.copy(this.playerColor));
     this.detailChannels.forEach((channel) => channel.copy(this.detailColor));
     this.ringCoreChannels.forEach((channel) => channel.copy(this.ringCoreColor));
     this.hazardChannels.forEach((channel) => channel.copy(this.hazardColor));
@@ -796,6 +851,9 @@ export class GameScene {
     );
     floatingCubes.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     floatingCubes.frustumCulled = false;
+    for (let i = 0; i < FLOATING_CUBE_COUNT; i += 1) {
+      floatingCubes.setColorAt(i, this.tempColor.setHex(getDecorativeMetalColor(i)));
+    }
     // 圆环禁用深度测试，因此装饰方块需要在圆环之后绘制才能处于其上层。
     floatingCubes.renderOrder = -5;
     this.scene.add(floatingCubes);
@@ -874,8 +932,8 @@ export class GameScene {
   }
 
   private createPlayer(): THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> {
-    const coreMaterial = this.createGlowMaterial({ opacity: 1, side: THREE.DoubleSide });
-    const glowMaterial = this.createGlowMaterial({ opacity: 0.35, side: THREE.DoubleSide });
+    const coreMaterial = this.createGlowMaterial({ opacity: 1, side: THREE.DoubleSide }, 'player');
+    const glowMaterial = this.createGlowMaterial({ opacity: 0.52, side: THREE.DoubleSide }, 'player');
     const createSvgLayer = (
       svg: string,
       height: number,
@@ -915,13 +973,14 @@ export class GameScene {
     playerArt.rotation.x = -Math.PI / 2;
     this.player.add(playerArt);
     const playerLight = new THREE.PointLight(0x48f8ff, 18, 8, 2);
-    playerLight.color.copy(this.glowColor);
-    this.primaryChannels.push(playerLight.color);
+    playerLight.color.copy(this.playerColor);
+    this.playerChannels.push(playerLight.color);
     playerLight.position.y = 0.7;
     this.player.add(playerLight);
     const playerSize = new THREE.Box3().setFromObject(this.player).getSize(new THREE.Vector3());
     const thicknessScale = 1 / Math.max(playerSize.x, playerSize.z);
-    this.player.scale.set(1 / playerSize.x, thicknessScale, 1 / playerSize.z);
+    this.player.scale.set(1 / playerSize.x, thicknessScale, 1 / playerSize.z)
+      .multiplyScalar(PLAYER_VISUAL_SCALE);
     this.player.position.set(0, 0.32, PLAYER_Z);
     this.scene.add(this.player);
 
@@ -962,6 +1021,52 @@ export class GameScene {
     trailMesh.frustumCulled = false;
     this.scene.add(trailMesh);
     return trailMesh;
+  }
+
+  private createPlayerReflection(): THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const context = canvas.getContext('2d')!;
+    context.translate(64, 64);
+    context.fillStyle = '#fff';
+    for (const [blur, alpha, size] of [[9, 0.62, 1], [3, 0.3, 0.88]] as const) {
+      context.filter = `blur(${blur}px)`;
+      context.globalAlpha = alpha;
+      for (let blade = 0; blade < 3; blade += 1) {
+        context.save();
+        context.rotate(blade * Math.PI * 2 / 3);
+        context.scale(size, size);
+        context.beginPath();
+        context.moveTo(0, -48);
+        context.lineTo(18, -20);
+        context.lineTo(7, 16);
+        context.lineTo(-7, 16);
+        context.lineTo(-18, -20);
+        context.closePath();
+        context.fill();
+        context.restore();
+      }
+    }
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+    const reflection = new THREE.Mesh(
+      new THREE.PlaneGeometry(PLAYER_REFLECTION_SIZE, PLAYER_REFLECTION_SIZE),
+      this.createGlowMaterial({
+        map: texture,
+        opacity: PLAYER_REFLECTION_OPACITY,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+      }, 'player'),
+    );
+    reflection.position.set(0, -0.065, PLAYER_Z);
+    reflection.rotation.x = -Math.PI / 2;
+    this.scene.add(reflection);
+    return reflection;
   }
 
   resize(width: number, height: number): void {
@@ -1037,6 +1142,8 @@ export class GameScene {
       this.player.position.y = 0.32 + Math.sin(time * 8) * 0.025;
       this.player.rotation.z = THREE.MathUtils.clamp(-this.playerVelocity * 0.013, -0.16, 0.16);
       this.player.rotation.y -= dt * this.playerSpinSpeed;
+      this.playerReflection.position.x = this.playerX;
+      this.playerReflection.rotation.z = this.player.rotation.y;
       this.playerSpinSpeed = THREE.MathUtils.lerp(
         this.playerSpinSpeed,
         PLAYER_IDLE_SPIN_SPEED,
@@ -1205,16 +1312,26 @@ export class GameScene {
       Math.min(1, highRise * 10),
       this.innerSpectrumImpact * Math.exp(-7 * dt),
     );
-    const outerAmplitudes = this.outerSpectrumClusters.map((cluster) => Math.min(
-      1.9,
-      (getSpectrumBandRise(spectrum, previousSpectrum, 1, 28, cluster.bandPosition) * 13
-        + lowRise * 5) * cluster.gain,
-    ));
-    const innerAmplitudes = this.innerSpectrumClusters.map((cluster) => Math.min(
-      1.55,
-      (getSpectrumBandRise(spectrum, previousSpectrum, 18, 90, cluster.bandPosition) * 15
-        + highRise * 6) * cluster.gain,
-    ));
+    const outerAmplitudes = this.outerSpectrumAmplitudes;
+    outerAmplitudes.length = this.outerSpectrumClusters.length;
+    for (let i = 0; i < outerAmplitudes.length; i += 1) {
+      const cluster = this.outerSpectrumClusters[i];
+      outerAmplitudes[i] = Math.min(
+        1.9,
+        (getSpectrumBandRise(spectrum, previousSpectrum, 1, 28, cluster.bandPosition) * 13
+          + lowRise * 5) * cluster.gain,
+      );
+    }
+    const innerAmplitudes = this.innerSpectrumAmplitudes;
+    innerAmplitudes.length = this.innerSpectrumClusters.length;
+    for (let i = 0; i < innerAmplitudes.length; i += 1) {
+      const cluster = this.innerSpectrumClusters[i];
+      innerAmplitudes[i] = Math.min(
+        1.55,
+        (getSpectrumBandRise(spectrum, previousSpectrum, 18, 90, cluster.bandPosition) * 15
+          + highRise * 6) * cluster.gain,
+      );
+    }
     if (!this.previousSpectrum || this.previousSpectrum.length !== spectrum.length) {
       this.previousSpectrum = new Uint8Array(spectrum.length);
     }
@@ -1224,11 +1341,11 @@ export class GameScene {
     const musicBreath = THREE.MathUtils.clamp(averageEnergy * 0.06, 0, 0.055);
     const ringScale = 1 + this.outerSpectrumImpact * 0.028 + lowEnergy * 0.008
       + this.ringHitPulse * 0.022;
-    this.ringLayers.forEach((ring) => ring.scale.setScalar(ringScale));
+    for (const ring of this.ringLayers) ring.scale.setScalar(ringScale);
 
     for (let i = 0; i < OUTER_SPECTRUM_COUNT; i += 1) {
-      const position = i / OUTER_SPECTRUM_COUNT;
-      const angle = position * Math.PI * 2;
+      const transform = this.outerSpectrumTransforms[i];
+      const angle = transform.angle;
       const baseTargetHeight = getSpectrumBarTarget(
         i,
         OUTER_SPECTRUM_COUNT,
@@ -1245,19 +1362,18 @@ export class GameScene {
       const variation = 1 + Math.sin(angle * 3 + time * 0.13) * 0.018 + Math.sin(angle * 7 - 1.1) * 0.012;
       const length = (1 + musicBreath) * this.outerSpectrumHeights[i] * variation;
       const radius = 14.7 + length * 0.5;
-      this.position.set(Math.cos(angle) * radius, Math.sin(angle) * radius, 0.15);
-      this.quaternion.setFromEuler(new THREE.Euler(0, 0, angle - Math.PI / 2));
+      this.position.set(transform.x * radius, transform.y * radius, 0.15);
+      this.quaternion.copy(transform.rotation);
       this.scale.set(2.5, length, 2);
       this.matrix.compose(this.position, this.quaternion, this.scale);
       this.outerSpectrumBars.setMatrixAt(i, this.matrix);
     }
     this.outerSpectrumBars.instanceMatrix.needsUpdate = true;
-    if (this.outerSpectrumBars.instanceColor) this.outerSpectrumBars.instanceColor.needsUpdate = true;
 
     // 内圈略靠近镜头，避免频谱竖条被主环完全遮住。
     for (let i = 0; i < INNER_SPECTRUM_COUNT; i += 1) {
-      const position = i / INNER_SPECTRUM_COUNT;
-      const angle = position * Math.PI * 2;
+      const transform = this.innerSpectrumTransforms[i];
+      const angle = transform.angle;
       const targetHeight = getSpectrumBarTarget(
         i,
         INNER_SPECTRUM_COUNT,
@@ -1273,14 +1389,13 @@ export class GameScene {
       const variation = 1 + Math.sin(angle * 3 + time * 0.15 + 0.7) * 0.014 + Math.sin(angle * 5 + 0.4) * 0.01;
       const length = (0.52 + musicBreath * 0.35) * this.innerSpectrumHeights[i] * variation;
       const radius = 11.3 - length * 0.5;
-      this.position.set(Math.cos(angle) * radius, Math.sin(angle) * radius, 0.75);
-      this.quaternion.setFromEuler(new THREE.Euler(0, 0, angle - Math.PI / 2));
+      this.position.set(transform.x * radius, transform.y * radius, 0.75);
+      this.quaternion.copy(transform.rotation);
       this.scale.set(2.2, length, 1.8);
       this.matrix.compose(this.position, this.quaternion, this.scale);
       this.innerSpectrumBars.setMatrixAt(i, this.matrix);
     }
     this.innerSpectrumBars.instanceMatrix.needsUpdate = true;
-    if (this.innerSpectrumBars.instanceColor) this.innerSpectrumBars.instanceColor.needsUpdate = true;
   }
 
   private updateFloatingCubes(time: number): void {
@@ -1297,14 +1412,16 @@ export class GameScene {
         Math.max(0.25, cube.y + Math.sin(time * 0.55 + cube.phase) * 0.18),
         z,
       );
-      this.quaternion.setFromEuler(new THREE.Euler(time * 0.18 + cube.phase, time * 0.24 + cube.phase * 0.7, cube.phase));
+      this.quaternion.setFromEuler(this.euler.set(
+        time * 0.18 + cube.phase,
+        time * 0.24 + cube.phase * 0.7,
+        cube.phase,
+      ));
       this.scale.setScalar(cube.size * emergence);
       this.matrix.compose(this.position, this.quaternion, this.scale);
       this.floatingCubes.setMatrixAt(i, this.matrix);
-      this.floatingCubes.setColorAt(i, this.tempColor.setHex(getDecorativeMetalColor(i)));
     }
     this.floatingCubes.instanceMatrix.needsUpdate = true;
-    if (this.floatingCubes.instanceColor) this.floatingCubes.instanceColor.needsUpdate = true;
   }
 
   private updateSpeedStreaks(time: number): void {
@@ -1322,7 +1439,6 @@ export class GameScene {
       this.speedStreaks.setMatrixAt(i, this.matrix);
     }
     this.speedStreaks.instanceMatrix.needsUpdate = true;
-    if (this.speedStreaks.instanceColor) this.speedStreaks.instanceColor.needsUpdate = true;
   }
 
   private updateObstacles(time: number, level: Level, states: ObstacleStateRow[]): void {
@@ -1332,7 +1448,11 @@ export class GameScene {
     this.obstacleFrustum.setFromProjectionMatrix(
       this.matrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse),
     );
-    for (let eventIndex = 0; eventIndex < level.events.length; eventIndex += 1) {
+    for (
+      let eventIndex = findFirstVisibleEventIndex(level.events, time);
+      eventIndex < level.events.length;
+      eventIndex += 1
+    ) {
       const event = level.events[eventIndex];
       const delta = event.timeSeconds - time;
       if (delta > APPROACH_SECONDS) break;
@@ -1347,7 +1467,10 @@ export class GameScene {
         this.obstacleBounds.center.set(x, 0.5, z);
         if (!this.obstacleFrustum.intersectsSphere(this.obstacleBounds)) continue;
 
-        if (type === ObstacleType.Breakable && normalIndex < this.normalBlocks.count) {
+        if (
+          type === ObstacleType.Breakable
+          && normalIndex < this.normalBlocks.instanceMatrix.count
+        ) {
           this.position.set(x, 0.5, z);
           this.quaternion.set(0, 0, 0, 1);
           this.scale.set(1, 1, 1);
@@ -1361,23 +1484,19 @@ export class GameScene {
             this.normalEdges.setMatrixAt(normalIndex * NORMAL_EDGES_PER_OBSTACLE + edgeIndex, this.matrix);
           }
           normalIndex += 1;
-        } else if (type === ObstacleType.Spike && spikeIndex < this.spikeBases.count) {
+        } else if (
+          type === ObstacleType.Spike
+          && spikeIndex < this.spikeBases.instanceMatrix.count
+        ) {
           this.position.set(x, 0.04, z);
           this.quaternion.set(0, 0, 0, 1);
           this.scale.set(1, 1, 1);
           this.matrix.compose(this.position, this.quaternion, this.scale);
           this.spikeBases.setMatrixAt(spikeIndex, this.matrix);
-          const spikes = [
-            { x: 0, z: 0 },
-            { x: -0.28, z: -0.28 },
-            { x: 0.28, z: -0.28 },
-            { x: -0.28, z: 0.28 },
-            { x: 0.28, z: 0.28 },
-          ];
+          this.quaternion.setFromEuler(this.euler.set(0, Math.PI / 4, 0));
           for (let point = 0; point < SPIKES_PER_OBSTACLE; point += 1) {
-            const spike = spikes[point];
-            this.position.set(x + spike.x, 0.53, z + spike.z);
-            this.quaternion.setFromEuler(new THREE.Euler(0, Math.PI / 4, 0));
+            const [offsetX, offsetZ] = SPIKE_OFFSETS[point];
+            this.position.set(x + offsetX, 0.53, z + offsetZ);
             this.matrix.compose(this.position, this.quaternion, this.scale);
             this.spikeCones.setMatrixAt(spikeIndex * SPIKES_PER_OBSTACLE + point, this.matrix);
           }
@@ -1385,22 +1504,14 @@ export class GameScene {
         }
       }
     }
-    for (let i = normalIndex; i < this.normalBlocks.count; i += 1) {
-      this.normalBlocks.setMatrixAt(i, hiddenMatrix);
-      for (let edgeIndex = 0; edgeIndex < NORMAL_EDGES_PER_OBSTACLE; edgeIndex += 1) {
-        this.normalEdges.setMatrixAt(i * NORMAL_EDGES_PER_OBSTACLE + edgeIndex, hiddenMatrix);
-      }
-    }
-    for (let i = spikeIndex; i < this.spikeBases.count; i += 1) {
-      this.spikeBases.setMatrixAt(i, hiddenMatrix);
-      for (let point = 0; point < SPIKES_PER_OBSTACLE; point += 1) {
-        this.spikeCones.setMatrixAt(i * SPIKES_PER_OBSTACLE + point, hiddenMatrix);
-      }
-    }
-    this.normalBlocks.instanceMatrix.needsUpdate = true;
-    this.normalEdges.instanceMatrix.needsUpdate = true;
-    this.spikeBases.instanceMatrix.needsUpdate = true;
-    this.spikeCones.instanceMatrix.needsUpdate = true;
+    this.normalBlocks.count = normalIndex;
+    this.normalEdges.count = normalIndex * NORMAL_EDGES_PER_OBSTACLE;
+    this.spikeBases.count = spikeIndex;
+    this.spikeCones.count = spikeIndex * SPIKES_PER_OBSTACLE;
+    markInstanceMatrixUpdate(this.normalBlocks, this.normalBlocks.count);
+    markInstanceMatrixUpdate(this.normalEdges, this.normalEdges.count);
+    markInstanceMatrixUpdate(this.spikeBases, this.spikeBases.count);
+    markInstanceMatrixUpdate(this.spikeCones, this.spikeCones.count);
   }
 
   burst(x: number, hazard = false): void {
@@ -1440,22 +1551,24 @@ export class GameScene {
     this.crashElapsed = 0;
     this.setColorScheme('redWhite');
     this.player.visible = false;
+    this.playerReflection.visible = false;
     this.trailMesh.visible = false;
     this.ringHitPulse = 1.2;
     this.burst(THREE.MathUtils.lerp(this.playerX, x, 0.25), true);
   }
 
   private updateParticles(dt: number): void {
+    let firstChanged = this.particleData.length;
+    let lastChanged = -1;
     for (let i = 0; i < this.particleData.length; i += 1) {
       const particle = this.particleData[i];
-      if (!particle.active) {
-        this.particles.setMatrixAt(i, hiddenMatrix);
-        continue;
-      }
+      if (!particle.active) continue;
       particle.life -= dt;
       if (particle.life <= 0) {
         particle.active = false;
         this.particles.setMatrixAt(i, hiddenMatrix);
+        firstChanged = Math.min(firstChanged, i);
+        lastChanged = i;
         continue;
       }
       particle.x += particle.vx * dt;
@@ -1466,34 +1579,62 @@ export class GameScene {
       const s = Math.max(0.12, particle.life / particle.maxLife);
       this.scale.set(s * particle.sx, s * particle.sy, s * particle.sz);
       const age = particle.maxLife - particle.life;
-      this.quaternion.setFromEuler(new THREE.Euler(age * particle.spinX, age * particle.spinY, age * 2.7));
+      this.quaternion.setFromEuler(this.euler.set(
+        age * particle.spinX,
+        age * particle.spinY,
+        age * 2.7,
+      ));
       this.matrix.compose(this.position, this.quaternion, this.scale);
       this.particles.setMatrixAt(i, this.matrix);
       this.particles.setColorAt(
         i,
         this.tempColor.copy(this.glowColor).lerp(this.crashColor, particle.colorMix),
       );
+      firstChanged = Math.min(firstChanged, i);
+      lastChanged = i;
     }
-    this.particles.instanceMatrix.needsUpdate = true;
-    if (this.particles.instanceColor) this.particles.instanceColor.needsUpdate = true;
+    if (lastChanged >= firstChanged) {
+      this.particles.instanceMatrix.addUpdateRange(
+        firstChanged * 16,
+        (lastChanged - firstChanged + 1) * 16,
+      );
+      this.particles.instanceMatrix.needsUpdate = true;
+      if (this.particles.instanceColor) {
+        this.particles.instanceColor.addUpdateRange(
+          firstChanged * 3,
+          (lastChanged - firstChanged + 1) * 3,
+        );
+        this.particles.instanceColor.needsUpdate = true;
+      }
+    }
   }
 
   dispose(): void {
     this.disposed = true;
+    this.playerReflection.material.map?.dispose();
+    const textures = new Set<THREE.Texture>();
     this.scene.traverse((object) => {
-      if (!(object instanceof THREE.Mesh)) return;
-      object.geometry.dispose();
-      const materials = Array.isArray(object.material) ? object.material : [object.material];
-      materials.forEach((material) => material.dispose());
+      const drawable = object as THREE.Object3D & {
+        geometry?: THREE.BufferGeometry;
+        material?: THREE.Material | THREE.Material[];
+      };
+      drawable.geometry?.dispose();
+      if (!drawable.material) return;
+      const materials = Array.isArray(drawable.material) ? drawable.material : [drawable.material];
+      materials.forEach((material) => {
+        Object.values(material).forEach((value) => {
+          if (value instanceof THREE.Texture) textures.add(value);
+        });
+        material.dispose();
+      });
     });
+    textures.forEach((texture) => texture.dispose());
     this.rgbShiftPass?.dispose();
     this.outputPass?.dispose();
     this.composer?.dispose();
-    this.renderer.dispose();
-    this.comboTexture.dispose();
-    this.comboSprite.material.dispose();
-    this.missTexture.dispose();
-    this.missSprite.material.dispose();
     this.environmentTexture?.dispose();
+    this.scene.clear();
+    this.renderer.dispose();
+    this.renderer.forceContextLoss();
   }
 }

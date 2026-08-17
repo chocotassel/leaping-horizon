@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import buttonTapUrl from './assets/audio/ui-button-tap.mp3?base64';
 import soundOffUrl from './assets/audio/ui-sound-off.mp3?base64';
 import soundOnUrl from './assets/audio/ui-sound-on.mp3?base64';
@@ -31,6 +31,20 @@ export default function App() {
   const [result, setResult] = useState<GameResult | null>(null);
   const [resultStars, setResultStars] = useState(0);
   const [resultOutcome, setResultOutcome] = useState<ResultOutcome>('complete');
+
+  useEffect(() => {
+    const recoverAudio = () => {
+      if (document.visibilityState === 'visible') void AudioEngine.recover();
+    };
+    document.addEventListener('visibilitychange', recoverAudio);
+    window.addEventListener('pageshow', recoverAudio);
+    navigator.mediaDevices?.addEventListener?.('devicechange', recoverAudio);
+    return () => {
+      document.removeEventListener('visibilitychange', recoverAudio);
+      window.removeEventListener('pageshow', recoverAudio);
+      navigator.mediaDevices?.removeEventListener?.('devicechange', recoverAudio);
+    };
+  }, []);
 
   const showResult = useCallback((nextResult: GameResult, outcome: ResultOutcome) => {
     const stars = getEarnedStars(nextResult, outcome === 'complete');
