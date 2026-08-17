@@ -194,7 +194,6 @@ button { font: inherit; }
 }
 
 .game-star-progress {
-  --star-rail-progress: 0;
   position: relative;
   grid-column: 2;
   grid-row: 1;
@@ -206,37 +205,11 @@ button { font: inherit; }
   place-items: center;
 }
 
-.game-star-progress::before,
-.game-star-progress::after {
-  content: '';
-  position: absolute;
-  left: 11px;
-  right: 11px;
-  top: 50%;
-  height: 2px;
-  border-radius: 999px;
-  transform: translateY(-50%);
-  pointer-events: none;
-}
-
-.game-star-progress::before {
-  background: rgb(116 145 169 / 0.34);
-  box-shadow: 0 0 0 1px rgb(4 15 30 / 0.72);
-}
-
-.game-star-progress::after {
-  background: linear-gradient(90deg, #c98c22, #ffe16b);
-  box-shadow: 0 0 8px rgb(255 205 79 / 0.46);
-  transform: translateY(-50%) scaleX(var(--star-rail-progress));
-  transform-origin: left center;
-  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
 .game-star-progress .star-rating {
   position: relative;
   z-index: 1;
   width: 100%;
-  justify-content: space-between;
+  gap: 0;
   font-size: clamp(20px, 5.2cqw, 27px);
 }
 
@@ -248,6 +221,28 @@ button { font: inherit; }
 .game-star-progress .star-rating-star > span {
   color: #ffe16b;
   filter: drop-shadow(0 0 6px rgb(255 196 54 / 0.56));
+}
+
+.game-star-progress .star-rating-connector {
+  --connector-fill: 0;
+  position: relative;
+  flex: 1;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(116 145 169 / 0.34);
+  box-shadow: 0 0 0 1px rgb(4 15 30 / 0.72);
+}
+
+.game-star-progress .star-rating-connector > span {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #c98c22, #ffe16b);
+  box-shadow: 0 0 8px rgb(255 205 79 / 0.46);
+  transform: scaleX(var(--connector-fill));
+  transform-origin: left center;
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .pause-button {

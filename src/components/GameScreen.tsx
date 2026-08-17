@@ -165,10 +165,7 @@ export function GameScreen({
           <span>{t('game.score')}</span>
           <strong>{formatNumber(hud.score)}</strong>
         </div>
-        <div
-          className="game-star-progress"
-          style={{ '--star-rail-progress': hud.progress } as CSSProperties}
-        >
+        <div className="game-star-progress">
           <StarRating
             label={t('game.starProgressLabel')}
             progress={starProgress}

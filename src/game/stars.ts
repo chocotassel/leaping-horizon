@@ -24,11 +24,16 @@ export function getEarnedStars(result: StarResult, completed: boolean): number {
 export function getStarProgress(result: StarResult, levelProgress: number): number[] {
   const perfectHitProgress = ratio(result.hits, result.total);
   const doubleHitProgress = ratio(result.doubleHitRows, result.totalMultiTargetRows);
-  return [
+  const progress = [
     Math.min(1, Math.max(0, levelProgress)),
     ratio(result.hits, result.total * 0.7),
     ratio(result.hits, result.total * 0.9),
     perfectHitProgress,
     Math.min(perfectHitProgress, doubleHitProgress),
   ];
+  const completed = progress.filter((value) => value === 1).length;
+  const next = Math.max(0, ...progress.filter((value) => value < 1));
+  return Array.from({ length: MAX_STARS }, (_, index) => (
+    index < completed ? 1 : index === completed ? next : 0
+  ));
 }
