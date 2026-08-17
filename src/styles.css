@@ -226,8 +226,26 @@ button { font: inherit; }
 .pause-orbit > i { position: absolute; left: -30%; right: -30%; top: 50%; border-top: 1px solid rgb(77 219 255 / 0.35); }
 .pause-orbit > span { position: relative; z-index: 1; color: var(--cyan); font: 500 38px/1 'Arial Narrow', sans-serif; letter-spacing: 0.08em; }
 
-.pause-overlay > span { color: var(--cyan); font-size: 10px; font-weight: 800; letter-spacing: 0.2em; }
-.pause-overlay > strong { margin: 7px 0 22px; color: #eaf5ff; font: italic 900 clamp(47px, 14cqw, 70px)/1 'Arial Narrow', 'Bahnschrift Condensed', sans-serif; letter-spacing: 0.02em; }
+.pause-overlay > span {
+  color: #eaf5ff;
+  font-size: clamp(40px, 11cqw, 56px);
+  font-weight: 950;
+  line-height: 0.95;
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 24px rgb(77 219 255 / 0.2);
+}
+
+.pause-overlay > strong {
+  width: min(72%, 340px);
+  margin: 11px 0 28px;
+  padding-left: 0.68em;
+  color: var(--cyan);
+  font: italic 800 clamp(11px, 2.8cqw, 15px)/1 'Arial Narrow', 'Bahnschrift Condensed', sans-serif;
+  letter-spacing: 0.68em;
+  text-align: center;
+  transform: scaleX(1.18);
+  transform-origin: center;
+}
 .pause-overlay button {
   cursor: pointer;
   transition: transform 180ms ease, filter 180ms ease;
@@ -280,8 +298,8 @@ button { font: inherit; }
 .pause-actions {
   width: min(86%, 420px);
   display: grid;
-  gap: 10px;
-  margin-top: 12px;
+  gap: 16px;
+  margin-top: 20px;
 }
 
 .pause-primary-button,
@@ -314,8 +332,9 @@ button { font: inherit; }
   .game-beat-wave { top: calc(env(safe-area-inset-top, 0px) + 69px); }
   .route-progress { bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); }
   .pause-orbit { width: 124px; margin-bottom: 16px; }
-  .pause-overlay > strong { margin-bottom: 16px; }
+  .pause-overlay > strong { margin-bottom: 20px; }
   .pause-music-toggle { min-height: 56px; }
+  .pause-actions { gap: 12px; margin-top: 16px; }
   .pause-primary-button, .pause-exit-button { min-height: 48px; }
 }
 
