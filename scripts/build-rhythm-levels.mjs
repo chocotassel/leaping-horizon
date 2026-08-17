@@ -2609,6 +2609,8 @@ function buildEvents(track) {
   let currentRun = 0;
   let maximumMelodyRun = 0;
   let previousTarget = null;
+  let currentMultiTargetRun = 0;
+  let maximumConsecutiveMultiTargetRows = 0;
   for (const event of combined) {
     const section = flowSections[event._sectionIndex];
     const phraseSection = phraseSectionById.get(event.phraseId);
@@ -2636,6 +2638,15 @@ function buildEvents(track) {
     spikeCount += rowSpikes;
     if (rowSpikes) guidanceRowCount += 1;
     if (safeLaneCount === 1) edgeGateCount += 1;
+    if (event.kind === 'target' && rowTargets > 1) {
+      currentMultiTargetRun += 1;
+      maximumConsecutiveMultiTargetRows = Math.max(
+        maximumConsecutiveMultiTargetRows,
+        currentMultiTargetRun,
+      );
+    } else {
+      currentMultiTargetRun = 0;
+    }
     const movement = Math.abs(event._routeLane - priorRouteLane);
     totalMovement += movement;
     maximumMovement = Math.max(maximumMovement, movement);
@@ -2689,7 +2700,7 @@ function buildEvents(track) {
     targetCount,
     choiceRowCount: routeChoiceAnalysis.choiceRowCount,
     multiTargetChoiceRowCount: routeChoiceAnalysis.multiTargetChoiceRowCount,
-    maximumConsecutiveMultiTargetRows: routeChoiceAnalysis.maximumConsecutiveChoiceRows,
+    maximumConsecutiveMultiTargetRows,
     fullRouteBranchCount: routeChoiceAnalysis.meaningfulChoiceRows.length,
     deadBranchTargetCellCount: routeChoiceAnalysis.deadChoiceCells.length,
     maximumConsecutiveFullRouteBranches: routeChoiceAnalysis.maximumConsecutiveChoiceRows,
