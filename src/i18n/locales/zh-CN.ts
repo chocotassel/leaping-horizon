@@ -31,6 +31,7 @@ export const zhCN = {
 
   'game.starProgress': '星级进度',
   'game.starProgressLabel': '本局五星目标进度',
+  'game.score': '当前分数',
   'game.combo': 'COMBO',
   'game.pause': '暂停游戏',
   'game.resume': '继续游戏',

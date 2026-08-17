@@ -150,14 +150,42 @@ button { font: inherit; }
   right: 22px;
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr) 48px;
+  grid-template-rows: 32px 48px;
+  row-gap: 13px;
   align-items: center;
 }
 
-.game-hud-spacer { width: 48px; height: 48px; }
+.game-score {
+  grid-column: 1;
+  grid-row: 2;
+  justify-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #d8edf7;
+  text-shadow: 0 0 10px rgb(77 219 255 / 0.24);
+  pointer-events: none;
+}
+
+.game-score span {
+  color: #7893ad;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+
+.game-score strong {
+  font: 800 clamp(16px, 4.2cqw, 21px)/1 'Cascadia Mono', Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 
 .game-star-progress {
   --star-rail-progress: 0;
   position: relative;
+  grid-column: 2;
+  grid-row: 1;
   justify-self: center;
   width: min(calc(100% - 16px), clamp(190px, 58cqw, 320px));
   min-width: 0;
@@ -211,6 +239,8 @@ button { font: inherit; }
 }
 
 .pause-button {
+  grid-column: 3;
+  grid-row: 2;
   justify-self: end;
   width: 48px;
   height: 48px;
@@ -417,7 +447,7 @@ button { font: inherit; }
 @keyframes pause-spin { to { transform: rotate(360deg); } }
 
 @media (max-height: 700px) {
-  .game-hud { top: calc(env(safe-area-inset-top, 0px) + 18px); }
+  .game-hud { top: calc(env(safe-area-inset-top, 0px) + 18px); row-gap: 6px; }
   .game-beat-wave { top: calc(env(safe-area-inset-top, 0px) + 69px); }
   .route-progress { bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); }
   .pause-orbit { width: 124px; margin-bottom: 16px; }

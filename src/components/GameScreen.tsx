@@ -6,7 +6,7 @@ import {
   type GameHud,
 } from '../game/GameController';
 import { getStarProgress } from '../game/stars';
-import { t } from '../i18n';
+import { formatNumber, t } from '../i18n';
 import { type GameResult, type Level } from '../types';
 import { StarRating } from './StarRating';
 
@@ -32,6 +32,7 @@ export function GameScreen({
   const controllerRef = useRef<GameController | null>(null);
   const [hud, setHud] = useState<GameHud>({
     progress: 0,
+    score: 0,
     hits: 0,
     doubleHitRows: 0,
   });
@@ -129,7 +130,10 @@ export function GameScreen({
       <div className="game-vignette" />
       <div className="game-crash-atmosphere" aria-hidden="true" />
       <header className="game-hud">
-        <span className="game-hud-spacer" aria-hidden="true" />
+        <div className="game-score">
+          <span>{t('game.score')}</span>
+          <strong>{formatNumber(hud.score)}</strong>
+        </div>
         <div
           className="game-star-progress"
           style={{ '--star-rail-progress': hud.progress } as CSSProperties}
