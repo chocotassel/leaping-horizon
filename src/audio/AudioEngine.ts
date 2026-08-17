@@ -25,9 +25,10 @@ function decodeBase64Audio(value: string): ArrayBuffer {
 export class AudioEngine {
   private static sharedContext: AudioContext | null = null;
   private static musicEnabled = false;
-  private static activeGains = new Set<GainNode>();
+  private static activeEngines = new Set<AudioEngine>();
   private context: AudioContext;
   private source: AudioBufferSourceNode | null = null;
+  private buffer: AudioBuffer | null = null;
   private gain: GainNode;
   private analyser: AnalyserNode;
   private distortion: WaveShaperNode;
@@ -54,10 +55,9 @@ export class AudioEngine {
   }
 
   static setMusicEnabled(enabled: boolean): void {
+    if (this.musicEnabled === enabled) return;
     this.musicEnabled = enabled;
-    this.activeGains.forEach((gain) => {
-      gain.gain.setValueAtTime(enabled ? 0.48 : 0, gain.context.currentTime);
-    });
+    this.activeEngines.forEach((engine) => engine.syncSource());
   }
 
   static playEffect(audioData: string): void {
@@ -90,8 +90,8 @@ export class AudioEngine {
     this.filter.frequency.value = this.context.sampleRate * 0.48;
     this.filter.Q.value = 0.0001;
     this.spectrumData = new Uint8Array(this.analyser.frequencyBinCount);
-    this.gain.gain.value = AudioEngine.musicEnabled ? 0.48 : 0;
-    AudioEngine.activeGains.add(this.gain);
+    this.gain.gain.value = 0.48;
+    AudioEngine.activeEngines.add(this);
     this.analyser.connect(this.distortion);
     this.distortion.connect(this.filter);
     this.filter.connect(this.gain);
@@ -105,13 +105,29 @@ export class AudioEngine {
     if (this.context.state === 'suspended') void this.context.resume();
     const buffer = await this.loadTrack();
     if (this.stopped) return;
-    this.source = this.context.createBufferSource();
-    this.source.buffer = buffer;
-    this.source.connect(this.analyser);
-    this.source.start();
+    this.buffer = buffer;
     this.startedAt = this.context.currentTime;
     this.pausedAt = 0;
-    this.isPaused = false;
+    this.syncSource();
+  }
+
+  private stopSource(): void {
+    try { this.source?.stop(); } catch { /* already stopped */ }
+    this.source?.disconnect();
+    this.source = null;
+  }
+
+  /** Recreate the one-shot Web Audio source at the authoritative game time. */
+  private syncSource(): void {
+    this.stopSource();
+    if (!AudioEngine.musicEnabled || !this.buffer || this.isPaused || this.stopped) return;
+    const offset = this.currentTime;
+    if (offset >= this.buffer.duration) return;
+    const source = this.context.createBufferSource();
+    source.buffer = this.buffer;
+    source.connect(this.analyser);
+    source.start(0, offset);
+    this.source = source;
   }
 
   private async loadTrack(): Promise<AudioBuffer> {
@@ -169,9 +185,9 @@ export class AudioEngine {
 
   async pause(): Promise<void> {
     if (this.isPaused) return;
-    this.pausedAt = this.currentTime;
+    this.pausedAt = this.buffer ? this.currentTime : 0;
     this.isPaused = true;
-    await this.context.suspend();
+    this.stopSource();
   }
 
   async resume(): Promise<void> {
@@ -179,6 +195,7 @@ export class AudioEngine {
     await this.context.resume();
     this.startedAt = this.context.currentTime - this.pausedAt;
     this.isPaused = false;
+    this.syncSource();
   }
 
   crash(): void {
@@ -211,13 +228,11 @@ export class AudioEngine {
 
   stop(): void {
     this.stopped = true;
-    try { this.source?.stop(); } catch { /* already stopped */ }
-    this.source?.disconnect();
+    this.stopSource();
     this.analyser.disconnect();
     this.distortion.disconnect();
     this.filter.disconnect();
     this.gain.disconnect();
-    AudioEngine.activeGains.delete(this.gain);
-    this.source = null;
+    AudioEngine.activeEngines.delete(this);
   }
 }

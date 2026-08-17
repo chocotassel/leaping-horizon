@@ -77,14 +77,26 @@ const audioModules = import.meta.glob<string>('./songs/*/audio.mp3', {
   import: 'default',
   query: '?base64',
 });
+const LEVEL_ORDER = [
+  'rearview-halo-flow',
+  'slice-at-two-flow',
+  'story-reactions-flow',
+  'hands-on-deck-flow',
+];
 
 export const LEVELS = Object.entries(levelModules)
-  .sort(([left], [right]) => left.localeCompare(right))
   .map(([path, module]) => {
     const audioUrl = audioModules[path.replace(/level\.json$/, 'audio.mp3')];
     if (!audioUrl) throw new Error(t('error.missingAudio', { path }));
     const level = validateLevel(module.default as Level);
     return { ...level, song: { ...level.song, audioUrl } };
+  })
+  .sort((left, right) => {
+    const leftOrder = LEVEL_ORDER.indexOf(left.id);
+    const rightOrder = LEVEL_ORDER.indexOf(right.id);
+    return (leftOrder < 0 ? LEVEL_ORDER.length : leftOrder)
+      - (rightOrder < 0 ? LEVEL_ORDER.length : rightOrder)
+      || left.id.localeCompare(right.id);
   });
 
 if (!LEVELS.length) throw new Error(t('error.noLevels'));

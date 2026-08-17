@@ -1,0 +1,124 @@
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+const param = (value = 0) => ({
+  value,
+  cancelScheduledValues() {},
+  exponentialRampToValueAtTime(next) { this.value = next; },
+  linearRampToValueAtTime(next) { this.value = next; },
+  setValueAtTime(next) { this.value = next; },
+});
+const audioNode = () => ({ connect() {}, disconnect() {} });
+
+class FakeAudioContext {
+  static instance;
+
+  constructor() {
+    FakeAudioContext.instance = this;
+    this.currentTime = 0;
+    this.destination = {};
+    this.sampleRate = 22050;
+    this.sources = [];
+    this.state = 'running';
+  }
+
+  createAnalyser() {
+    return { ...audioNode(), frequencyBinCount: 128, getByteFrequencyData() {} };
+  }
+
+  createBiquadFilter() {
+    return { ...audioNode(), frequency: param(), Q: param() };
+  }
+
+  createBufferSource() {
+    const source = {
+      ...audioNode(),
+      detune: param(),
+      playbackRate: param(1),
+      start: (_when = 0, offset = 0) => { source.startOffset = offset; },
+      stop: () => { source.stopped = true; },
+    };
+    this.sources.push(source);
+    return source;
+  }
+
+  createGain() {
+    return { ...audioNode(), gain: param() };
+  }
+
+  createWaveShaper() {
+    return audioNode();
+  }
+
+  decodeAudioData() {
+    return Promise.resolve({ duration: 60 });
+  }
+
+  resume() {
+    this.state = 'running';
+    return Promise.resolve();
+  }
+
+  suspend() {
+    this.state = 'suspended';
+    return Promise.resolve();
+  }
+}
+
+const source = readFileSync(new URL('../src/audio/AudioEngine.ts', import.meta.url), 'utf8')
+  .replace("import { t } from '../i18n';", "const t = (key: string) => key;");
+const fixturePath = '/tmp/leaping-horizon-audio-engine.ts';
+const outputDir = '/tmp/leaping-horizon-audio-check';
+writeFileSync(fixturePath, source);
+execFileSync(fileURLToPath(new URL('../node_modules/.bin/tsc', import.meta.url)), [
+  fixturePath,
+  '--ignoreConfig',
+  '--target', 'ES2020',
+  '--module', 'CommonJS',
+  '--outDir', outputDir,
+  '--skipLibCheck',
+]);
+
+globalThis.window = { AudioContext: FakeAudioContext };
+const require = createRequire(import.meta.url);
+const { AudioEngine } = require(`${outputDir}/leaping-horizon-audio-engine.js`);
+AudioEngine.setMusicEnabled(false);
+await AudioEngine.unlock();
+const engine = new AudioEngine(60, 120, 'data:audio/mp3;base64,AA==');
+const context = FakeAudioContext.instance;
+await engine.start();
+
+assert.equal(context.sources.length, 0, 'muted music should not start at the beginning');
+context.currentTime = 12;
+AudioEngine.setMusicEnabled(true);
+assert.equal(context.sources.at(-1).startOffset, 12, 'enabling music should seek to game time');
+
+context.currentTime = 15;
+await engine.pause();
+context.currentTime = 18;
+AudioEngine.setMusicEnabled(false);
+await AudioEngine.unlock();
+AudioEngine.setMusicEnabled(true);
+assert.equal(context.sources.length, 1, 'music must stay stopped while the game is paused');
+
+await engine.resume();
+assert.equal(context.sources.at(-1).startOffset, 15, 'resume should restart music at paused game time');
+context.currentTime = 19;
+assert.equal(engine.currentTime, 16, 'game time should continue from the paused position');
+
+engine.stop();
+
+let finishDecode;
+context.decodeAudioData = () => new Promise((resolve) => { finishDecode = resolve; });
+const loadingEngine = new AudioEngine(60, 120, 'data:audio/mp3;base64,AA==');
+const start = loadingEngine.start();
+await loadingEngine.pause();
+finishDecode({ duration: 60 });
+await start;
+assert.equal(loadingEngine.paused, true, 'pausing during audio decode must stay paused');
+loadingEngine.stop();
+
+console.log('audio sync check passed');

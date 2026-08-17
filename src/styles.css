@@ -301,22 +301,13 @@ button { font: inherit; }
 .route-progress {
   position: absolute;
   z-index: 3;
-  left: 26px;
-  right: 26px;
-  bottom: calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 23px);
-  padding: 10px 12px 12px;
-  border: 1px solid rgb(125 172 218 / 0.2);
-  border-radius: 12px;
-  background: rgb(5 18 37 / 0.72);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
-  backdrop-filter: blur(8px);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
 }
-.route-progress-copy { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
-.route-progress-copy span { color: #7893ad; font-size: 9px; letter-spacing: 0.12em; }
-.route-progress-copy strong { color: #d8edf7; font: 700 11px/1 'Cascadia Mono', Consolas, monospace; }
-.route-progress-track { position: relative; height: 2px; background: rgb(125 172 218 / 0.22); }
+.route-progress-track { height: 100%; background: rgb(125 172 218 / 0.22); }
 .route-progress-track span { display: block; height: 100%; background: var(--cyan); }
-.route-progress-track i { position: absolute; top: 50%; width: 9px; height: 9px; border: 2px solid #061326; border-radius: 50%; background: var(--cyan); transform: translate(-50%, -50%); box-shadow: 0 0 0 2px rgb(77 219 255 / 0.22); }
 
 .pause-overlay {
   position: absolute;
@@ -381,6 +372,21 @@ button { font: inherit; }
 .pause-overlay button:hover { filter: brightness(1.06); }
 .pause-overlay button:active { transform: scale(0.985); }
 .pause-overlay button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+
+.resume-countdown {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  color: #fff;
+  font: 950 clamp(110px, 34cqw, 170px)/1 'Arial Narrow', sans-serif;
+  -webkit-text-stroke: clamp(4px, 1.4cqw, 7px) var(--countdown-color);
+  paint-order: stroke fill;
+  filter: drop-shadow(0 0 24px var(--countdown-color));
+  animation: resume-countdown-pulse 1s ease-out;
+}
 
 .pause-music-toggle {
   width: min(86%, 420px);
@@ -460,11 +466,14 @@ button { font: inherit; }
   100% { opacity: 0.42; transform: scale(1.015); }
 }
 @keyframes pause-spin { to { transform: rotate(360deg); } }
+@keyframes resume-countdown-pulse {
+  from { transform: scale(1.28); }
+  to { transform: scale(0.82); }
+}
 
 @media (max-height: 700px) {
   .game-hud { top: calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 18px); row-gap: 6px; }
   .game-beat-wave { top: calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 69px); }
-  .route-progress { bottom: calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 14px); }
   .pause-orbit { width: 124px; margin-bottom: 16px; }
   .pause-overlay > strong { margin-bottom: 20px; }
   .pause-music-toggle { min-height: 56px; }
