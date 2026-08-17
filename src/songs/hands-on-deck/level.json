@@ -3,8 +3,8 @@
   "version": 3,
   "song": {
     "title": "Hands On Deck",
-    "artist": "Unknown Artist",
-    "audioUrl": "/audio/hands-on-deck.mp3",
+    "artist": "momo",
+    "audioUrl": "audio.mp3",
     "bpm": 150,
     "durationSeconds": 171.64
   },

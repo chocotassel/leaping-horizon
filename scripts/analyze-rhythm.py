@@ -9,6 +9,7 @@ import json
 import logging
 import math
 import os
+import subprocess
 import tempfile
 import warnings
 from dataclasses import dataclass
@@ -30,6 +31,8 @@ from scipy.sparse import diags
 
 
 SAMPLE_RATE = 22_050
+GAME_AUDIO_SAMPLE_RATE = 32_000
+GAME_AUDIO_BITRATE_KBPS = 96
 HOP_LENGTH = 256
 N_FFT = 1_024
 MIN_OUTPUT_GAP_SECONDS = 0.12
@@ -1067,17 +1070,14 @@ def compress_game_audio(source: Path, destination: Path) -> dict:
             "compressedBytes": source_bytes,
             "sizeRatio": 1.0,
         }
-    audio, sample_rate = sf.read(source, dtype="float32", always_2d=True)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    sf.write(
-        destination,
-        audio,
-        sample_rate,
-        format="MP3",
-        subtype="MPEG_LAYER_III",
-        compression_level=0.58,
-        bitrate_mode="VARIABLE",
-    )
+    subprocess.run([
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-i", str(source), "-vn", "-map_metadata", "-1",
+        "-ar", str(GAME_AUDIO_SAMPLE_RATE),
+        "-c:a", "libmp3lame", "-b:a", f"{GAME_AUDIO_BITRATE_KBPS}k",
+        str(destination),
+    ], check=True)
     output_info = sf.info(destination)
     source_bytes = source.stat().st_size
     output_bytes = destination.stat().st_size
@@ -1088,8 +1088,9 @@ def compress_game_audio(source: Path, destination: Path) -> dict:
         "sourceBytes": source_bytes,
         "format": "MP3",
         "codec": "MPEG Layer III",
-        "bitrateMode": "variable",
-        "compressionLevel": 0.58,
+        "bitrateMode": "constant",
+        "bitrateKbps": GAME_AUDIO_BITRATE_KBPS,
+        "compressionLevel": None,
         "sampleRate": output_info.samplerate,
         "channels": output_info.channels,
         "compressedBytes": output_bytes,

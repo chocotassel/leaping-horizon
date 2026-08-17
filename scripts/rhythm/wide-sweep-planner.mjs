@@ -5,6 +5,18 @@ function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
 }
 
+export function sweepSafeLanes(lane, nextLane, laneCount = 5) {
+  if (lane === nextLane) return lane === laneCount - 1 ? [lane - 1, lane] : [lane, lane + 1];
+  const start = Math.min(lane, nextLane);
+  const end = Math.max(lane, nextLane);
+  if (end - start < laneCount - 1) {
+    return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+  }
+  return lane === 0
+    ? Array.from({ length: laneCount - 1 }, (_, index) => index)
+    : Array.from({ length: laneCount - 1 }, (_, index) => index + 1);
+}
+
 function sumCapacity(mobility, fromExclusive, toInclusive) {
   let total = 0;
   for (let index = fromExclusive + 1; index <= toInclusive; index += 1) {

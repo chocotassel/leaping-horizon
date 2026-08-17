@@ -8,7 +8,7 @@
 npm run setup:rhythm
 ```
 
-需要 Python 3.11。安装脚本会建立 `.venv-analysis` 并安装 Beat This!、librosa、Basic Pitch、scikit-learn 与音频编解码依赖。
+需要 Python 3.11、FFmpeg。安装脚本会优先使用 `uv` 建立 `.venv-analysis`，并安装 Beat This!、librosa、Basic Pitch 与 scikit-learn；没有 `uv` 时使用本机的 `python3.11`。
 
 ## 生成关卡
 
@@ -16,13 +16,20 @@ npm run setup:rhythm
 npm run generate -- "D:\Music\song.wav" "Song title" "Artist" song-id
 ```
 
+母带没有内嵌封面时，首次生成需显式提供封面；后续生成会保留歌曲目录中已有的封面：
+
+```powershell
+npm run generate -- "D:\Music\song.wav" "Song title" "Artist" song-id --cover "D:\Music\cover.png"
+```
+
 标题、作者和 ID 都可从右向左省略。标题默认使用输入文件名，作者默认是 `Unknown Artist`。
 
-每首歌按歌曲 ID 独立输出：
+每首歌按歌曲 ID 独立输出到 `src/songs/<song-id>/`：
 
-- `public/audio/<song-id>.mp3`：VBR MPEG Layer III 游戏音频。
-- `src/levels/<song-id>.level.json`：游戏直接读取的完整关卡。
-- `work/<song-id>.rhythm-analysis.json`：构建中间数据，已忽略，不进入版本库。
+- `audio.mp3`：96 kbps、32 kHz、立体声 MPEG Layer III 游戏音频。
+- `cover.jpeg`：从母带内嵌封面或 `--cover` 输入统一提取的 JPEG。
+- `level.json`：游戏直接读取的完整 Level v3 关卡。
+- `work/<song-id>/analysis.json`：构建中间数据，已忽略，不进入版本库。
 
 再次使用相同 ID 会更新该歌曲；不同 ID 会保留为不同歌曲。首页自动发现全部 `*.level.json` 并显示歌曲选择，无需维护额外清单。
 
@@ -30,7 +37,7 @@ npm run generate -- "D:\Music\song.wav" "Song title" "Artist" song-id
 
 ## 管线组成
 
-1. libsndfile 将源音频有损压缩成 VBR MP3。
+1. FFmpeg 将母带压缩成 96 kbps、32 kHz MP3，并去除不参与播放的元数据。
 2. Beat This! 检测 beat/downbeat，提供真实拍点、小节与乐句时间轴。
 3. librosa 检测多频段起音、能量和歌曲结构；段落尺度按歌曲长度动态选择，不使用某首歌固定的段数。
 4. Basic Pitch 补充旋律音符起点，并保留 MIDI 音高、音域、音长与同时发音数；和弦聚合仍选用真实检测时刻。

@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { mkdir, rename, rm } from 'node:fs/promises';
 import { basename, extname, resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
@@ -20,12 +21,35 @@ function run(command, args) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
+async function writeCover(sourceAudio, explicitCover, destination) {
+  const temporary = resolve(destination, '..', 'cover.tmp.jpeg');
+  await mkdir(resolve(destination, '..'), { recursive: true });
+  await rm(temporary, { force: true });
+  const input = explicitCover ?? sourceAudio;
+  const args = explicitCover
+    ? ['-hide_banner', '-loglevel', 'error', '-y', '-i', input, '-frames:v', '1', '-q:v', '2', temporary]
+    : ['-hide_banner', '-loglevel', 'error', '-y', '-i', input, '-map', '0:v:0', '-frames:v', '1', '-q:v', '2', temporary];
+  const result = spawnSync('ffmpeg', args, { cwd: root, stdio: explicitCover ? 'inherit' : 'ignore' });
+  if (result.status !== 0) {
+    await rm(temporary, { force: true });
+    if (!explicitCover && existsSync(destination)) {
+      console.log(`Cover: keeping ${destination} (source audio has no embedded artwork).`);
+      return;
+    }
+    if (result.error) throw result.error;
+    throw new Error('No embedded cover found. Pass --cover "path/to/cover.png".');
+  }
+  await rm(destination, { force: true });
+  await rename(temporary, destination);
+  console.log(`Cover: ${destination}`);
+}
+
 function parseArguments(values) {
   const options = {};
   const positionals = [];
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index];
-    if (value === '--title' || value === '--artist' || value === '--id') {
+    if (value === '--title' || value === '--artist' || value === '--id' || value === '--cover') {
       const next = values[index + 1];
       if (!next) throw new Error(`${value} requires a value.`);
       options[value.slice(2)] = next;
@@ -43,6 +67,7 @@ function parseArguments(values) {
       title: options.title ?? positionals[1],
       artist: options.artist ?? positionals[2],
       id: options.id ?? positionals[3],
+      cover: options.cover,
     },
   };
 }
@@ -67,9 +92,15 @@ const inferredTitle = basename(sourceAudio, extname(sourceAudio));
 const title = options.title ?? inferredTitle;
 const artist = options.artist ?? 'Unknown Artist';
 const songId = options.id ?? slugify(inferredTitle);
-const gameAudioPath = resolve(root, `public/audio/${songId}.mp3`);
-const analysisPath = resolve(root, `work/${songId}.rhythm-analysis.json`);
-const levelPath = resolve(root, `src/levels/${songId}.level.json`);
+const songDirectory = resolve(root, `src/songs/${songId}`);
+const gameAudioPath = resolve(songDirectory, 'audio.mp3');
+const coverPath = resolve(songDirectory, 'cover.jpeg');
+const analysisPath = resolve(root, `work/${songId}/analysis.json`);
+const levelPath = resolve(songDirectory, 'level.json');
+const cover = options.cover ? resolve(options.cover) : null;
+if (cover && !existsSync(cover)) throw new Error(`Cover input does not exist: ${cover}`);
+
+await writeCover(sourceAudio, cover, coverPath);
 
 // The compressed MP3 is analysed too, so detector timestamps use exactly the
 // same decoded timeline as the file played by the game.
@@ -77,7 +108,7 @@ run(python, [
   'scripts/analyze-rhythm.py',
   '--audio', sourceAudio,
   '--audio-output', gameAudioPath,
-  '--audio-url', `/audio/${songId}.mp3`,
+  '--audio-url', 'audio.mp3',
   '--output', analysisPath,
   '--song-id', songId,
   '--title', title,
@@ -85,4 +116,5 @@ run(python, [
 ]);
 run(process.execPath, ['scripts/build-rhythm-levels.mjs', analysisPath, levelPath]);
 console.log(`Game audio: ${gameAudioPath}`);
+console.log(`Cover art: ${coverPath}`);
 console.log(`Level data: ${levelPath}`);

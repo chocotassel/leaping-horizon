@@ -2,8 +2,12 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
 import { deriveLayoutIntent } from './rhythm/layout-intent.mjs';
-import { analyzeRouteGraph, findLiteralMGestures } from './rhythm/route-analysis.mjs';
-import { planFullWidthSweeps } from './rhythm/wide-sweep-planner.mjs';
+import {
+  analyzeRouteGraph,
+  chooseMGesturePlacement,
+  findLiteralMGestures,
+} from './rhythm/route-analysis.mjs';
+import { planFullWidthSweeps, sweepSafeLanes } from './rhythm/wide-sweep-planner.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 if (!process.argv[2] || !process.argv[3]) {
@@ -1159,18 +1163,6 @@ function fitReachableBarPath(desired, indices, mobility, entryLane, forceStart, 
   return [...states.values()].sort((left, right) => left.cost - right.cost)[0].path;
 }
 
-function sweepSafeLanes(lane, nextLane) {
-  if (lane !== nextLane) {
-    return [...new Set([lane, nextLane])].sort((left, right) => left - right);
-  }
-  const neighbour = lane === LANE_COUNT - 1
-    ? lane - 1
-    : lane === 0
-      ? lane + 1
-      : lane + (lane < START_LANE ? 1 : -1);
-  return [lane, neighbour].sort((left, right) => left - right);
-}
-
 function applyFullWidthSweepPlan({
   slots,
   phrases,
@@ -1416,17 +1408,7 @@ function makeCanonicalTemplate({
         ));
       });
     const desiredMirror = mMirrorPreference ?? (transformId === 'mirror');
-    placementCandidates.sort((left, right) => (
-      left.rolePenalty - right.rolePenalty
-      || (mVariant === 'melodic'
-        ? Math.abs(left.candidateBar - mStartBar) - Math.abs(right.candidateBar - mStartBar)
-        : Number(left.mirror !== desiredMirror) - Number(right.mirror !== desiredMirror))
-      || (mVariant === 'melodic'
-        ? Number(left.mirror !== desiredMirror) - Number(right.mirror !== desiredMirror)
-        : Math.abs(left.candidateBar - mStartBar) - Math.abs(right.candidateBar - mStartBar))
-      || left.span - right.span
-    ));
-    const placement = placementCandidates[0];
+    const placement = chooseMGesturePlacement(placementCandidates, desiredMirror, mStartBar);
     if (placement) {
       const {
         startSlot,

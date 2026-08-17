@@ -64,6 +64,15 @@ export function findLiteralMGestures(events) {
   return gestures;
 }
 
+export function chooseMGesturePlacement(candidates, desiredMirror, desiredBar) {
+  return [...candidates].sort((left, right) => (
+    Number(left.mirror !== desiredMirror) - Number(right.mirror !== desiredMirror)
+    || left.rolePenalty - right.rolePenalty
+    || Math.abs(left.candidateBar - desiredBar) - Math.abs(right.candidateBar - desiredBar)
+    || left.span - right.span
+  ))[0] ?? null;
+}
+
 /**
  * Analyse the complete route graph without choosing a preferred player path.
  * Every returned time and lane comes directly from the supplied event rows.

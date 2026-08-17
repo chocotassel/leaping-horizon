@@ -1,8 +1,7 @@
 import type { GameResult, Level } from '../types';
 import type { CSSProperties } from 'react';
-import handsOnDeckArt from '../assets/ui/album-hands-on-deck.png';
-import sliceAtTwoArt from '../assets/ui/album-slice-at-two.png';
 import brokenOrbitArt from '../assets/ui/broken-orbit.png';
+import { albumArtworkStyle } from '../assets/ui/albumArtwork';
 
 export type ResultOutcome = 'complete' | 'crashed';
 
@@ -18,7 +17,6 @@ export function ResultScreen({ result, level, outcome, onReplay, onHome }: Resul
   const accuracy = result.total ? Math.round((result.hits / result.total) * 100) : 0;
   const rank = accuracy >= 95 ? 'S' : accuracy >= 85 ? 'A' : accuracy >= 70 ? 'B' : 'C';
   const completed = outcome === 'complete';
-  const trackArt = level.song.title === 'Slice at Two' ? sliceAtTwoArt : handsOnDeckArt;
 
   return (
     <main className={`screen result-screen ${completed ? 'is-complete' : 'is-crashed'}`}>
@@ -26,7 +24,7 @@ export function ResultScreen({ result, level, outcome, onReplay, onHome }: Resul
         <strong>跃动地平线</strong>
       </header>
 
-      <section className="result-track" style={{ '--album-art': `url(${trackArt})` } as CSSProperties}>
+      <section className="result-track" style={albumArtworkStyle(level.id)}>
         <span className="result-track-art" aria-hidden="true"><i /></span>
         <div>
           <strong>{level.song.title}</strong>

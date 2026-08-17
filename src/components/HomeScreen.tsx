@@ -3,12 +3,10 @@ import {
   useEffect,
   useMemo,
   useRef,
-  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import type { Level } from '../types';
-import handsOnDeckArt from '../assets/ui/album-hands-on-deck.png';
-import sliceAtTwoArt from '../assets/ui/album-slice-at-two.png';
+import { albumArtworkStyle } from '../assets/ui/albumArtwork';
 
 interface HomeScreenProps {
   level: Level;
@@ -29,8 +27,6 @@ function artistLabel(level: Level): string {
     ? '未知音乐人'
     : level.song.artist;
 }
-
-const albumArtwork = [handsOnDeckArt, sliceAtTwoArt] as const;
 
 export function HomeScreen({
   level,
@@ -187,7 +183,7 @@ export function HomeScreen({
               key={option.id}
               type="button"
               aria-pressed={option.id === level.id}
-              style={{ '--album-art': `url(${albumArtwork[index % albumArtwork.length]})` } as CSSProperties}
+              style={albumArtworkStyle(option.id)}
               onClick={() => {
                 if (suppressClickRef.current) return;
                 levelIdRef.current = option.id;
@@ -220,7 +216,7 @@ export function HomeScreen({
 
       <section
         className="selected-track-summary"
-        style={{ '--album-art': `url(${albumArtwork[activeIndex % albumArtwork.length]})` } as CSSProperties}
+        style={albumArtworkStyle(level.id)}
       >
         <span className="selected-track-art" aria-hidden="true"><i /></span>
         <div className="selected-track-copy">

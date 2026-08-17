@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   analyzeEdgeSweepWindow,
   analyzeRouteGraph,
+  chooseMGesturePlacement,
   findLiteralMGestures,
 } from './route-analysis.mjs';
 
@@ -77,6 +78,25 @@ test('finds only literal uninterrupted M rows from the visible core event stream
     obstacles: [1, 0, 0, 0, 0],
   });
   assert.deepEqual(findLiteralMGestures(interrupted), []);
+});
+
+test('explicit M orientation wins over section and bar preferences', () => {
+  const preferredSectionMirror = {
+    mirror: true,
+    rolePenalty: 0,
+    candidateBar: 6,
+    span: 8,
+  };
+  const requestedIdentity = {
+    mirror: false,
+    rolePenalty: 1,
+    candidateBar: 2,
+    span: 9,
+  };
+  assert.equal(
+    chooseMGesturePlacement([preferredSectionMirror, requestedIdentity], false, 6),
+    requestedIdentity,
+  );
 });
 
 test('measures forced edge-to-edge strokes across intermediate safe rows', () => {

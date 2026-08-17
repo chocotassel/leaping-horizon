@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { access, readFile, readdir, stat } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   analyzeEdgeSweepWindow,
@@ -12,22 +13,24 @@ import {
 const root = resolve(import.meta.dirname, '..');
 const requestedLevelPath = process.argv[2];
 if (!requestedLevelPath) {
-  const levelDirectory = resolve(root, 'src/levels');
-  const levelFiles = (await readdir(levelDirectory))
-    .filter((name) => name.endsWith('.level.json'))
+  const songsDirectory = resolve(root, 'src/songs');
+  const levelFiles = (await readdir(songsDirectory, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => resolve(songsDirectory, entry.name, 'level.json'))
+    .filter((path) => existsSync(path))
     .sort();
   assert.ok(levelFiles.length > 0, 'No generated levels were found.');
   for (const levelFile of levelFiles) {
     const result = spawnSync(
       process.execPath,
-      [fileURLToPath(import.meta.url), resolve(levelDirectory, levelFile)],
+      [fileURLToPath(import.meta.url), levelFile],
       { cwd: root, stdio: 'inherit' },
     );
     if (result.error) throw result.error;
     if (result.status !== 0) process.exit(result.status ?? 1);
   }
   const selectableLevels = await Promise.all(levelFiles.map(async (levelFile) => (
-    JSON.parse(await readFile(resolve(levelDirectory, levelFile), 'utf8'))
+    JSON.parse(await readFile(levelFile, 'utf8'))
   )));
   for (let leftIndex = 0; leftIndex < selectableLevels.length; leftIndex += 1) {
     for (let rightIndex = leftIndex + 1; rightIndex < selectableLevels.length; rightIndex += 1) {
@@ -125,14 +128,17 @@ assert.ok(level.song.audioUrl.toLowerCase().endsWith('.mp3'), 'Game audio must b
 assert.ok(Number.isFinite(level.song.bpm) && level.song.bpm > 0);
 assert.ok(Number.isFinite(level.song.durationSeconds) && level.song.durationSeconds > 0);
 
-const audioPath = resolve(root, 'public', level.song.audioUrl.replace(/^\//, ''));
+const audioPath = level.song.audioUrl.startsWith('/')
+  ? resolve(root, 'public', level.song.audioUrl.replace(/^\//, ''))
+  : resolve(dirname(levelPath), level.song.audioUrl);
 await access(audioPath);
 const audioStats = await stat(audioPath);
 const compression = level.generation.audioCompression;
 if (compression) {
   assert.equal(compression.format, 'MP3');
   assert.equal(compression.codec, 'MPEG Layer III');
-  assert.ok(['variable', 'existing'].includes(compression.bitrateMode));
+  assert.ok(['constant', 'variable', 'existing'].includes(compression.bitrateMode));
+  if (compression.bitrateMode === 'constant') assert.equal(compression.bitrateKbps, 96);
   assert.equal(compression.compressedBytes, audioStats.size);
   assert.ok(compression.sourceBytes > 0 && compression.compressedBytes > 0);
 }

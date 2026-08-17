@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { planFullWidthSweeps } from './wide-sweep-planner.mjs';
+import { planFullWidthSweeps, sweepSafeLanes } from './wide-sweep-planner.mjs';
 
 function makeSlots(count, { interval = 0.4, sectionRole = 'peak', score = 0.9 } = {}) {
   return Array.from({ length: count }, (_, index) => ({
@@ -14,6 +14,12 @@ function makeSlots(count, { interval = 0.4, sectionRole = 'peak', score = 0.9 } 
     timeSecondsByOccurrence: [index * interval, 20 + index * interval],
   }));
 }
+
+test('keeps sweep travel gates contiguous and leaves at least one hazard', () => {
+  assert.deepEqual(sweepSafeLanes(2, 4), [2, 3, 4]);
+  assert.deepEqual(sweepSafeLanes(4, 0), [1, 2, 3, 4]);
+  assert.deepEqual(sweepSafeLanes(2, 2), [2, 3]);
+});
 
 test('plans an alternating edge drum run from real timestamps and lane capacities', () => {
   const result = planFullWidthSweeps({

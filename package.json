@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "setup:rhythm": "powershell -ExecutionPolicy Bypass -File scripts/setup-rhythm-env.ps1",
+    "setup:rhythm": "node scripts/setup-rhythm-env.mjs",
     "build": "tsc -b && vite build",
     "generate": "node scripts/generate-level.mjs",
     "preview": "vite preview --host 0.0.0.0",

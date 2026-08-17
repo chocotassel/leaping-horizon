@@ -42,11 +42,21 @@ export function getMaxEventRowsInWindow(level: Level, windowSeconds: number): nu
   return maximum;
 }
 
-const levelModules = import.meta.glob<{ default: unknown }>('./levels/*.level.json', { eager: true });
+const levelModules = import.meta.glob<{ default: unknown }>('./songs/*/level.json', { eager: true });
+const audioModules = import.meta.glob<string>('./songs/*/audio.mp3', {
+  eager: true,
+  import: 'default',
+  query: '?url',
+});
 
 export const LEVELS = Object.entries(levelModules)
   .sort(([left], [right]) => left.localeCompare(right))
-  .map(([, module]) => validateLevel(module.default as Level));
+  .map(([path, module]) => {
+    const audioUrl = audioModules[path.replace(/level\.json$/, 'audio.mp3')];
+    if (!audioUrl) throw new Error(`Missing audio.mp3 next to ${path}.`);
+    const level = module.default as Level;
+    return validateLevel({ ...level, song: { ...level.song, audioUrl } });
+  });
 
 if (!LEVELS.length) throw new Error('No generated level files were found.');
 
