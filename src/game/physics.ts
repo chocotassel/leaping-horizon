@@ -4,7 +4,7 @@ export const OBSTACLE_SPAWN_Z = -126;
 export const RING_SPAWN_Z = -64;
 export const MIN_RING_APPROACH_SECONDS = 2;
 /** Runtime hard cap; level generation deliberately reserves a larger movement margin. */
-export const PLAYER_MAX_LATERAL_SPEED = 12;
+export const PLAYER_MAX_LATERAL_SPEED = 30;
 
 const HORIZONTAL_COLLISION_DISTANCE = (0.9 + 1) / 2;
 const HORIZONTAL_TARGET_COLLECTION_DISTANCE = 1.05;
