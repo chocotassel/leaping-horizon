@@ -47,7 +47,10 @@ button { font: inherit; }
 
 .star-rating-star > span {
   position: absolute;
-  inset: 0 auto 0 0;
+  top: 0;
+  right: auto;
+  bottom: 0;
+  left: 0;
   width: calc(var(--star-fill) * 100%);
   overflow: hidden;
   color: #ffe276;
@@ -82,10 +85,13 @@ button { font: inherit; }
 
 .screen {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   overflow: hidden;
-  padding-top: env(safe-area-inset-top, 0px);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  padding-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
   animation: screen-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
@@ -111,7 +117,10 @@ button { font: inherit; }
 
 .game-vignette {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   pointer-events: none;
   background:
     linear-gradient(to bottom, rgb(2 8 20 / 0.38), transparent 24%, transparent 72%, rgb(1 5 13 / 0.56)),
@@ -121,7 +130,10 @@ button { font: inherit; }
 .game-crash-atmosphere {
   position: absolute;
   z-index: 1;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   opacity: 0;
   pointer-events: none;
   background:
@@ -145,7 +157,7 @@ button { font: inherit; }
 .game-hud {
   position: absolute;
   z-index: 3;
-  top: calc(env(safe-area-inset-top, 0px) + 26px);
+  top: calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 26px);
   left: 22px;
   right: 22px;
   display: grid;
@@ -264,7 +276,7 @@ button { font: inherit; }
 .game-beat-wave {
   position: absolute;
   z-index: 2;
-  top: calc(env(safe-area-inset-top, 0px) + 84px);
+  top: calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 84px);
   left: 24px;
   right: 24px;
   height: 22px;
@@ -291,7 +303,7 @@ button { font: inherit; }
   z-index: 3;
   left: 26px;
   right: 26px;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 23px);
+  bottom: calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 23px);
   padding: 10px 12px 12px;
   border: 1px solid rgb(125 172 218 / 0.2);
   border-radius: 12px;
@@ -309,7 +321,10 @@ button { font: inherit; }
 .pause-overlay {
   position: absolute;
   z-index: 5;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -334,8 +349,8 @@ button { font: inherit; }
 }
 .pause-orbit::before,
 .pause-orbit::after { content: ''; position: absolute; border-radius: 50%; }
-.pause-orbit::before { inset: 10px; border: 6px solid rgb(77 219 255 / 0.72); border-left-color: transparent; border-right-color: transparent; animation: pause-spin 11s linear infinite; }
-.pause-orbit::after { inset: 29px; border: 1px dashed rgb(77 219 255 / 0.32); animation: pause-spin 16s linear infinite reverse; }
+.pause-orbit::before { top: 10px; right: 10px; bottom: 10px; left: 10px; border: 6px solid rgb(77 219 255 / 0.72); border-left-color: transparent; border-right-color: transparent; animation: pause-spin 11s linear infinite; }
+.pause-orbit::after { top: 29px; right: 29px; bottom: 29px; left: 29px; border: 1px dashed rgb(77 219 255 / 0.32); animation: pause-spin 16s linear infinite reverse; }
 .pause-orbit > i { position: absolute; left: -30%; right: -30%; top: 50%; border-top: 1px solid rgb(77 219 255 / 0.35); }
 .pause-orbit > span { position: relative; z-index: 1; color: var(--cyan); font: 500 38px/1 'Arial Narrow', sans-serif; letter-spacing: 0.08em; }
 
@@ -447,9 +462,9 @@ button { font: inherit; }
 @keyframes pause-spin { to { transform: rotate(360deg); } }
 
 @media (max-height: 700px) {
-  .game-hud { top: calc(env(safe-area-inset-top, 0px) + 18px); row-gap: 6px; }
-  .game-beat-wave { top: calc(env(safe-area-inset-top, 0px) + 69px); }
-  .route-progress { bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); }
+  .game-hud { top: calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 18px); row-gap: 6px; }
+  .game-beat-wave { top: calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 69px); }
+  .route-progress { bottom: calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 14px); }
   .pause-orbit { width: 124px; margin-bottom: 16px; }
   .pause-overlay > strong { margin-bottom: 20px; }
   .pause-music-toggle { min-height: 56px; }

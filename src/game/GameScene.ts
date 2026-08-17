@@ -39,6 +39,12 @@ import {
   getSpectrumNoise,
   type SpectrumCluster,
 } from './spectrumRing';
+import {
+  getCameraZoom,
+  getRenderPixelRatio,
+  selectRenderProfile,
+  type RenderProfile,
+} from './renderProfile';
 
 const NORMAL_PANEL_BANDS = 5;
 const NORMAL_EDGES_PER_OBSTACLE = 12;
@@ -65,7 +71,6 @@ const TRAIL_LENGTH = 9.8;
 const TRAIL_HEAD_Z_OFFSET = 0.66;
 const TRAIL_HEAD_Y_OFFSET = 0.06;
 const TRAIL_SURFACE_Y = 0.025;
-const DESIGN_ASPECT = 9 / 16;
 const PLAYER_BOTTOM_RATIO = 0.32;
 const NORMAL_EDGE_THICKNESS = 0.075;
 const NORMAL_EDGE_LENGTH = 1.08;
@@ -127,6 +132,7 @@ function getSpectrumEnergy(spectrum: Uint8Array, startBin: number, endBin: numbe
 
 export class GameScene {
   private readonly renderer: THREE.WebGLRenderer;
+  private readonly renderProfile: RenderProfile;
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(76, 1, 0.1, 900);
   private readonly player = new THREE.Group();
@@ -196,17 +202,28 @@ export class GameScene {
 
   constructor(canvas: HTMLCanvasElement, level: Level) {
     const nav = navigator as Navigator & { deviceMemory?: number };
-    const lowPower = (nav.deviceMemory ?? 4) <= 2 || (navigator.hardwareConcurrency ?? 4) <= 4;
+    this.renderProfile = selectRenderProfile({
+      deviceMemory: nav.deviceMemory,
+      hardwareConcurrency: navigator.hardwareConcurrency,
+      devicePixelRatio,
+      screenWidth: screen.width,
+      screenHeight: screen.height,
+    });
     this.lastObstacleTime = level.events.length
       ? level.events[level.events.length - 1].timeSeconds
       : null;
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: !lowPower,
+      antialias: this.renderProfile.antialias,
       alpha: false,
       powerPreference: 'high-performance',
     });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, lowPower ? 0.9 : 1.25));
+    this.renderer.setPixelRatio(getRenderPixelRatio(
+      this.renderProfile,
+      canvas.clientWidth,
+      canvas.clientHeight,
+      devicePixelRatio,
+    ));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.02;
@@ -229,7 +246,7 @@ export class GameScene {
     rimLight.position.set(6, 3, -8);
     this.scene.add(rimLight);
 
-    const environment = this.createEnvironment(lowPower);
+    const environment = this.createEnvironment(this.renderProfile.lowGeometry);
     this.outerSpectrumBars = environment.outerSpectrumBars;
     this.innerSpectrumBars = environment.innerSpectrumBars;
     this.floatingCubes = environment.floatingCubes;
@@ -819,11 +836,11 @@ export class GameScene {
         content.add(new THREE.Mesh(geometry, glowMaterial), new THREE.Mesh(geometry, coreMaterial));
       };
       for (const path of new SVGLoader().parse(svg).paths) {
-        const style = path.userData.style as Parameters<typeof SVGLoader.pointsToStroke>[1] & {
+        const style = (path.userData?.style ?? {}) as Parameters<typeof SVGLoader.pointsToStroke>[1] & {
           fill?: string;
           stroke?: string;
         };
-        if (style.fill && style.fill !== 'none') addGeometry(new THREE.ShapeGeometry(path.toShapes()));
+        if (style.fill && style.fill !== 'none') addGeometry(new THREE.ShapeGeometry(SVGLoader.createShapes(path)));
         if (style.stroke && style.stroke !== 'none') {
           path.subPaths.forEach((subPath) => addGeometry(SVGLoader.pointsToStroke(subPath.getPoints(), style)));
         }
@@ -900,12 +917,18 @@ export class GameScene {
     if (!width || !height) return;
     this.camera.clearViewOffset();
     this.camera.aspect = width / height;
-    this.camera.zoom = Math.max(1, DESIGN_ASPECT / this.camera.aspect);
+    this.camera.zoom = getCameraZoom(this.camera.aspect);
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
     const playerNdcY = this.position.set(0, 0.32, PLAYER_Z).project(this.camera).y;
     const targetNdcY = PLAYER_BOTTOM_RATIO * 2 - 1;
     this.camera.setViewOffset(width, height, 0, (targetNdcY - playerNdcY) * height / 2, width, height);
+    this.renderer.setPixelRatio(getRenderPixelRatio(
+      this.renderProfile,
+      width,
+      height,
+      devicePixelRatio,
+    ));
     this.renderer.setSize(width, height, false);
   }
 

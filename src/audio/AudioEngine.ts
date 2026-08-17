@@ -14,6 +14,13 @@ function createCrashDistortionCurve(): Float32Array<ArrayBuffer> {
   return curve;
 }
 
+function decodeBase64Audio(value: string): ArrayBuffer {
+  const decoded = atob(value.slice(value.indexOf(',') + 1));
+  const bytes = new Uint8Array(decoded.length);
+  for (let index = 0; index < decoded.length; index += 1) bytes[index] = decoded.charCodeAt(index);
+  return bytes.buffer;
+}
+
 /** 加载关卡音频；资源不可用时退回本地合成音轨。 */
 export class AudioEngine {
   private static sharedContext: AudioContext | null = null;
@@ -51,6 +58,17 @@ export class AudioEngine {
     this.activeGains.forEach((gain) => {
       gain.gain.setValueAtTime(enabled ? 0.48 : 0, gain.context.currentTime);
     });
+  }
+
+  static playEffect(audioData: string): void {
+    const context = this.sharedContext;
+    if (!context || context.state === 'closed') return;
+    void context.decodeAudioData(decodeBase64Audio(audioData)).then((buffer) => {
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.connect(context.destination);
+      source.start();
+    }).catch(() => {});
   }
 
   constructor(duration: number, bpm: number, audioUrl: string) {
@@ -98,9 +116,7 @@ export class AudioEngine {
 
   private async loadTrack(): Promise<AudioBuffer> {
     try {
-      const response = await fetch(this.audioUrl);
-      if (!response.ok) throw new Error(t('error.httpStatus', { status: response.status }));
-      return await this.context.decodeAudioData(await response.arrayBuffer());
+      return await this.context.decodeAudioData(decodeBase64Audio(this.audioUrl));
     } catch (error) {
       console.warn(t('warning.audioFallback'), error);
       return this.createTrack();

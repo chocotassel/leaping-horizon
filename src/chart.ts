@@ -75,7 +75,7 @@ const levelModules = import.meta.glob<{ default: unknown }>('./songs/*/level.jso
 const audioModules = import.meta.glob<string>('./songs/*/audio.mp3', {
   eager: true,
   import: 'default',
-  query: '?url',
+  query: '?base64',
 });
 
 export const LEVELS = Object.entries(levelModules)
@@ -83,8 +83,8 @@ export const LEVELS = Object.entries(levelModules)
   .map(([path, module]) => {
     const audioUrl = audioModules[path.replace(/level\.json$/, 'audio.mp3')];
     if (!audioUrl) throw new Error(t('error.missingAudio', { path }));
-    const level = module.default as Level;
-    return validateLevel({ ...level, song: { ...level.song, audioUrl } });
+    const level = validateLevel(module.default as Level);
+    return { ...level, song: { ...level.song, audioUrl } };
   });
 
 if (!LEVELS.length) throw new Error(t('error.noLevels'));

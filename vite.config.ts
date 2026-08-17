@@ -1,8 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { base64AssetPlugin } from './vite.base64-plugin.ts';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [base64AssetPlugin(), react()],
   build: {
     target: 'es2017',
     cssCodeSplit: true,

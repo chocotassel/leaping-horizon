@@ -7,11 +7,13 @@
     "dev": "vite --host 0.0.0.0",
     "setup:rhythm": "node scripts/setup-rhythm-env.mjs",
     "build": "tsc -b && vite build",
+    "build:minitool": "tsc -b && vite build --config vite.minitool.config.ts && node scripts/package-minitool.mjs",
     "generate": "node scripts/generate-level.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "test:intent": "node --test scripts/rhythm/color-timeline.test.mjs scripts/rhythm/density-planner.test.mjs scripts/rhythm/layout-intent.test.mjs scripts/rhythm/route-analysis.test.mjs scripts/rhythm/wave-planner.test.mjs scripts/rhythm/wide-sweep-planner.test.mjs",
     "test:level": "npm run test:intent && node scripts/level-check.mjs",
     "test:physics": "tsc src/game/physics.ts --ignoreConfig --target ES2020 --module ESNext --moduleResolution Bundler --outDir node_modules/.cache/leaping-horizon-physics-check --skipLibCheck && node scripts/physics-check.mjs",
+    "test:render-profile": "tsc src/game/renderProfile.ts --ignoreConfig --target ES2020 --module ESNext --moduleResolution Bundler --outDir node_modules/.cache/leaping-horizon-render-profile-check --skipLibCheck && node scripts/render-profile-check.mjs",
     "test:spectrum-ring": "tsc src/game/spectrumRing.ts --ignoreConfig --target ES2020 --module ESNext --moduleResolution Bundler --outDir node_modules/.cache/leaping-horizon-spectrum-ring-check --skipLibCheck && node scripts/spectrum-ring-check.mjs",
     "typecheck": "tsc -b"
   },
@@ -19,13 +21,16 @@
     "@vitejs/plugin-react": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "three": "latest",
+    "three": "0.162.0",
     "typescript": "latest",
     "vite": "latest"
   },
   "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@babel/preset-env": "7.29.7",
+    "@rollup/plugin-babel": "7.1.0",
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "@types/three": "latest"
+    "@types/three": "0.162.0"
   }
 }

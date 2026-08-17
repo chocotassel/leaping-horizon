@@ -63,8 +63,8 @@ export function GameScreen({
     controllerRef.current = controller;
 
     const resize = () => {
-      const rect = stageRef.current?.getBoundingClientRect();
-      if (rect) controller.resize(rect.width, rect.height);
+      const stage = stageRef.current;
+      if (stage) controller.resize(stage.clientWidth, stage.clientHeight);
     };
     resize();
     window.addEventListener('resize', resize);

@@ -108,7 +108,10 @@
 
 .space-backdrop {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: -2;
   overflow: hidden;
   background:
@@ -135,7 +138,10 @@
 .space-backdrop::after {
   content: '';
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   opacity: 0.64;
   background:
     radial-gradient(circle at 5% 8%, #d9f8ff 0 1px, transparent 1.5px),
@@ -172,7 +178,10 @@
 
 .start-scene-glow::before {
   z-index: 2;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: linear-gradient(90deg, #0a2f50 0%, #8be7ff 44%, #eefbff 51%, #158ed0 57%, #04162b 100%);
   clip-path: polygon(0 47%, 38% 34%, 62% 2%, 100% 49%, 65% 97%, 39% 64%);
 }
@@ -452,7 +461,10 @@
   content: '';
   position: absolute;
   z-index: -1;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   pointer-events: none;
   background:
     repeating-radial-gradient(circle at 50% 42%, transparent 0 13%, rgb(45 146 218 / 0.055) 13.15% 13.32%, transparent 13.5% 20%),
@@ -717,13 +729,19 @@
 .vinyl-disc::after { content: ''; position: absolute; border-radius: 50%; pointer-events: none; }
 
 .vinyl-disc::before {
-  inset: 2.2%;
+  top: 2.2%;
+  right: 2.2%;
+  bottom: 2.2%;
+  left: 2.2%;
   border: 2px dotted rgb(194 228 255 / 0.72);
   box-shadow: inset 0 0 0 4px rgb(0 6 14 / 0.78);
 }
 
 .vinyl-disc::after {
-  inset: 47.2%;
+  top: 47.2%;
+  right: 47.2%;
+  bottom: 47.2%;
+  left: 47.2%;
   z-index: 5;
   border: clamp(3px, 0.65cqw, 6px) solid #9eb5c9;
   background: #01040a;
@@ -733,7 +751,10 @@
 .vinyl-pulse-ring {
   position: absolute;
   z-index: 2;
-  inset: 20%;
+  top: 20%;
+  right: 20%;
+  bottom: 20%;
+  left: 20%;
   border-radius: 50%;
   background: repeating-conic-gradient(from -3deg, rgb(9 146 255 / 0.95) 0 0.7deg, transparent 0.7deg 2.1deg);
   mask: radial-gradient(circle, transparent 0 47%, #000 48% 74%, transparent 75%);
@@ -744,7 +765,10 @@
 .vinyl-label {
   position: absolute;
   z-index: 3;
-  inset: 30.2%;
+  top: 30.2%;
+  right: 30.2%;
+  bottom: 30.2%;
+  left: 30.2%;
   overflow: hidden;
   border: clamp(3px, 0.65cqw, 6px) solid #0d9eff;
   border-radius: 50%;
@@ -756,7 +780,10 @@
 
 .label-flight-path {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   border-radius: 50%;
   background: radial-gradient(circle at 38% 34%, rgb(255 255 255 / 0.28), transparent 22%);
 }
@@ -971,15 +998,18 @@
 .orbit-scanner::after {
   content: '';
   position: absolute;
-  inset: 45%;
+  top: 45%;
+  right: 45%;
+  bottom: 45%;
+  left: 45%;
   border-radius: 50%;
   background: var(--space-cyan);
   box-shadow: 0 0 10px var(--space-cyan);
 }
 
 .orbit-scanner > i,
-.orbit-scanner > i > span { position: absolute; inset: 14%; border: 1px solid rgb(var(--space-cyan-rgb) / 0.56); border-radius: 50%; }
-.orbit-scanner > i > span { inset: 23%; border-style: dashed; }
+.orbit-scanner > i > span { position: absolute; top: 14%; right: 14%; bottom: 14%; left: 14%; border: 1px solid rgb(var(--space-cyan-rgb) / 0.56); border-radius: 50%; }
+.orbit-scanner > i > span { top: 23%; right: 23%; bottom: 23%; left: 23%; border-style: dashed; }
 
 .vinyl-stage.is-starting { cursor: wait; }
 .vinyl-stage.is-starting .vinyl-deck { pointer-events: none; }
@@ -1033,7 +1063,7 @@
   grid-template-rows: repeat(5, auto) minmax(0, 1fr);
   align-items: center;
   gap: var(--result-section-gap);
-  padding: max(10cqh, env(safe-area-inset-top, 0px)) 5.2% max(1.2%, env(safe-area-inset-bottom, 0px));
+  padding: max(10cqh, var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 5.2% max(1.2%, var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
   background:
     radial-gradient(circle at 50% 60%, rgb(0 137 204 / 0.1), transparent 34%),
     linear-gradient(180deg, #020914 0%, #041121 56%, #01050c 100%);
@@ -1076,7 +1106,10 @@
   content: '';
   position: absolute;
   z-index: 0;
-  inset: -8%;
+  top: -8%;
+  right: -8%;
+  bottom: -8%;
+  left: -8%;
   pointer-events: none;
   background:
     radial-gradient(circle at 50% 42%, rgb(255 73 94 / 0.22), transparent 26%),
@@ -1219,7 +1252,10 @@
 .result-score-ring::before {
   content: '';
   position: absolute;
-  inset: clamp(5px, 1cqw, 9px);
+  top: clamp(5px, 1cqw, 9px);
+  right: clamp(5px, 1cqw, 9px);
+  bottom: clamp(5px, 1cqw, 9px);
+  left: clamp(5px, 1cqw, 9px);
   border-radius: 50%;
   background: radial-gradient(circle at 50% 44%, var(--result-panel-start) 0%, var(--result-panel-middle) 66%, var(--result-panel-end) 100%);
   box-shadow: inset 0 0 44px rgb(var(--result-accent-rgb) / 0.18);

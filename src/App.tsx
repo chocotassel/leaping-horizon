@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import buttonTapUrl from './assets/audio/ui-button-tap.mp3';
-import soundOffUrl from './assets/audio/ui-sound-off.mp3';
-import soundOnUrl from './assets/audio/ui-sound-on.mp3';
+import buttonTapUrl from './assets/audio/ui-button-tap.mp3?base64';
+import soundOffUrl from './assets/audio/ui-sound-off.mp3?base64';
+import soundOnUrl from './assets/audio/ui-sound-on.mp3?base64';
 import { AudioEngine } from './audio/AudioEngine';
 import { DEFAULT_LEVEL_ID, LEVELS, getLevelById } from './chart';
 import { GameScreen } from './components/GameScreen';
@@ -18,8 +18,8 @@ import type { GameResult } from './types';
 
 type Screen = 'start' | 'home' | 'game' | 'result';
 
-function playSound(url: string): void {
-  void new Audio(url).play().catch(() => {});
+function playSound(audioData: string): void {
+  void AudioEngine.unlock().then(() => AudioEngine.playEffect(audioData));
 }
 
 export default function App() {
