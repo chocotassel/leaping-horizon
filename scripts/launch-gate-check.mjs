@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import {
   afterNextPaint,
+  GAMEPLAY_INTRO_DURATION_MS,
   GameLaunchTimeoutError,
+  getGameplayIntroProgress,
   waitForGameLaunch,
 } from '../node_modules/.cache/leaping-horizon-launch-check/launchGate.js';
 
@@ -15,6 +17,12 @@ scheduledFrames.shift()();
 assert.equal(preparationStarted, false, 'the launch animation must receive a paint before preparation');
 scheduledFrames.shift()();
 assert.equal(preparationStarted, true, 'preparation should start on the following frame');
+
+assert.equal(GAMEPLAY_INTRO_DURATION_MS, 1_000);
+assert.equal(getGameplayIntroProgress(-1), 0);
+assert.equal(getGameplayIntroProgress(500), 0.5);
+assert.equal(getGameplayIntroProgress(1_000), 1);
+assert.equal(getGameplayIntroProgress(1_500), 1);
 
 const slowStartedAt = Date.now();
 await waitForGameLaunch(delay(35), 5, 200);

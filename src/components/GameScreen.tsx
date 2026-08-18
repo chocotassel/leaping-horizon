@@ -27,8 +27,6 @@ interface GameScreenProps {
   onToggleSound: () => void;
 }
 
-const GAME_START_DELAY_MS = 1_000;
-
 export function GameScreen({
   active = true,
   level,
@@ -110,9 +108,7 @@ export function GameScreen({
   }, [level, onDeath, onFinish, onPrepared, onPrepareError]);
 
   useEffect(() => {
-    if (!active) return;
-    const timer = window.setTimeout(() => controllerRef.current?.start(), GAME_START_DELAY_MS);
-    return () => window.clearTimeout(timer);
+    if (active) controllerRef.current?.start();
   }, [active]);
 
   useEffect(() => {

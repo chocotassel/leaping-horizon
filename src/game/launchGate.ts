@@ -1,4 +1,9 @@
 export const GAME_LAUNCH_MAX_WAIT_MS = 15_000;
+export const GAMEPLAY_INTRO_DURATION_MS = 1_000;
+
+export function getGameplayIntroProgress(elapsedMs: number): number {
+  return Math.min(1, Math.max(0, elapsedMs / GAMEPLAY_INTRO_DURATION_MS));
+}
 
 export class GameLaunchTimeoutError extends Error {
   constructor() {

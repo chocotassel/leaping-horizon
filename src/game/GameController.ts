@@ -10,6 +10,7 @@ import {
 } from '../types';
 import { GameScene } from './GameScene';
 import type { SceneColorSchemeId } from './colorSchemes';
+import { getGameplayIntroProgress } from './launchGate';
 import { overlapsCollectibleTarget, overlapsPlayer } from './physics';
 
 export interface GameCallbacks {
@@ -227,7 +228,9 @@ export class GameController {
   private lastHudUpdate = 0;
   private preparation: Promise<void> | null = null;
   private started = false;
+  private running = false;
   private destroyed = false;
+  private introStartedAt = 0;
 
   constructor(canvas: HTMLCanvasElement, level: Level, callbacks: GameCallbacks) {
     this.scene = new GameScene(canvas, level);
@@ -258,8 +261,10 @@ export class GameController {
   start(): void {
     if (this.started || this.destroyed) return;
     this.started = true;
-    void this.prepare().then(() => this.audio.start()).then(() => {
-      if (!this.finished) this.frameId = requestAnimationFrame(this.loop);
+    void this.prepare().then(() => {
+      if (this.finished) return;
+      this.introStartedAt = performance.now();
+      this.frameId = requestAnimationFrame(this.introLoop);
     }).catch(() => { /* GameScreen reports preparation failures. */ });
   }
 
@@ -276,7 +281,7 @@ export class GameController {
   }
 
   setPointer(pointerId: number, normalizedX: number): void {
-    if (this.dead) return;
+    if (this.dead || !this.running) return;
     if (this.pointerId === null) {
       this.pointerId = pointerId;
       this.lastPointerX = normalizedX;
@@ -291,11 +296,26 @@ export class GameController {
   }
 
   async togglePause(): Promise<boolean> {
-    if (this.dead) return false;
+    if (this.dead || !this.running) return false;
     if (this.audio.paused) await this.audio.resume();
     else await this.audio.pause();
     return this.audio.paused;
   }
+
+  private introLoop = (now: number): void => {
+    if (this.finished) return;
+    const progress = getGameplayIntroProgress(now - this.introStartedAt);
+    this.scene.renderIntro(progress, this.level, this.states);
+    if (progress < 1) {
+      this.frameId = requestAnimationFrame(this.introLoop);
+      return;
+    }
+    void this.audio.start().then(() => {
+      if (this.finished) return;
+      this.running = true;
+      this.frameId = requestAnimationFrame(this.loop);
+    }).catch(() => { /* preparation already reports audio failures */ });
+  };
 
   private loop = (): void => {
     if (this.finished) return;
