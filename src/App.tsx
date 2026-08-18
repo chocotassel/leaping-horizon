@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import buttonTapUrl from './assets/audio/ui-button-tap.mp3?base64';
 import soundOffUrl from './assets/audio/ui-sound-off.mp3?base64';
 import soundOnUrl from './assets/audio/ui-sound-on.mp3?base64';
@@ -13,10 +13,17 @@ import {
 } from './components/ResultScreen';
 import { StartScreen } from './components/StartScreen';
 import { gameDataManager, recordLevelResult } from './data/localData';
+import { afterNextPaint } from './game/launchGate';
 import { getEarnedStars } from './game/stars';
 import type { GameResult } from './types';
 
-type Screen = 'start' | 'home' | 'game' | 'result';
+type Screen = 'start' | 'home' | 'preparing' | 'game' | 'result';
+
+interface GamePreparation {
+  promise: Promise<void>;
+  reject: (error: unknown) => void;
+  resolve: () => void;
+}
 
 function playSound(audioData: string): void {
   void AudioEngine.unlock().then(() => AudioEngine.playEffect(audioData));
@@ -31,6 +38,7 @@ export default function App() {
   const [result, setResult] = useState<GameResult | null>(null);
   const [resultStars, setResultStars] = useState(0);
   const [resultOutcome, setResultOutcome] = useState<ResultOutcome>('complete');
+  const gamePreparationRef = useRef<GamePreparation | null>(null);
 
   useEffect(() => {
     const recoverAudio = () => {
@@ -88,9 +96,43 @@ export default function App() {
     setScreen('game');
   }, []);
 
-  const prepareGame = useCallback(() => {
-    void AudioEngine.unlock();
+  const completeGamePreparation = useCallback(() => {
+    const preparation = gamePreparationRef.current;
+    if (!preparation) return;
+    gamePreparationRef.current = null;
+    preparation.resolve();
   }, []);
+
+  const failGamePreparation = useCallback((error: unknown) => {
+    const preparation = gamePreparationRef.current;
+    if (!preparation) return;
+    gamePreparationRef.current = null;
+    preparation.reject(error);
+    setScreen('home');
+  }, []);
+
+  const cancelGamePreparation = useCallback(() => {
+    const preparation = gamePreparationRef.current;
+    gamePreparationRef.current = null;
+    preparation?.reject(new Error('Game preparation cancelled.'));
+    setScreen('home');
+  }, []);
+
+  const prepareGame = useCallback((): Promise<void> => {
+    if (gamePreparationRef.current) return gamePreparationRef.current.promise;
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<void>((resolved, rejected) => {
+      resolve = resolved;
+      reject = rejected;
+    });
+    gamePreparationRef.current = { promise, reject, resolve };
+    void AudioEngine.unlock().catch(failGamePreparation);
+    afterNextPaint(() => {
+      if (gamePreparationRef.current?.promise === promise) setScreen('preparing');
+    });
+    return promise;
+  }, [failGamePreparation]);
 
   return (
     <div className="app-shell">
@@ -102,26 +144,33 @@ export default function App() {
             onEnter={() => setScreen('home')}
           />
         )}
-        {screen === 'home' && (
-          <HomeScreen
-            level={level}
-            levels={LEVELS}
-            gameData={gameData}
-            soundEnabled={soundEnabled}
-            onPrepareStart={prepareGame}
-            onSelectLevel={setLevelId}
-            onToggleSound={toggleSound}
-            onStart={() => setScreen('game')}
-          />
-        )}
-        {screen === 'game' && (
+        {(screen === 'preparing' || screen === 'game') && (
           <GameScreen
+            key={`game-${level.id}`}
+            active={screen === 'game'}
+            preparing={screen === 'preparing'}
             level={level}
             soundEnabled={soundEnabled}
             onDeath={crash}
             onExit={() => setScreen('home')}
             onFinish={finish}
+            onPrepared={completeGamePreparation}
+            onPrepareError={failGamePreparation}
             onToggleSound={toggleSound}
+          />
+        )}
+        {(screen === 'home' || screen === 'preparing') && (
+          <HomeScreen
+            key="home"
+            level={level}
+            levels={LEVELS}
+            gameData={gameData}
+            soundEnabled={soundEnabled}
+            onCancelStart={cancelGamePreparation}
+            onPrepareStart={prepareGame}
+            onSelectLevel={setLevelId}
+            onToggleSound={toggleSound}
+            onStart={() => setScreen('game')}
           />
         )}
         {screen === 'result' && result && (

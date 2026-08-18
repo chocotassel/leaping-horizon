@@ -109,6 +109,7 @@ const SPIKE_OFFSETS = [
   [0.28, 0.28],
 ] as const;
 const hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
+const SILENT_SPECTRUM = new Uint8Array(128);
 
 interface RingTransform {
   angle: number;
@@ -259,6 +260,7 @@ export class GameScene {
   private crashElapsed = 0;
   private colorTransitionElapsed = COLOR_TRANSITION_SECONDS;
   private disposed = false;
+  private preparation: Promise<void> | null = null;
 
   constructor(canvas: HTMLCanvasElement, level: Level) {
     const nav = navigator as Navigator & { deviceMemory?: number };
@@ -392,6 +394,11 @@ export class GameScene {
       this.createMetalMaterial({ metalness: 0.9, roughness: 0.25, emissiveIntensity: 0.8 }),
       particlePoolSize,
     );
+    for (let index = 0; index < particlePoolSize; index += 1) {
+      this.particles.setColorAt(index, this.glowColor);
+    }
+    this.particles.instanceColor?.setUsage(THREE.DynamicDrawUsage);
+    if (this.particles.instanceColor) this.particles.instanceColor.needsUpdate = true;
     this.particleData = Array.from({ length: particlePoolSize }, () => ({
       active: false,
       x: 0,
@@ -1104,6 +1111,16 @@ export class GameScene {
     this.warmColorTransition();
   }
 
+  prepare(level: Level, states: ObstacleStateRow[]): Promise<void> {
+    if (this.preparation) return this.preparation;
+    this.preparation = this.renderer.compileAsync(this.scene, this.camera).then(() => {
+      if (this.disposed) return;
+      this.render(0, level, states, 0, SILENT_SPECTRUM);
+      this.renderer.getContext().finish();
+    });
+    return this.preparation;
+  }
+
   movePlayerNormalized(normalizedDeltaX: number): void {
     this.targetPlayerX = THREE.MathUtils.clamp(
       this.targetPlayerX + normalizedDeltaX * PLAYER_LIMIT_X,
@@ -1610,6 +1627,7 @@ export class GameScene {
   }
 
   dispose(): void {
+    if (this.disposed) return;
     this.disposed = true;
     this.playerReflection.material.map?.dispose();
     const textures = new Set<THREE.Texture>();

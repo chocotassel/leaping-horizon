@@ -41,6 +41,7 @@ export class AudioEngine {
   private distortion!: WaveShaperNode;
   private filter!: BiquadFilterNode;
   private spectrumData!: Uint8Array<ArrayBuffer>;
+  private preparation: Promise<void> | null = null;
   private startedAt = 0;
   private pausedAt = 0;
   private isPaused = false;
@@ -127,6 +128,7 @@ export class AudioEngine {
     this.analyser.fftSize = 256;
     this.analyser.smoothingTimeConstant = 0.62;
     this.distortion.oversample = '2x';
+    this.distortion.curve = createCrashDistortionCurve();
     this.filter.type = 'lowpass';
     this.filter.frequency.value = this.context.sampleRate * 0.48;
     this.filter.Q.value = 0.0001;
@@ -154,12 +156,18 @@ export class AudioEngine {
     this.connectGraph();
   }
 
+  prepare(): Promise<void> {
+    if (this.preparation) return this.preparation;
+    this.preparation = this.loadTrack().then(async (buffer) => {
+      await AudioEngine.unlock();
+      if (!this.stopped) this.buffer = buffer;
+    });
+    return this.preparation;
+  }
+
   async start(): Promise<void> {
-    const track = this.loadTrack();
-    await AudioEngine.unlock();
-    const buffer = await track;
+    await this.prepare();
     if (this.stopped) return;
-    this.buffer = buffer;
     this.startedAt = this.context.currentTime;
     this.pausedAt = 0;
     this.syncSource();
@@ -261,7 +269,6 @@ export class AudioEngine {
 
     this.analyser.disconnect();
     this.analyser.connect(this.distortion);
-    this.distortion.curve = createCrashDistortionCurve();
     this.source.playbackRate.cancelScheduledValues(now);
     this.source.playbackRate.setValueAtTime(Math.max(0.01, this.source.playbackRate.value), now);
     this.source.playbackRate.exponentialRampToValueAtTime(0.42, end);

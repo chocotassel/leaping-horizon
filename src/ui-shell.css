@@ -1109,6 +1109,24 @@
 .song-start-button:disabled { cursor: not-allowed; filter: grayscale(0.74) brightness(0.62); }
 .song-start-button[aria-busy='true'] { cursor: wait; filter: saturate(0.82); }
 
+.launch-error-message {
+  position: absolute;
+  z-index: 9;
+  right: 7%;
+  bottom: 8.2%;
+  left: 7%;
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid rgb(255 83 102 / 0.56);
+  border-radius: 8px;
+  color: #ffd8dd;
+  background: rgb(54 5 17 / 0.92);
+  box-shadow: 0 8px 24px rgb(10 0 4 / 0.42);
+  font-size: clamp(12px, 2.8cqw, 22px);
+  line-height: 1.35;
+  text-align: center;
+}
+
 /* Result */
 .result-screen {
   --result-accent: var(--space-cyan);

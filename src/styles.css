@@ -118,6 +118,8 @@ button {
   background: #030712;
 }
 
+.game-screen.is-preparing { pointer-events: none; }
+
 .game-screen.is-crashed { --cyan: var(--game-danger); }
 
 .game-canvas {
@@ -152,6 +154,7 @@ button {
     radial-gradient(ellipse at 50% 108%, rgb(190 0 28 / 0.72), transparent 56%),
     linear-gradient(180deg, rgb(90 0 15 / 0.08), rgb(255 18 48 / 0.34));
   transform: scale(1.08);
+  will-change: opacity, transform;
 }
 
 .game-screen.is-crashed .game-crash-atmosphere {

@@ -31,6 +31,26 @@ export const CRASH_EFFECT_DURATION_MS = 1150;
 const CRASH_SCENE_MAX_ADVANCE_SECONDS = 0.07;
 const CRASH_SCENE_DECAY_MS = 180;
 
+function disposeAfterNextPaint(dispose: () => void): void {
+  let disposed = false;
+  const run = () => {
+    if (disposed) return;
+    disposed = true;
+    window.clearTimeout(fallback);
+    dispose();
+  };
+  const fallback = window.setTimeout(run, 1_200);
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(run, { timeout: 600 });
+      } else {
+        window.setTimeout(run, 0);
+      }
+    });
+  });
+}
+
 export function getCrashEffectProgress(startedAt: number, now: number): number {
   return Math.min(1, Math.max(0, (now - startedAt) / CRASH_EFFECT_DURATION_MS));
 }
@@ -205,6 +225,9 @@ export class GameController {
   private pointerId: number | null = null;
   private lastPointerX = 0;
   private lastHudUpdate = 0;
+  private preparation: Promise<void> | null = null;
+  private started = false;
+  private destroyed = false;
 
   constructor(canvas: HTMLCanvasElement, level: Level, callbacks: GameCallbacks) {
     this.scene = new GameScene(canvas, level);
@@ -216,10 +239,28 @@ export class GameController {
     )) as ObstacleStateRow);
   }
 
+  prepare(): Promise<void> {
+    if (this.preparation) return this.preparation;
+    while (
+      this.nextColorSchemeEventIndex < this.level.colorSchemeEvents.length
+      && this.level.colorSchemeEvents[this.nextColorSchemeEventIndex].timeSeconds <= 0
+    ) {
+      this.scene.setColorScheme(this.level.colorSchemeEvents[this.nextColorSchemeEventIndex].colorSchemeId);
+      this.nextColorSchemeEventIndex += 1;
+    }
+    this.preparation = Promise.all([
+      this.audio.prepare(),
+      this.scene.prepare(this.level, this.states),
+    ]).then(() => undefined);
+    return this.preparation;
+  }
+
   start(): void {
-    void this.audio.start().then(() => {
+    if (this.started || this.destroyed) return;
+    this.started = true;
+    void this.prepare().then(() => this.audio.start()).then(() => {
       if (!this.finished) this.frameId = requestAnimationFrame(this.loop);
-    });
+    }).catch(() => { /* GameScreen reports preparation failures. */ });
   }
 
   resize(width: number, height: number): void {
@@ -363,9 +404,12 @@ export class GameController {
   }
 
   destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
     this.finished = true;
     cancelAnimationFrame(this.frameId);
     this.audio.stop();
-    this.scene.dispose();
+    if (this.started) disposeAfterNextPaint(() => this.scene.dispose());
+    else this.scene.dispose();
   }
 }
