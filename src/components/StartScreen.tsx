@@ -1,6 +1,6 @@
 import { BrandHeader } from './BrandHeader';
 import { t } from '../i18n';
-import packageJson from '../../package.json';
+import { version } from '../../package.json';
 
 interface StartScreenProps {
   soundEnabled: boolean;
@@ -51,7 +51,7 @@ export function StartScreen({ soundEnabled, onToggleSound, onEnter }: StartScree
         </p>
       </section>
 
-      <span className="start-version">v{packageJson.version}</span>
+      <span className="start-version">v{version}</span>
     </main>
   );
 }

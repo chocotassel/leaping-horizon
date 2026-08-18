@@ -32,6 +32,7 @@ class FakeAudioContext {
     this.analysers = [];
     this.sampleRate = 22050;
     this.sources = [];
+    this.oscillators = [];
     this.state = 'running';
   }
 
@@ -59,6 +60,19 @@ class FakeAudioContext {
 
   createGain() {
     return { ...audioNode('gain'), gain: param() };
+  }
+
+  createOscillator() {
+    const oscillator = {
+      ...audioNode('oscillator'),
+      frequency: param(440),
+      detune: param(),
+      type: 'sine',
+      start: (when = 0) => { oscillator.startedAt = when; },
+      stop: (when = 0) => { oscillator.stoppedAt = when; },
+    };
+    this.oscillators.push(oscillator);
+    return oscillator;
   }
 
   createWaveShaper() {
@@ -106,12 +120,64 @@ execFileSync(process.execPath, [
 
 globalThis.window = { AudioContext: FakeAudioContext };
 const require = createRequire(import.meta.url);
-const { AudioEngine } = require(`${outputDir}/leaping-horizon-audio-engine.js`);
+const {
+  AudioEngine,
+  hitSoundIntentForOutcome,
+  normalizeHitSoundIntent,
+} = require(`${outputDir}/leaping-horizon-audio-engine.js`);
 AudioEngine.setMusicEnabled(false);
 await AudioEngine.unlock();
 const engine = new AudioEngine(60, 120, 'data:audio/mp3;base64,AA==');
 let context = FakeAudioContext.instance;
 await engine.start();
+
+assert.deepEqual(normalizeHitSoundIntent({
+  sourceRole: 'vocals',
+  pitchMidi: 69,
+  velocity: 0.8,
+  gain: 0.5,
+  brightness: 0.75,
+}), {
+  sourceRole: 'vocals',
+  pitchMidi: 69,
+  pitchClass: 9,
+  velocity: 0.8,
+  gain: 0.5,
+  brightness: 0.75,
+}, 'hit-sound intent has a stable compact runtime shape');
+assert.equal(hitSoundIntentForOutcome('target-miss', {
+  hitSound: { sourceRole: 'vocals', pitchMidi: 69 },
+}), null, 'a miss must not play a musical hit');
+assert.equal(hitSoundIntentForOutcome('dodge', {
+  hitSound: { sourceRole: 'drums' },
+}), null, 'a successful dodge must not play a musical hit');
+assert.deepEqual(hitSoundIntentForOutcome('target-hit', {
+  hitSound: {
+    sourceRole: 'vocals',
+    pitchMidi: 69,
+    velocity: 0.8,
+    gain: 0.5,
+    brightness: 0.75,
+  },
+}), {
+  sourceRole: 'vocals',
+  pitchMidi: 69,
+  pitchClass: 9,
+  velocity: 0.8,
+  gain: 0.5,
+  brightness: 0.75,
+}, 'one satisfied target row yields one normalized hit intent');
+const contextsBeforeHit = FakeAudioContext.instances.length;
+assert.equal(engine.playHitSound({
+  sourceRole: 'vocals',
+  pitchMidi: 69,
+  velocity: 0.8,
+  gain: 0.5,
+  brightness: 0.75,
+}), true);
+assert.equal(FakeAudioContext.instances.length, contextsBeforeHit, 'hit sound reuses the song AudioContext');
+assert.equal(context.oscillators.length, 1, 'one target row creates one synthesized hit');
+assert.equal(context.oscillators[0].frequency.value, 440);
 
 assert.equal(context.options?.sampleRate, undefined, 'AudioContext must use the output device sample rate');
 assert.equal(context.analyser.connections[0].kind, 'gain', 'normal music must bypass crash DSP');

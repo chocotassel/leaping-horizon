@@ -37,6 +37,12 @@ HOP_LENGTH = 256
 N_FFT = 1_024
 MIN_OUTPUT_GAP_SECONDS = 0.12
 MIN_PERFORMANCE_EVIDENCE_GAP_SECONDS = 0.065
+STEM_EVENT_FUSION_WINDOW_SECONDS = 0.055
+CONTINUOUS_PITCH_HOP_LENGTH = 256
+CONTINUOUS_PITCH_FRAME_LENGTH = 2_048
+CONTINUOUS_PITCH_MIN_TRACE_SECONDS = 0.12
+CONTINUOUS_PITCH_MAX_SUPPORT_GAP_SECONDS = 0.20
+CONTINUOUS_PITCH_TOLERANCE_SEMITONES = 0.35
 COLORS = {
     "librosa-onset": "#35e4ed",
     "librosa-percussive": "#ff4058",
@@ -91,6 +97,192 @@ def normalize_curve(values: np.ndarray) -> np.ndarray:
     return np.clip((values - low) / max(1e-9, high - low), 0, 1)
 
 
+def _empty_continuous_pitch(status: str, diagnostics: dict | None = None) -> dict:
+    return {
+        "schemaVersion": "1.0.0",
+        "algorithm": "librosa-pyin-harmonic-v1",
+        "sourceRole": "estimated-melody",
+        "traces": [],
+        "diagnostics": {
+            "status": status,
+            "traceCount": 0,
+            "pointCount": 0,
+            **(diagnostics or {}),
+        },
+    }
+
+
+def _median_smooth(values: np.ndarray, radius: int = 2) -> np.ndarray:
+    if values.size < 3:
+        return values.copy()
+    padded = np.pad(values, (radius, radius), mode="edge")
+    return np.asarray([
+        np.median(padded[index:index + radius * 2 + 1])
+        for index in range(values.size)
+    ], dtype=np.float64)
+
+
+def _continuous_pitch_support_indices(
+    times: np.ndarray,
+    pitches: np.ndarray,
+) -> list[int]:
+    """Keep contour turns and bounded-gap support without moving frame times."""
+    if pitches.size <= 2:
+        return list(range(pitches.size))
+
+    selected = {0, pitches.size - 1}
+    pending = [(0, pitches.size - 1)]
+    while pending:
+        left, right = pending.pop()
+        if right - left <= 1:
+            continue
+        segment_times = times[left + 1:right]
+        duration = float(times[right] - times[left])
+        if duration <= 0:
+            continue
+        interpolation = pitches[left] + (
+            (segment_times - times[left]) / duration
+        ) * (pitches[right] - pitches[left])
+        errors = np.abs(pitches[left + 1:right] - interpolation)
+        largest_error_offset = int(np.argmax(errors))
+        largest_error = float(errors[largest_error_offset])
+
+        if largest_error > CONTINUOUS_PITCH_TOLERANCE_SEMITONES:
+            split = left + 1 + largest_error_offset
+        elif duration > CONTINUOUS_PITCH_MAX_SUPPORT_GAP_SECONDS:
+            midpoint = (times[left] + times[right]) / 2
+            split = left + 1 + int(np.argmin(np.abs(segment_times - midpoint)))
+        else:
+            continue
+
+        selected.add(split)
+        pending.append((left, split))
+        pending.append((split, right))
+    return sorted(selected)
+
+
+def build_continuous_pitch(
+    harmonic: np.ndarray,
+    sample_rate: int = SAMPLE_RATE,
+) -> dict:
+    """Estimate a frame-timed monophonic contour from the harmonic mixture.
+
+    This is deliberately labelled estimated melody: HPSS does not isolate a
+    vocalist, and this evidence must never be presented as a vocal stem.
+    """
+    signal = np.nan_to_num(np.asarray(harmonic, dtype=np.float64).reshape(-1))
+    common_diagnostics = {
+        "sampleRate": int(sample_rate),
+        "hopLength": CONTINUOUS_PITCH_HOP_LENGTH,
+        "frameLength": CONTINUOUS_PITCH_FRAME_LENGTH,
+        "inputSampleCount": int(signal.size),
+        "inputDurationSeconds": round_number(signal.size / max(sample_rate, 1), 5),
+        "minimumTraceSeconds": CONTINUOUS_PITCH_MIN_TRACE_SECONDS,
+        "maximumSupportGapSeconds": CONTINUOUS_PITCH_MAX_SUPPORT_GAP_SECONDS,
+        "pitchToleranceSemitones": CONTINUOUS_PITCH_TOLERANCE_SEMITONES,
+        "timingPolicy": "Original pYIN frame times; no beat quantization or snapping.",
+    }
+    if signal.size == 0:
+        return _empty_continuous_pitch("missing-audio", common_diagnostics)
+
+    peak_amplitude = float(np.max(np.abs(signal)))
+    rms_amplitude = float(np.sqrt(np.mean(np.square(signal))))
+    common_diagnostics.update({
+        "inputPeakAmplitude": round_number(peak_amplitude, 6),
+        "inputRmsAmplitude": round_number(rms_amplitude, 6),
+    })
+    if peak_amplitude < 1e-4 or rms_amplitude < 1e-5:
+        return _empty_continuous_pitch("silent-input", common_diagnostics)
+
+    try:
+        f0, voiced_flags, voiced_probabilities = librosa.pyin(
+            signal,
+            sr=sample_rate,
+            fmin=float(librosa.note_to_hz("C2")),
+            fmax=min(float(librosa.note_to_hz("C7")), sample_rate * 0.48),
+            frame_length=CONTINUOUS_PITCH_FRAME_LENGTH,
+            hop_length=CONTINUOUS_PITCH_HOP_LENGTH,
+            center=True,
+            fill_na=np.nan,
+        )
+    except Exception as error:
+        return _empty_continuous_pitch("analysis-failed", {
+            **common_diagnostics,
+            "error": f"{type(error).__name__}: {error}",
+        })
+
+    f0 = np.asarray(f0, dtype=np.float64)
+    voiced_flags = np.asarray(voiced_flags, dtype=bool)
+    voiced_probabilities = np.nan_to_num(
+        np.asarray(voiced_probabilities, dtype=np.float64),
+        nan=0.0,
+    )
+    frame_times = librosa.frames_to_time(
+        np.arange(f0.size),
+        sr=sample_rate,
+        hop_length=CONTINUOUS_PITCH_HOP_LENGTH,
+    )
+    voiced = voiced_flags & np.isfinite(f0) & (voiced_probabilities >= 0.35)
+
+    runs: list[tuple[int, int]] = []
+    run_start: int | None = None
+    for frame_index, is_voiced in enumerate(voiced):
+        if is_voiced and run_start is None:
+            run_start = frame_index
+        elif not is_voiced and run_start is not None:
+            runs.append((run_start, frame_index))
+            run_start = None
+    if run_start is not None:
+        runs.append((run_start, f0.size))
+
+    minimum_frames = max(
+        2,
+        math.ceil(CONTINUOUS_PITCH_MIN_TRACE_SECONDS * sample_rate / CONTINUOUS_PITCH_HOP_LENGTH),
+    )
+    retained_runs = [(start, end) for start, end in runs if end - start >= minimum_frames]
+    traces: list[dict] = []
+    for start, end in retained_runs:
+        times = frame_times[start:end]
+        pitches = _median_smooth(librosa.hz_to_midi(f0[start:end]))
+        probabilities = voiced_probabilities[start:end]
+        support_indices = _continuous_pitch_support_indices(times, pitches)
+        trace_number = len(traces) + 1
+        points = [
+            {
+                "id": f"continuous-pitch-{trace_number:03d}-{point_number:04d}",
+                "timeSeconds": round_number(times[index]),
+                "pitchMidi": round_number(pitches[index], 3),
+                "confidence": round_number(probabilities[index], 3),
+            }
+            for point_number, index in enumerate(support_indices, start=1)
+        ]
+        traces.append({
+            "id": f"continuous-pitch-trace-{trace_number:03d}",
+            "startSeconds": points[0]["timeSeconds"],
+            "endSeconds": points[-1]["timeSeconds"],
+            "confidence": round_number(np.median(probabilities), 3),
+            "points": points,
+        })
+
+    diagnostics = {
+        **common_diagnostics,
+        "status": "ok" if traces else "no-voiced-pitch",
+        "frameCount": int(f0.size),
+        "voicedFrameCount": int(np.count_nonzero(voiced)),
+        "rawTraceCount": len(runs),
+        "discardedShortTraceCount": len(runs) - len(retained_runs),
+        "traceCount": len(traces),
+        "pointCount": sum(len(trace["points"]) for trace in traces),
+    }
+    return {
+        "schemaVersion": "1.0.0",
+        "algorithm": "librosa-pyin-harmonic-v1",
+        "sourceRole": "estimated-melody",
+        "traces": traces,
+        "diagnostics": diagnostics,
+    }
+
+
 def curve_events(
     source: str,
     envelope: np.ndarray,
@@ -112,6 +304,8 @@ def curve_events(
         delta=delta,
         wait=wait,
     )
+    if len(peak_frames) == 0:
+        return []
     # Spectral-flux maxima happen after the audible attack begins. Keep the
     # peak's confidence, but place the event at the preceding onset front so a
     # Target Cell sounds simultaneous with the instrument rather than late.
@@ -310,6 +504,386 @@ def run_basic_pitch(wav_path: Path, duration: float) -> tuple[list[DetectorEvent
     except Exception as error:  # optional model backend
         metadata["error"] = f"{type(error).__name__}: {error}"
         return [], metadata
+
+
+CORE4_ROLES = ("vocals", "drums", "bass", "other")
+STEM_EVIDENCE_ALGORITHM = "core4-stem-evidence-v1"
+
+
+def _empty_stem_evidence(role: str, status: str = "unavailable", diagnostics: dict | None = None) -> dict:
+    return {
+        "role": role,
+        "status": status,
+        "timingEvents": [],
+        "pitchTraces": [],
+        "pitchLandmarks": [],
+        "accentEvents": [],
+        "diagnostics": diagnostics or {},
+    }
+
+
+def _role_pitch_evidence(signal: np.ndarray, sample_rate: int, role: str) -> tuple[list[dict], list[dict], dict]:
+    estimated = build_continuous_pitch(signal, sample_rate)
+    traces: list[dict] = []
+    landmarks: list[dict] = []
+    for trace_index, trace in enumerate(estimated["traces"], start=1):
+        trace_id = f"stem-{role}-pitch-trace-{trace_index:03d}"
+        points = []
+        for point_index, point in enumerate(trace["points"], start=1):
+            transformed = {
+                "id": f"stem-{role}-pitch-{trace_index:03d}-{point_index:04d}",
+                "timeSeconds": point["timeSeconds"],
+                "pitchMidi": point["pitchMidi"],
+                "confidence": point["confidence"],
+            }
+            points.append(transformed)
+            landmarks.append({**transformed, "traceId": trace_id})
+        traces.append({
+            "id": trace_id,
+            "startSeconds": trace["startSeconds"],
+            "endSeconds": trace["endSeconds"],
+            "confidence": trace["confidence"],
+            "points": points,
+        })
+    return traces, landmarks, estimated["diagnostics"]
+
+
+def _stem_onset_events(
+    signal: np.ndarray,
+    duration: float,
+    role: str,
+    kind: str,
+) -> list[dict]:
+    envelope = librosa.onset.onset_strength(
+        y=signal,
+        sr=SAMPLE_RATE,
+        hop_length=HOP_LENGTH,
+        n_fft=N_FFT,
+        aggregate=np.median,
+    )
+    raw = curve_events(f"stem-{role}", envelope, duration, 0.08, 3)
+    selected = nms_detector_events(raw, MIN_PERFORMANCE_EVIDENCE_GAP_SECONDS)
+    return [
+        {
+            "id": f"stem-{role}-{kind}-{index:05d}",
+            "timeSeconds": round_number(event.time),
+            "confidence": round_number(event.score, 3),
+            "kind": kind,
+        }
+        for index, event in enumerate(selected, start=1)
+    ]
+
+
+def _accent_events(timing_events: Sequence[dict], role: str) -> list[dict]:
+    if not timing_events:
+        return []
+    strengths = np.asarray([float(event["confidence"]) for event in timing_events], dtype=np.float64)
+    threshold = max(0.62, float(np.percentile(strengths, 70)))
+    return [
+        {
+            "id": f"stem-{role}-accent-{index:05d}",
+            "timeSeconds": event["timeSeconds"],
+            "confidence": event["confidence"],
+            "kind": f"{role}-accent",
+        }
+        for index, event in enumerate(
+            (event for event in timing_events if float(event["confidence"]) >= threshold),
+            start=1,
+        )
+    ]
+
+
+def _pitch_at_time(pitch_landmarks: Sequence[dict], time_seconds: float) -> dict | None:
+    if not pitch_landmarks:
+        return None
+    nearest = min(
+        pitch_landmarks,
+        key=lambda point: (abs(float(point["timeSeconds"]) - time_seconds), str(point["id"])),
+    )
+    return nearest if abs(float(nearest["timeSeconds"]) - time_seconds) <= 0.30 else None
+
+
+def _aligned_stem_signal(path: Path, expected_duration: float) -> tuple[np.ndarray, dict]:
+    signal, sample_rate = librosa.load(path, sr=SAMPLE_RATE, mono=True)
+    expected_samples = max(0, round(expected_duration * SAMPLE_RATE))
+    original_samples = int(signal.size)
+    if signal.size < expected_samples:
+        signal = np.pad(signal, (0, expected_samples - signal.size))
+    elif signal.size > expected_samples:
+        signal = signal[:expected_samples]
+    return np.nan_to_num(np.asarray(signal, dtype=np.float64)), {
+        "sourceSampleRate": int(sample_rate),
+        "sourceSampleCount": original_samples,
+        "alignedSampleCount": int(signal.size),
+        "endAdjustmentSamples": int(signal.size - original_samples),
+        "timeOriginSeconds": 0,
+    }
+
+
+def _analyse_vocals_stem(signal: np.ndarray, duration: float) -> dict:
+    timing = _stem_onset_events(signal, duration, "vocals", "onset")
+    traces, landmarks, pitch_diagnostics = _role_pitch_evidence(signal, SAMPLE_RATE, "vocals")
+    status = "ready" if timing or traces else "degraded"
+    return {
+        "role": "vocals",
+        "status": status,
+        "timingEvents": timing,
+        "pitchTraces": traces,
+        "pitchLandmarks": landmarks,
+        "accentEvents": _accent_events(timing, "vocals"),
+        "diagnostics": {
+            "sourceRole": "estimated-vocals-stem",
+            "pitch": pitch_diagnostics,
+        },
+    }
+
+
+def _analyse_drums_stem(signal: np.ndarray, duration: float) -> dict:
+    timing = _stem_onset_events(signal, duration, "drums", "drum-hit")
+    return {
+        "role": "drums",
+        "status": "ready" if timing else "degraded",
+        "timingEvents": timing,
+        "pitchTraces": [],
+        "pitchLandmarks": [],
+        "accentEvents": _accent_events(timing, "drums"),
+        "diagnostics": {"sourceRole": "estimated-drums-stem"},
+    }
+
+
+def _analyse_bass_stem(signal: np.ndarray, duration: float) -> dict:
+    onsets = _stem_onset_events(signal, duration, "bass", "note-onset")
+    traces, landmarks, pitch_diagnostics = _role_pitch_evidence(signal, SAMPLE_RATE, "bass")
+    timing = []
+    for event in onsets:
+        pitch = _pitch_at_time(landmarks, float(event["timeSeconds"]))
+        if pitch:
+            timing.append({**event, "pitchMidi": pitch["pitchMidi"]})
+    if not timing:
+        timing = [
+            {
+                "id": f"stem-bass-note-onset-{index:05d}",
+                "timeSeconds": trace["startSeconds"],
+                "confidence": trace["confidence"],
+                "kind": "note-onset",
+                "pitchMidi": trace["points"][0]["pitchMidi"],
+            }
+            for index, trace in enumerate(traces, start=1)
+            if trace["points"]
+        ]
+    return {
+        "role": "bass",
+        "status": "ready" if timing or traces else "degraded",
+        "timingEvents": timing,
+        "pitchTraces": traces,
+        "pitchLandmarks": landmarks,
+        "accentEvents": _accent_events(timing, "bass"),
+        "diagnostics": {
+            "sourceRole": "estimated-bass-stem",
+            "pitch": pitch_diagnostics,
+        },
+    }
+
+
+def _analyse_other_stem(
+    signal: np.ndarray,
+    path: Path,
+    duration: float,
+    note_transcriber,
+) -> dict:
+    onsets = _stem_onset_events(signal, duration, "other", "onset")
+    notes, note_diagnostics = note_transcriber(path, duration)
+    note_events = [
+        {
+            "id": f"stem-other-note-onset-{index:05d}",
+            "timeSeconds": round_number(note.time),
+            "confidence": round_number(note.score, 3),
+            "kind": "note-onset",
+            "pitchMidi": round_number(note.midi_pitch, 3),
+            **({"durationSeconds": round_number(note.duration, 4)} if note.duration is not None else {}),
+        }
+        for index, note in enumerate(notes, start=1)
+        if note.midi_pitch is not None
+    ]
+    note_times = [float(event["timeSeconds"]) for event in note_events]
+    timing = sorted(
+        note_events + [
+            event for event in onsets
+            if all(
+                abs(float(event["timeSeconds"]) - note_time) > STEM_EVENT_FUSION_WINDOW_SECONDS
+                for note_time in note_times
+            )
+        ],
+        key=lambda event: (float(event["timeSeconds"]), str(event["id"])),
+    )
+    landmarks = [
+        {
+            "id": event["id"].replace("note-onset", "pitch"),
+            "timeSeconds": event["timeSeconds"],
+            "pitchMidi": event["pitchMidi"],
+            "confidence": event["confidence"],
+        }
+        for event in note_events
+    ]
+    return {
+        "role": "other",
+        "status": "ready" if timing else "degraded",
+        "timingEvents": timing,
+        "pitchTraces": [],
+        "pitchLandmarks": landmarks,
+        "accentEvents": _accent_events(timing, "other"),
+        "diagnostics": {
+            "sourceRole": "estimated-other-stem",
+            "noteTranscription": note_diagnostics,
+        },
+    }
+
+
+def load_stem_separation_manifest(
+    manifest_path: Path,
+    expected_audio_fingerprint: str,
+) -> dict:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("audioFingerprint") != expected_audio_fingerprint:
+        return {
+            "kind": "core4-separation-manifest",
+            "schemaVersion": "1.0.0",
+            "status": "unavailable",
+            "audioFingerprint": expected_audio_fingerprint,
+            "separator": manifest.get("separator", {}),
+            "timeOriginSeconds": 0,
+            "cache": manifest.get("cache", {}),
+            "stems": {
+                role: {"role": role, "status": "unavailable"}
+                for role in CORE4_ROLES
+            },
+            "diagnostics": {
+                "error": "Stem manifest audio fingerprint does not match the compressed game audio.",
+            },
+        }
+    resolved_stems = {}
+    for role in CORE4_ROLES:
+        stem = dict(manifest.get("stems", {}).get(role, {}))
+        if stem.get("file"):
+            stem["path"] = str((manifest_path.parent / stem["file"]).resolve())
+        resolved_stems[role] = stem
+    return {**manifest, "stems": resolved_stems}
+
+
+def build_stem_evidence(
+    separation_manifest: dict,
+    duration: float,
+    note_transcriber=None,
+) -> dict:
+    separator = separation_manifest.get("separator", {})
+    audio_fingerprint = str(separation_manifest.get("audioFingerprint", "missing-audio-fingerprint"))
+    cache = separation_manifest.get("cache", {})
+    stem_checksums = {
+        role: str(separation_manifest.get("stems", {}).get(role, {}).get("checksum", ""))
+        for role in CORE4_ROLES
+    }
+    fingerprint_payload = {
+        "algorithm": STEM_EVIDENCE_ALGORITHM,
+        "audioFingerprint": audio_fingerprint,
+        "separator": separator,
+        "stemChecksums": stem_checksums,
+    }
+    evidence_fingerprint = hashlib.sha256(
+        json.dumps(fingerprint_payload, ensure_ascii=True, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    manifest_checksum = hashlib.sha256(
+        json.dumps({"cacheKey": cache.get("key"), **fingerprint_payload}, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+    base = {
+        "kind": "core4-stem-evidence",
+        "schemaVersion": "1.0.0",
+        "algorithm": STEM_EVIDENCE_ALGORITHM,
+        "status": "unavailable",
+        "audioFingerprint": audio_fingerprint,
+        "evidenceFingerprint": evidence_fingerprint,
+        "timeOriginSeconds": 0,
+        "separator": separator,
+        "manifest": {
+            "cacheKey": cache.get("key"),
+            "checksum": manifest_checksum,
+            "hit": bool(cache.get("hit", False)),
+        },
+        "stems": {role: _empty_stem_evidence(role) for role in CORE4_ROLES},
+        "diagnostics": {
+            "beatPolicy": "Beat This runs on the original mix only; stems provide timing and pitch evidence.",
+        },
+    }
+    if separation_manifest.get("status") != "ready" or separation_manifest.get("timeOriginSeconds") != 0:
+        base["diagnostics"]["separation"] = separation_manifest.get("diagnostics", {})
+        return base
+
+    transcriber = note_transcriber or run_basic_pitch
+    analyzers = {
+        "vocals": lambda signal, path: _analyse_vocals_stem(signal, duration),
+        "drums": lambda signal, path: _analyse_drums_stem(signal, duration),
+        "bass": lambda signal, path: _analyse_bass_stem(signal, duration),
+        "other": lambda signal, path: _analyse_other_stem(signal, path, duration, transcriber),
+    }
+    for role in CORE4_ROLES:
+        stem_manifest = separation_manifest.get("stems", {}).get(role, {})
+        if stem_manifest.get("status") != "ready" or not stem_manifest.get("path"):
+            continue
+        try:
+            path = Path(stem_manifest["path"])
+            signal, alignment = _aligned_stem_signal(path, duration)
+            evidence = analyzers[role](signal, path)
+            evidence.update({
+                "checksum": stem_manifest.get("checksum"),
+                "diagnostics": {**evidence["diagnostics"], "alignment": alignment},
+            })
+            base["stems"][role] = evidence
+        except Exception as error:
+            base["stems"][role] = _empty_stem_evidence(role, diagnostics={
+                "error": f"{type(error).__name__}: {error}",
+            })
+
+    statuses = [base["stems"][role]["status"] for role in CORE4_ROLES]
+    if all(status == "ready" for status in statuses):
+        base["status"] = "ready"
+    elif any(status in {"ready", "degraded"} for status in statuses):
+        base["status"] = "degraded"
+    return base
+
+
+def build_stem_evidence_from_manifest(
+    manifest_path: Path,
+    expected_audio_fingerprint: str,
+    duration: float,
+    note_transcriber=None,
+) -> dict:
+    try:
+        separation_manifest = load_stem_separation_manifest(
+            manifest_path,
+            expected_audio_fingerprint,
+        )
+    except Exception as error:
+        separation_manifest = {
+            "kind": "core4-separation-manifest",
+            "schemaVersion": "1.0.0",
+            "status": "unavailable",
+            "audioFingerprint": expected_audio_fingerprint,
+            "separator": {},
+            "timeOriginSeconds": 0,
+            "cache": {},
+            "stems": {
+                role: {"role": role, "status": "unavailable"}
+                for role in CORE4_ROLES
+            },
+            "diagnostics": {
+                "error": f"Stem manifest unavailable: {type(error).__name__}: {error}",
+            },
+        }
+    return build_stem_evidence(
+        separation_manifest,
+        duration,
+        note_transcriber=note_transcriber,
+    )
 
 
 def run_beat_this(wav_path: Path) -> tuple[list[DetectorEvent], list[DetectorEvent], dict]:
@@ -1427,6 +2001,7 @@ def compress_game_audio(source: Path, destination: Path) -> dict:
             "channels": source_info.channels,
             "compressedBytes": source_bytes,
             "sizeRatio": 1.0,
+            "reusedExistingAudio": True,
         }
     destination.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run([
@@ -1472,6 +2047,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--title", required=True)
     parser.add_argument("--artist", default="Unknown Artist")
     parser.add_argument("--audio-url", required=True)
+    parser.add_argument(
+        "--stems-manifest",
+        type=Path,
+        help="Precomputed core-4 separation manifest; this command never runs or downloads Demucs.",
+    )
     parser.add_argument("--skip-beat-this", action="store_true")
     parser.add_argument("--skip-basic-pitch", action="store_true")
     return parser.parse_args()
@@ -1493,7 +2073,9 @@ def main() -> None:
     if sample_rate != SAMPLE_RATE:
         raise RuntimeError(f"Unexpected sample rate {sample_rate}")
     duration = len(y) / SAMPLE_RATE
+    audio_fingerprint = hashlib.sha256(args.audio_output.read_bytes()).hexdigest()[:16]
     harmonic, curves, detectors, librosa_display_events = build_librosa_detectors(y, duration)
+    continuous_pitch = build_continuous_pitch(harmonic, sample_rate)
 
     model_metadata = [{
         "id": "librosa",
@@ -1528,6 +2110,28 @@ def main() -> None:
                 detectors["beat_this"] = beat_events
             if downbeat_events:
                 detectors["downbeat"] = downbeat_events
+
+    if args.stems_manifest:
+        print(f"Analysing precomputed core-4 stems from {args.stems_manifest}...")
+        stem_evidence = build_stem_evidence_from_manifest(
+            args.stems_manifest,
+            audio_fingerprint,
+            duration,
+        )
+    else:
+        stem_evidence = build_stem_evidence({
+            "kind": "core4-separation-manifest",
+            "schemaVersion": "1.0.0",
+            "status": "unavailable",
+            "audioFingerprint": audio_fingerprint,
+            "separator": {},
+            "timeOriginSeconds": 0,
+            "cache": {},
+            "stems": {},
+            "diagnostics": {
+                "error": "No --stems-manifest was supplied; mixed analysis remains available.",
+            },
+        }, duration)
 
     musical_structure = build_musical_structure(
         y,
@@ -1620,7 +2224,6 @@ def main() -> None:
         raise RuntimeError("Beat This! did not produce beat events; a complete production chart cannot be built.")
     beat_intervals = np.diff([event.time for event in beat_events])
     estimated_bpm = 60 / float(np.median(beat_intervals)) if beat_intervals.size else 120.0
-    audio_fingerprint = hashlib.sha256(args.audio_output.read_bytes()).hexdigest()[:16]
 
     output = {
         "schemaVersion": 2,
@@ -1645,6 +2248,8 @@ def main() -> None:
         },
         "models": model_metadata,
         "musicalStructure": musical_structure,
+        "continuousPitch": continuous_pitch,
+        "stemEvidence": stem_evidence,
         "eventSources": event_sources,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -1652,6 +2257,13 @@ def main() -> None:
     print(f"Wrote {args.output}")
     for source in event_sources:
         print(f"  {source['id']}: {source['eventCount']} events")
+    print(
+        "  continuous-pitch: "
+        f"{continuous_pitch['diagnostics']['pointCount']} support points in "
+        f"{continuous_pitch['diagnostics']['traceCount']} traces "
+        f"({continuous_pitch['diagnostics']['status']})"
+    )
+    print(f"  core4-stem-evidence: {stem_evidence['status']}")
 
 
 if __name__ == "__main__":

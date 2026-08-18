@@ -47,6 +47,101 @@ function fixtureLevel() {
   };
 }
 
+test('migrates Level Edits v1 to v3 without changing manual edits', () => {
+  const level = fixtureLevel();
+  const migrated = editsModule.parseLevelEdits({
+    version: 1,
+    levelId: level.id,
+    rowOverrides: [{ timeSeconds: 2, obstacles: [0, 1, 0, 2, 0] }],
+    colorRanges: [],
+  }, level);
+
+  assert.deepEqual(migrated, {
+    version: 3,
+    levelId: level.id,
+    arrangements: [],
+    rowOverrides: [{ timeSeconds: 2, obstacles: [0, 1, 0, 2, 0] }],
+    colorRanges: [],
+  });
+});
+
+test('migrates a v2 single-source Recipe into one v3 timing layer and lane driver', () => {
+  const level = fixtureLevel();
+  const migrated = editsModule.parseLevelEdits({
+    version: 2,
+    levelId: level.id,
+    baseFingerprint: 'audio-fixture',
+    arrangements: [{
+      id: 'legacy-melody',
+      regionId: 'verse',
+      sourceId: 'discrete-melody',
+      mapping: 'pitch-contour',
+      density: 0.75,
+      motion: 0.8,
+      challenge: 0.3,
+    }],
+    rowOverrides: [],
+    colorRanges: [],
+  }, level);
+
+  assert.deepEqual(migrated, {
+    version: 3,
+    levelId: level.id,
+    baseFingerprint: 'audio-fixture',
+    arrangements: [{
+      id: 'legacy-melody',
+      regionId: 'verse',
+      mode: 'play',
+      timingLayers: [{
+        sourceId: 'discrete-melody',
+        role: 'target',
+        weight: 1,
+        compatibility: 'legacy-single-source-v2',
+      }],
+      laneDriver: { kind: 'source', sourceId: 'discrete-melody', motion: 0.8 },
+      density: 0.75,
+      challenge: 0.3,
+      feel: 'natural',
+    }],
+    rowOverrides: [],
+    colorRanges: [],
+  });
+  assert.deepEqual(
+    editsModule.parseLevelEdits(JSON.parse(JSON.stringify(migrated)), level),
+    migrated,
+  );
+});
+
+test('rejects a Region Recipe whose normalized controls are outside zero to one', () => {
+  const level = fixtureLevel();
+  assert.throws(() => editsModule.parseLevelEdits({
+    version: 2,
+    levelId: level.id,
+    arrangements: [{
+      id: 'bad-density',
+      regionId: 'verse',
+      sourceId: 'percussion-onsets',
+      mapping: 'pulse',
+      density: 1.01,
+      motion: 0.5,
+      challenge: 0.5,
+    }],
+    rowOverrides: [],
+    colorRanges: [],
+  }, level), /density/);
+});
+
+test('rejects non-array sparse edit collections with a stable validation error', () => {
+  const level = fixtureLevel();
+  assert.throws(() => editsModule.parseLevelEdits({
+    version: 2,
+    levelId: level.id,
+    arrangements: [],
+    rowOverrides: {},
+    colorRanges: [],
+  }, level), /rowOverrides.*array/i);
+});
+
 test('applies sparse manual rows at existing and empty rhythm points', () => {
   const level = fixtureLevel();
   const edited = editsModule.applyLevelEdits(level, {

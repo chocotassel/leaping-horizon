@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
 import { deriveLayoutIntent } from './rhythm/layout-intent.mjs';
+import { buildAuthoringScore } from './rhythm/authoring-score.mjs';
 import { planColorSchemeEvents } from './rhythm/color-timeline.mjs';
 import { transcribePerformance } from './rhythm/performance-transcriber.mjs';
 
@@ -12,15 +13,18 @@ if (!process.argv[2] || !process.argv[3]) {
 
 const inputPath = resolve(root, process.argv[2]);
 const levelPath = resolve(root, process.argv[3]);
+const authoringPath = process.argv[4]
+  ? resolve(root, process.argv[4])
+  : resolve(dirname(levelPath), 'authoring.json');
 const analysis = JSON.parse(await readFile(inputPath, 'utf8'));
 const performance = analysis.performanceScore?.kind === 'performance-score'
   ? analysis.performanceScore
   : transcribePerformance(analysis, { travelSecondsPerLane: 0.08 });
+const authoringScore = buildAuthoringScore(analysis);
 
 const EMPTY = 0;
 const BREAKABLE = 1;
 const LANE_COUNT = 5;
-const FUSION_WINDOW_SECONDS = 0.055;
 
 function finite(value, fallback = 0) {
   const number = Number(value);
@@ -31,6 +35,41 @@ function eventRow(lane) {
   const row = Array(LANE_COUNT).fill(EMPTY);
   row[Math.max(0, Math.min(LANE_COUNT - 1, Math.round(finite(lane, 2))))] = BREAKABLE;
   return row;
+}
+
+function clamp01(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, Math.min(1, number)) : fallback;
+}
+
+function pitchClassFor(pitchMidi, sourceRole) {
+  if (Number.isFinite(pitchMidi)) return ((Math.round(pitchMidi) % 12) + 12) % 12;
+  if (sourceRole === 'bass') return 7;
+  if (sourceRole === 'vocal-like' || sourceRole === 'vocals') return 9;
+  return 0;
+}
+
+function hitSoundIntent(attack) {
+  const sourceRole = typeof attack.sourceRole === 'string' && attack.sourceRole
+    ? attack.sourceRole
+    : 'mixed';
+  const pitchMidi = Number.isFinite(attack.pitchMidi) ? attack.pitchMidi : undefined;
+  const velocity = clamp01(attack.strength, 0.7);
+  const brightness = sourceRole === 'percussion' || sourceRole === 'drums'
+    ? 0.82
+    : sourceRole === 'bass'
+      ? 0.28
+      : sourceRole === 'vocal-like' || sourceRole === 'vocals'
+        ? 0.66
+        : 0.58;
+  return {
+    sourceRole,
+    ...(pitchMidi == null ? {} : { pitchMidi }),
+    pitchClass: pitchClassFor(pitchMidi, sourceRole),
+    velocity,
+    gain: Number((0.3 + velocity * 0.35).toFixed(4)),
+    brightness,
+  };
 }
 
 function buildBaseEvents() {
@@ -45,22 +84,37 @@ function buildBaseEvents() {
       timeSeconds: Number(attack.timeSeconds.toFixed(5)),
       obstacles: eventRow(attack.lane),
       kind: 'target',
+      hitSound: hitSoundIntent(attack),
     }));
 }
 
-function nearestAttack(attacks, timeSeconds) {
-  let nearest = null;
-  for (const attack of attacks) {
-    const distance = Math.abs(attack.timeSeconds - timeSeconds);
-    if (distance <= FUSION_WINDOW_SECONDS && (!nearest || distance < nearest.distance)) {
-      nearest = { attack, distance };
-    }
+function pointKind(source, event) {
+  if (source.id === 'rhythm-grid' || source.kind === 'metric') {
+    return event.isDownbeat ? 'downbeat' : 'beat';
   }
-  return nearest?.attack ?? null;
+  if (source.capabilities?.pitch || Number.isFinite(event.pitchMidi)) return 'pitch';
+  return 'attack';
+}
+
+function pitchLane(pitchMidi, pitchRange) {
+  if (!Number.isFinite(pitchMidi) || pitchRange.maximum <= pitchRange.minimum) return 2;
+  return Math.max(0, Math.min(4, Math.round(
+    ((pitchMidi - pitchRange.minimum) / (pitchRange.maximum - pitchRange.minimum)) * 4,
+  )));
+}
+
+function sourceRole(source) {
+  if (typeof source.stemRole === 'string' && !['mix', 'metric'].includes(source.stemRole)) {
+    return source.stemRole;
+  }
+  if (source.id === 'rhythm-grid') return 'rhythm';
+  if (source.id === 'percussion-onsets') return 'percussion';
+  if (source.id === 'melody-contour') return 'estimated-melody-contour';
+  if (source.id === 'discrete-melody') return 'estimated-melody';
+  return 'attack';
 }
 
 function buildRhythmPoints(events) {
-  // ponytail: linear lookups are simpler for song-sized inputs; index only if charts exceed ~50k points.
   const attacks = performance.attackEvents
     .filter((attack) => Number.isFinite(attack.timeSeconds))
     .sort((left, right) => left.timeSeconds - right.timeSeconds);
@@ -74,30 +128,48 @@ function buildRhythmPoints(events) {
     sourceRole: attack.sourceRole ?? 'attack',
   }));
 
-  const beatSource = analysis.eventSources?.find((source) => source.id === 'beat-this');
-  let previousLane = 2;
-  for (const beat of beatSource?.events ?? []) {
-    const timeSeconds = finite(beat.timeSeconds, Number.NaN);
-    if (!Number.isFinite(timeSeconds) || timeSeconds < 0 || timeSeconds > analysis.song.durationSeconds) continue;
-    const attack = nearestAttack(attacks, timeSeconds);
-    if (attack) continue;
-    const previous = [...attacks].reverse().find((candidate) => candidate.timeSeconds < timeSeconds);
-    if (previous) previousLane = Math.max(0, Math.min(4, Math.round(finite(previous.lane, previousLane))));
+  const evidenceStreams = authoringScore.evidenceStreams;
+  const anchorSources = evidenceStreams && Array.isArray(evidenceStreams.timing)
+    ? [
+        ...evidenceStreams.timing,
+        ...(Array.isArray(evidenceStreams.metric) ? evidenceStreams.metric : []),
+      ]
+    : authoringScore.sources;
+  const authoringEvents = anchorSources
+    .filter((source) => source.availability !== 'unavailable')
+    .flatMap((source) => source.events.map((event) => ({ source, event })))
+    .filter(({ event }) => (
+      Number.isFinite(event.timeSeconds)
+      && event.timeSeconds >= 0
+      && event.timeSeconds <= analysis.song.durationSeconds
+    ));
+  const pitches = authoringEvents
+    .map(({ event }) => event.pitchMidi)
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+  const pitchRange = {
+    minimum: pitches.length ? pitches[Math.floor((pitches.length - 1) * 0.05)] : 0,
+    maximum: pitches.length ? pitches[Math.ceil((pitches.length - 1) * 0.95)] : 0,
+  };
+  for (const { source, event } of authoringEvents) {
+    const kind = pointKind(source, event);
     points.push({
-      id: `beat-${String(beat.index ?? points.length + 1).padStart(5, '0')}`,
-      timeSeconds: Number(timeSeconds.toFixed(5)),
-      suggestedLane: previousLane,
-      kind: beat.isDownbeat ? 'downbeat' : 'beat',
-      strength: finite(beat.confidence, beat.isDownbeat ? 1 : 0.7),
-      sourceRole: 'rhythm',
+      id: event.id,
+      timeSeconds: Number(event.timeSeconds.toFixed(5)),
+      suggestedLane: kind === 'pitch' ? pitchLane(event.pitchMidi, pitchRange) : 2,
+      kind,
+      strength: finite(event.strength, 0.5),
+      pitchMidi: Number.isFinite(event.pitchMidi) ? event.pitchMidi : undefined,
+      sourceRole: sourceRole(source),
     });
   }
 
+  const priority = { attack: 4, pitch: 3, downbeat: 2, beat: 1 };
   const unique = new Map();
   for (const point of points.sort((left, right) => left.timeSeconds - right.timeSeconds || left.id.localeCompare(right.id))) {
     const key = point.timeSeconds.toFixed(5);
     const current = unique.get(key);
-    if (!current || (current.kind !== 'attack' && point.kind === 'attack')) unique.set(key, point);
+    if (!current || priority[point.kind] > priority[current.kind]) unique.set(key, point);
   }
   const eventTimes = new Set(events.map((event) => event.timeSeconds.toFixed(5)));
   return [...unique.values()].map((point) => ({
@@ -121,19 +193,32 @@ const level = {
     durationSeconds: analysis.song.durationSeconds,
   },
   generation: {
-    algorithm: 'measured-pitch-base-v1',
+    algorithm: 'region-authoring-base-v1',
     noteCount: events.length,
     rhythmPointCount: rhythmPoints.length,
     pitchedEventCount: performance.attackEvents.filter((event) => Number.isFinite(event.pitchMidi)).length,
     performanceAlgorithm: performance.algorithm,
+    authoringAlgorithm: authoringScore.algorithm,
+    authoringSourceCount: authoringScore.sources.length,
+    authoringEventCount: authoringScore.sources.reduce((count, source) => count + source.events.length, 0),
+    authoringRegionCount: authoringScore.regions.length,
+    authoringRepeatSetCount: authoringScore.repeatSets.length,
+    authoringSuggestionCount: authoringScore.suggestions.length,
   },
   rhythmPoints,
   colorSchemeEvents,
   events,
 };
 
-await mkdir(dirname(levelPath), { recursive: true });
-await writeFile(levelPath, `${JSON.stringify(level, null, 2)}\n`);
+await Promise.all([
+  mkdir(dirname(levelPath), { recursive: true }),
+  mkdir(dirname(authoringPath), { recursive: true }),
+]);
+await Promise.all([
+  writeFile(levelPath, `${JSON.stringify(level, null, 2)}\n`),
+  writeFile(authoringPath, `${JSON.stringify(authoringScore, null, 2)}\n`),
+]);
 console.log(
-  `Generated ${level.id}: ${events.length} base blocks across ${rhythmPoints.length} editable rhythm points.`,
+  `Generated ${level.id}: ${events.length} base blocks across ${rhythmPoints.length} editable rhythm points; `
+  + `${authoringScore.regions.length} authoring regions -> ${authoringPath}.`,
 );

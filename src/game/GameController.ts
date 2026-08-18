@@ -1,4 +1,4 @@
-import { AudioEngine } from '../audio/AudioEngine';
+import { AudioEngine, hitSoundIntentForOutcome } from '../audio/AudioEngine';
 import {
   LANE_CENTERS,
   ObstacleType,
@@ -400,6 +400,8 @@ export class GameController {
         this.audio.crash();
         return;
       }
+      const hitSound = hitSoundIntentForOutcome(resolution.outcome, event);
+      if (hitSound) this.audio.playHitSound(hitSound);
       if (resolution.outcome === 'target-hit') {
         this.scene.burst(resolution.impactX ?? this.scene.getPlayerX());
       } else if (resolution.outcome === 'target-miss') {

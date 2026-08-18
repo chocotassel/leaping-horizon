@@ -3,6 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, rename, rm } from 'node:fs/promises';
 import { basename, extname, resolve } from 'node:path';
 
+import { ensureCore4Evidence } from './rhythm/stem-separation.mjs';
+
 const root = resolve(import.meta.dirname, '..');
 const candidates = process.platform === 'win32'
   ? [resolve(root, '.venv-analysis/Scripts/python.exe')]
@@ -17,6 +19,18 @@ if (!python) {
 
 function run(command, args) {
   const result = spawnSync(command, args, { cwd: root, stdio: 'inherit' });
+  if (result.error) throw result.error;
+  if (result.status !== 0) process.exit(result.status ?? 1);
+}
+
+function prepareGameAudio(source, destination) {
+  if (resolve(source) === resolve(destination)) return;
+  const result = spawnSync('ffmpeg', [
+    '-hide_banner', '-loglevel', 'error', '-y',
+    '-i', source, '-vn', '-map_metadata', '-1',
+    '-ar', '32000', '-c:a', 'libmp3lame', '-b:a', '96k',
+    destination,
+  ], { cwd: root, stdio: 'inherit' });
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
@@ -102,18 +116,33 @@ if (cover && !existsSync(cover)) throw new Error(`Cover input does not exist: ${
 
 await writeCover(sourceAudio, cover, coverPath);
 
-// The compressed MP3 is analysed too, so detector timestamps use exactly the
-// same decoded timeline as the file played by the game.
-run(python, [
+// Prepare the exact MP3 used by the game before separation. Every detector and
+// every stem therefore shares one decoded time origin.
+await mkdir(songDirectory, { recursive: true });
+prepareGameAudio(sourceAudio, gameAudioPath);
+const separation = await ensureCore4Evidence(gameAudioPath, {
+  workDirectory: resolve(root, `work/${songId}`),
+});
+if (separation.status === 'ready') {
+  console.log(`Core-4 stems: ${separation.cache.hit ? 'cached' : 'generated'}.`);
+} else {
+  console.warn(`Core-4 stems unavailable; keeping mixed evidence. ${separation.diagnostics?.error ?? ''}`);
+}
+
+const analyzerArgs = [
   'scripts/analyze-rhythm.py',
-  '--audio', sourceAudio,
+  '--audio', gameAudioPath,
   '--audio-output', gameAudioPath,
   '--audio-url', 'audio.mp3',
   '--output', analysisPath,
   '--song-id', songId,
   '--title', title,
   '--artist', artist,
-]);
+];
+if (separation.status === 'ready' && separation.cache.manifestPath) {
+  analyzerArgs.push('--stems-manifest', separation.cache.manifestPath);
+}
+run(python, analyzerArgs);
 run(process.execPath, ['scripts/build-rhythm-levels.mjs', analysisPath, levelPath]);
 console.log(`Game audio: ${gameAudioPath}`);
 console.log(`Cover art: ${coverPath}`);

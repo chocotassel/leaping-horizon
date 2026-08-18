@@ -1,6 +1,577 @@
 {
-  "version": 1,
+  "version": 3,
   "levelId": "rearview-halo-flow",
+  "baseFingerprint": "af0bff6a795a9db9",
+  "evidenceFingerprint": "fe9563363cdde6773d745cd3526a51bc0e53306e287f4d592ed861b21a94b66a",
+  "arrangements": [
+    {
+      "id": "recipe:region:phrase-01",
+      "regionId": "region:phrase-01",
+      "mode": "play",
+      "timingLayers": [
+        {
+          "sourceId": "stem:vocals:timing",
+          "role": "target",
+          "weight": 1
+        },
+        {
+          "sourceId": "stem:vocals:pitch-landmarks",
+          "role": "target",
+          "weight": 0.35
+        },
+        {
+          "sourceId": "stem:drums:timing",
+          "role": "target",
+          "weight": 0.55
+        },
+        {
+          "sourceId": "stem:drums:accents",
+          "role": "accent",
+          "weight": 0.8
+        }
+      ],
+      "laneDriver": {
+        "kind": "source",
+        "sourceId": "stem:vocals:pitch",
+        "motion": 0.9
+      },
+      "density": 0.65,
+      "challenge": 0.35,
+      "feel": "natural",
+      "maxGapBeats": 4
+    },
+    {
+      "id": "recipe:region:phrase-02",
+      "regionId": "region:phrase-02",
+      "mode": "play",
+      "timingLayers": [
+        {
+          "sourceId": "stem:vocals:timing",
+          "role": "target",
+          "weight": 1
+        },
+        {
+          "sourceId": "stem:vocals:pitch-landmarks",
+          "role": "target",
+          "weight": 0.35
+        },
+        {
+          "sourceId": "stem:drums:timing",
+          "role": "target",
+          "weight": 0.55
+        },
+        {
+          "sourceId": "stem:drums:accents",
+          "role": "accent",
+          "weight": 0.8
+        }
+      ],
+      "laneDriver": {
+        "kind": "source",
+        "sourceId": "stem:vocals:pitch",
+        "motion": 0.9
+      },
+      "density": 0.65,
+      "challenge": 0.35,
+      "feel": "natural",
+      "maxGapBeats": 4
+    },
+    {
+      "id": "recipe:region:phrase-03",
+      "regionId": "region:phrase-03",
+      "mode": "play",
+      "timingLayers": [
+        {
+          "sourceId": "stem:vocals:timing",
+          "role": "target",
+          "weight": 1
+        },
+        {
+          "sourceId": "stem:vocals:pitch-landmarks",
+          "role": "target",
+          "weight": 0.35
+        },
+        {
+          "sourceId": "stem:drums:timing",
+          "role": "target",
+          "weight": 0.55
+        },
+        {
+          "sourceId": "stem:drums:accents",
+          "role": "accent",
+          "weight": 0.8
+        }
+      ],
+      "laneDriver": {
+        "kind": "source",
+        "sourceId": "stem:vocals:pitch",
+        "motion": 0.9
+      },
+      "density": 0.65,
+      "challenge": 0.35,
+      "feel": "natural",
+      "maxGapBeats": 4
+    },
+    {
+      "id": "recipe:region:phrase-04",
+      "regionId": "region:phrase-04",
+      "mode": "play",
+      "timingLayers": [
+        {
+          "sourceId": "stem:vocals:timing",
+          "role": "target",
+          "weight": 1
+        },
+        {
+          "sourceId": "stem:vocals:pitch-landmarks",
+          "role": "target",
+          "weight": 0.35
+        },
+        {
+          "sourceId": "stem:drums:timing",
+          "role": "target",
+          "weight": 0.55
+        },
+        {
+          "sourceId": "stem:drums:accents",
+          "role": "accent",
+          "weight": 0.8
+        }
+      ],
+      "laneDriver": {
+        "kind": "source",
+        "sourceId": "stem:vocals:pitch",
+        "motion": 0.9
+      },
+      "density": 0.65,
+      "challenge": 0.35,
+      "feel": "natural",
+      "maxGapBeats": 4
+    },
+    {
+      "id": "recipe:region:phrase-05",
+      "regionId": "region:phrase-05",
+      "mode": "play",
+      "timingLayers": [
+        {
+          "sourceId": "stem:other:timing",
+          "role": "target",
+          "weight": 1
+        },
+        {
+          "sourceId": "stem:drums:timing",
+          "role": "target",
+          "weight": 0.55
+        },
+        {
+          "sourceId": "stem:drums:accents",
+          "role": "accent",
+          "weight": 0.8
+        }
+      ],
+      "laneDriver": {
+        "kind": "source",
+        "sourceId": "stem:other:pitch",
+        "motion": 0.9
+      },
+      "density": 0.65,
+      "challenge": 0.35,
+      "feel": "natural",
+      "maxGapBeats": 4
+    },
+    {
+      "id": "recipe:region:phrase-06",
+      "regionId": "region:phrase-06",
+      "mode": "play",
+      "timingLayers": [
+        {
+          "sourceId": "stem:vocals:timing",
+          "role": "target",
+          "weight": 1
+        },
+        {
+          "sourceId": "stem:vocals:pitch-landmarks",
+          "role": "target",
+          "weight": 0.35
+        },
+        {
+          "sourceId": "stem:drums:timing",
+          "role": "target",
+          "weight": 0.55
+        },
+        {
+          "sourceId": "stem:drums:accents",
+          "role": "accent",
+          "weight": 0.8
+        }
+      ],
+      "laneDriver": {
+        "kind": "source",
+        "sourceId": "stem:vocals:pitch",
+        "motion": 0.9
+      },
+      "density": 0.65,
+      "challenge": 0.35,
+      "feel": "natural",
+      "maxGapBeats": 4
+    },
+    {
+      "id": "recipe:region:phrase-07",
+      "regionId": "region:phrase-07",
+      "mode": "play",
+      "timingLayers": [
+        {
+          "sourceId": "stem:vocals:timing",
+          "role": "target",
+          "weight": 1
+        },
+        {
+          "sourceId": "stem:vocals:pitch-landmarks",
+          "role": "target",
+          "weight": 0.35
+        },
+        {
+          "sourceId": "stem:drums:timing",
+          "role": "target",
+          "weight": 0.55
+        },
+        {
+          "sourceId": "stem:drums:accents",
+          "role": "accent",
+          "weight": 0.8
+        }
+      ],
+      "laneDriver": {
+        "kind": "source",
+        "sourceId": "stem:vocals:pitch",
+        "motion": 0.9
+      },
+      "density": 0.65,
+      "challenge": 0.35,
+      "feel": "natural",
+      "maxGapBeats": 4
+    },
+    {
+      "id": "recipe:region:phrase-08",
+      "regionId": "region:phrase-08",
+      "mode": "play",
+      "timingLayers": [
+        {
+          "sourceId": "stem:vocals:timing",
+          "role": "target",
+          "weight": 1
+        },
+        {
+          "sourceId": "stem:vocals:pitch-landmarks",
+          "role": "target",
+          "weight": 0.35
+        },
+        {
+          "sourceId": "stem:drums:timing",
+          "role": "target",
+          "weight": 0.55
+        },
+        {
+          "sourceId": "stem:drums:accents",
+          "role": "accent",
+          "weight": 0.8
+        }
+      ],
+      "laneDriver": {
+        "kind": "source",
+        "sourceId": "stem:vocals:pitch",
+        "motion": 0.9
+      },
+      "density": 0.65,
+      "challenge": 0.35,
+      "feel": "natural",
+      "maxGapBeats": 4
+    },
+    {
+      "id": "recipe:region:phrase-09",
+      "regionId": "region:phrase-09",
+      "mode": "play",
+      "timingLayers": [
+        {
+          "sourceId": "stem:vocals:timing",
+          "role": "target",
+          "weight": 1
+        },
+        {
+          "sourceId": "stem:vocals:pitch-landmarks",
+          "role": "target",
+          "weight": 0.35
+        },
+        {
+          "sourceId": "stem:drums:timing",
+          "role": "target",
+          "weight": 0.55
+        },
+        {
+          "sourceId": "stem:drums:accents",
+          "role": "accent",
+          "weight": 0.8
+        }
+      ],
+      "laneDriver": {
+        "kind": "source",
+        "sourceId": "stem:vocals:pitch",
+        "motion": 0.9
+      },
+      "density": 0.65,
+      "challenge": 0.35,
+      "feel": "natural",
+      "maxGapBeats": 4
+    },
+    {
+      "id": "recipe:region:phrase-10",
+      "regionId": "region:phrase-10",
+      "mode": "play",
+      "timingLayers": [
+        {
+          "sourceId": "stem:other:timing",
+          "role": "target",
+          "weight": 1
+        },
+        {
+          "sourceId": "stem:drums:timing",
+          "role": "target",
+          "weight": 0.55
+        },
+        {
+          "sourceId": "stem:drums:accents",
+          "role": "accent",
+          "weight": 0.8
+        }
+      ],
+      "laneDriver": {
+        "kind": "source",
+        "sourceId": "stem:other:pitch",
+        "motion": 0.9
+      },
+      "density": 0.65,
+      "challenge": 0.35,
+      "feel": "natural",
+      "maxGapBeats": 4
+    },
+    {
+      "id": "recipe:region:phrase-11",
+      "regionId": "region:phrase-11",
+      "mode": "play",
+      "timingLayers": [
+        {
+          "sourceId": "stem:other:timing",
+          "role": "target",
+          "weight": 1
+        },
+        {
+          "sourceId": "stem:drums:timing",
+          "role": "target",
+          "weight": 0.55
+        },
+        {
+          "sourceId": "stem:drums:accents",
+          "role": "accent",
+          "weight": 0.8
+        }
+      ],
+      "laneDriver": {
+        "kind": "gesture",
+        "pattern": "alternating",
+        "motion": 0.75
+      },
+      "density": 0.65,
+      "challenge": 0.35,
+      "feel": "natural",
+      "maxGapBeats": 4
+    },
+    {
+      "id": "recipe:region:phrase-12",
+      "regionId": "region:phrase-12",
+      "mode": "play",
+      "timingLayers": [
+        {
+          "sourceId": "stem:other:timing",
+          "role": "target",
+          "weight": 1
+        },
+        {
+          "sourceId": "stem:drums:timing",
+          "role": "target",
+          "weight": 0.55
+        },
+        {
+          "sourceId": "stem:drums:accents",
+          "role": "accent",
+          "weight": 0.8
+        }
+      ],
+      "laneDriver": {
+        "kind": "source",
+        "sourceId": "stem:other:pitch",
+        "motion": 0.9
+      },
+      "density": 0.65,
+      "challenge": 0.35,
+      "feel": "natural",
+      "maxGapBeats": 4
+    },
+    {
+      "id": "recipe:region:phrase-13",
+      "regionId": "region:phrase-13",
+      "mode": "play",
+      "timingLayers": [
+        {
+          "sourceId": "stem:other:timing",
+          "role": "target",
+          "weight": 1
+        },
+        {
+          "sourceId": "stem:drums:timing",
+          "role": "target",
+          "weight": 0.55
+        },
+        {
+          "sourceId": "stem:drums:accents",
+          "role": "accent",
+          "weight": 0.8
+        }
+      ],
+      "laneDriver": {
+        "kind": "gesture",
+        "pattern": "alternating",
+        "motion": 0.75
+      },
+      "density": 0.65,
+      "challenge": 0.35,
+      "feel": "natural",
+      "maxGapBeats": 4
+    },
+    {
+      "id": "recipe:region:phrase-14",
+      "regionId": "region:phrase-14",
+      "mode": "play",
+      "timingLayers": [
+        {
+          "sourceId": "stem:vocals:timing",
+          "role": "target",
+          "weight": 1
+        },
+        {
+          "sourceId": "stem:vocals:pitch-landmarks",
+          "role": "target",
+          "weight": 0.35
+        },
+        {
+          "sourceId": "stem:drums:timing",
+          "role": "target",
+          "weight": 0.55
+        },
+        {
+          "sourceId": "stem:drums:accents",
+          "role": "accent",
+          "weight": 0.8
+        }
+      ],
+      "laneDriver": {
+        "kind": "source",
+        "sourceId": "stem:vocals:pitch",
+        "motion": 0.9
+      },
+      "density": 0.65,
+      "challenge": 0.35,
+      "feel": "natural",
+      "maxGapBeats": 4
+    },
+    {
+      "id": "recipe:region:phrase-15",
+      "regionId": "region:phrase-15",
+      "mode": "play",
+      "timingLayers": [
+        {
+          "sourceId": "stem:vocals:timing",
+          "role": "target",
+          "weight": 1
+        },
+        {
+          "sourceId": "stem:vocals:pitch-landmarks",
+          "role": "target",
+          "weight": 0.35
+        }
+      ],
+      "laneDriver": {
+        "kind": "source",
+        "sourceId": "stem:vocals:pitch",
+        "motion": 0.9
+      },
+      "density": 0.65,
+      "challenge": 0.35,
+      "feel": "natural",
+      "maxGapBeats": 4
+    },
+    {
+      "id": "recipe:region:phrase-16",
+      "regionId": "region:phrase-16",
+      "mode": "play",
+      "timingLayers": [
+        {
+          "sourceId": "stem:other:timing",
+          "role": "target",
+          "weight": 1
+        },
+        {
+          "sourceId": "stem:drums:timing",
+          "role": "target",
+          "weight": 0.55
+        },
+        {
+          "sourceId": "stem:drums:accents",
+          "role": "accent",
+          "weight": 0.8
+        }
+      ],
+      "laneDriver": {
+        "kind": "source",
+        "sourceId": "stem:other:pitch",
+        "motion": 0.9
+      },
+      "density": 0.65,
+      "challenge": 0.35,
+      "feel": "natural",
+      "maxGapBeats": 4
+    },
+    {
+      "id": "recipe:region:phrase-17",
+      "regionId": "region:phrase-17",
+      "mode": "play",
+      "timingLayers": [
+        {
+          "sourceId": "stem:other:timing",
+          "role": "target",
+          "weight": 1
+        },
+        {
+          "sourceId": "stem:drums:timing",
+          "role": "target",
+          "weight": 0.55
+        },
+        {
+          "sourceId": "stem:drums:accents",
+          "role": "accent",
+          "weight": 0.8
+        }
+      ],
+      "laneDriver": {
+        "kind": "gesture",
+        "pattern": "alternating",
+        "motion": 0.75
+      },
+      "density": 0.65,
+      "challenge": 0.35,
+      "feel": "natural",
+      "maxGapBeats": 4
+    }
+  ],
   "rowOverrides": [],
   "colorRanges": []
 }

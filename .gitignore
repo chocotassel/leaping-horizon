@@ -41,5 +41,6 @@ yarn-error.log*
 /outputs/
 /work/
 /.venv-analysis/
+/.venv-separation/
 /.cache/
 __pycache__/

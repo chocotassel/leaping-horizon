@@ -28,6 +28,61 @@ function decodeBase64Audio(value: string): ArrayBuffer {
   return bytes.buffer;
 }
 
+export interface HitSoundIntent {
+  sourceRole: string;
+  pitchMidi?: number;
+  pitchClass: number;
+  velocity: number;
+  gain: number;
+  brightness: number;
+}
+
+function clamp01(value: unknown, fallback: number): number {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, Math.min(1, number)) : fallback;
+}
+
+function normalizedPitchClass(value: unknown): number | null {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return ((Math.round(number) % 12) + 12) % 12;
+}
+
+/** Normalize the compact musical instruction carried by one satisfied Target row. */
+export function normalizeHitSoundIntent(value: unknown): HitSoundIntent {
+  const input = value && typeof value === 'object'
+    ? value as Record<string, unknown>
+    : {};
+  const sourceRole = typeof input.sourceRole === 'string' && input.sourceRole.trim()
+    ? input.sourceRole.trim()
+    : 'mixed';
+  const inputPitch = Number(input.pitchMidi);
+  const pitchMidi = Number.isFinite(inputPitch)
+    ? Math.max(0, Math.min(127, inputPitch))
+    : undefined;
+  const pitchClass = normalizedPitchClass(input.pitchClass)
+    ?? (pitchMidi == null ? 0 : normalizedPitchClass(pitchMidi)!)
+  return {
+    sourceRole,
+    ...(pitchMidi == null ? {} : { pitchMidi }),
+    pitchClass,
+    velocity: clamp01(input.velocity, 0.7),
+    gain: clamp01(input.gain, 0.45),
+    brightness: clamp01(input.brightness, 0.55),
+  };
+}
+
+/** Only a newly satisfied Choice Row is allowed to emit a musical hit. */
+export function hitSoundIntentForOutcome(
+  outcome: string,
+  event: unknown,
+): HitSoundIntent | null {
+  const hitSound = event && typeof event === 'object'
+    ? (event as { hitSound?: unknown }).hitSound
+    : undefined;
+  return outcome === 'target-hit' ? normalizeHitSoundIntent(hitSound) : null;
+}
+
 /** 加载关卡音频；资源不可用时退回本地合成音轨。 */
 export class AudioEngine {
   private static sharedContext: AudioContext | null = null;
@@ -106,6 +161,52 @@ export class AudioEngine {
       source.onended = () => source.disconnect();
       source.start();
     }).catch(() => {});
+  }
+
+  /** Play a short, low-gain musical impact through this engine's existing context. */
+  playHitSound(value: unknown): boolean {
+    if (this.stopped || this.crashing || this.context.state === 'closed') return false;
+    const intent = normalizeHitSoundIntent(value);
+    const defaultMidi = intent.sourceRole === 'bass'
+      ? 43
+      : intent.sourceRole === 'drums' || intent.sourceRole === 'percussion'
+        ? 48
+        : 69;
+    const midi = intent.pitchMidi ?? (Math.floor(defaultMidi / 12) * 12 + intent.pitchClass);
+    const frequency = 440 * 2 ** ((midi - 69) / 12);
+    const now = this.context.currentTime;
+    const duration = intent.sourceRole === 'drums' || intent.sourceRole === 'percussion'
+      ? 0.055
+      : 0.085;
+    const oscillator = this.context.createOscillator();
+    const filter = this.context.createBiquadFilter();
+    const envelope = this.context.createGain();
+    oscillator.type = intent.sourceRole === 'bass'
+      ? 'sine'
+      : intent.sourceRole === 'drums' || intent.sourceRole === 'percussion'
+        ? 'square'
+        : 'triangle';
+    oscillator.frequency.setValueAtTime(frequency, now);
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(
+      Math.min(this.context.sampleRate * 0.45, 900 + intent.brightness ** 2 * 9_000),
+      now,
+    );
+    filter.Q.setValueAtTime(0.35 + intent.brightness * 1.5, now);
+    const peak = Math.max(0.0001, intent.gain * (0.025 + intent.velocity * 0.055));
+    envelope.gain.setValueAtTime(peak, now);
+    envelope.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    oscillator.connect(filter);
+    filter.connect(envelope);
+    envelope.connect(this.gain);
+    oscillator.onended = () => {
+      oscillator.disconnect();
+      filter.disconnect();
+      envelope.disconnect();
+    };
+    oscillator.start(now);
+    oscillator.stop(now + duration);
+    return true;
   }
 
   constructor(duration: number, bpm: number, audioUrl: string) {

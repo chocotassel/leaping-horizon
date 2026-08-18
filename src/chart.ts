@@ -1,4 +1,3 @@
-import { applyLevelEdits, parseLevelEdits, type LevelEdits } from './levelEdits';
 import { SCENE_COLOR_SCHEMES } from './game/colorSchemes';
 import { t } from './i18n';
 import { ObstacleType, type Level, type LevelEvent, type ObstacleRow } from './types';
@@ -110,7 +109,6 @@ export function getMaxObstacleCountInWindow(
 }
 
 const levelModules = import.meta.glob<{ default: unknown }>('./songs/*/level.json', { eager: true });
-const editModules = import.meta.glob<{ default: unknown }>('./songs/*/edits.json', { eager: true });
 const audioModules = import.meta.glob<string>('./songs/*/audio.mp3', {
   eager: true,
   import: 'default',
@@ -123,7 +121,7 @@ const LEVEL_ORDER = [
   'hands-on-deck-flow',
 ];
 
-const BASE_LEVELS = Object.entries(levelModules)
+export const LEVELS = Object.entries(levelModules)
   .map(([path, module]) => {
     const audioUrl = audioModules[path.replace(/level\.json$/, 'audio.mp3')];
     if (!audioUrl) throw new Error(t('error.missingAudio', { path }));
@@ -138,18 +136,7 @@ const BASE_LEVELS = Object.entries(levelModules)
       || left.id.localeCompare(right.id);
   });
 
-if (!BASE_LEVELS.length) throw new Error(t('error.noLevels'));
-
-const editsByLevelId = new Map<string, LevelEdits>();
-for (const level of BASE_LEVELS) {
-  const levelPath = Object.entries(levelModules).find(([, module]) => (
-    (module.default as { id?: string })?.id === level.id
-  ))?.[0];
-  const editValue = levelPath ? editModules[levelPath.replace(/level\.json$/, 'edits.json')]?.default : null;
-  editsByLevelId.set(level.id, parseLevelEdits(editValue, level));
-}
-
-export const LEVELS = BASE_LEVELS.map((level) => applyLevelEdits(level, editsByLevelId.get(level.id)));
+if (!LEVELS.length) throw new Error(t('error.noLevels'));
 export const DEFAULT_LEVEL_ID = LEVELS[0].id;
 
 export function getLevelById(levelId: string | null | undefined): Level {

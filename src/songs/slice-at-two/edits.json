@@ -1,6 +1,153 @@
 {
-  "version": 1,
+  "version": 2,
   "levelId": "slice-at-two-flow",
+  "baseFingerprint": "85e63193295bc268",
+  "arrangements": [
+    {
+      "id": "recipe:region:phrase-01",
+      "regionId": "region:phrase-01",
+      "sourceId": "percussion-onsets",
+      "mapping": "alternating",
+      "density": 0.68,
+      "motion": 0.75,
+      "challenge": 0.35
+    },
+    {
+      "id": "recipe:region:phrase-02",
+      "regionId": "region:phrase-02",
+      "sourceId": "discrete-melody",
+      "mapping": "pitch-contour",
+      "density": 0.75,
+      "motion": 0.8,
+      "challenge": 0.3
+    },
+    {
+      "id": "recipe:region:phrase-03",
+      "regionId": "region:phrase-03",
+      "sourceId": "melody-contour",
+      "mapping": "pitch-contour",
+      "density": 0.85,
+      "motion": 1,
+      "challenge": 0.25
+    },
+    {
+      "id": "recipe:region:phrase-04",
+      "regionId": "region:phrase-04",
+      "sourceId": "percussion-onsets",
+      "mapping": "alternating",
+      "density": 0.68,
+      "motion": 0.75,
+      "challenge": 0.35
+    },
+    {
+      "id": "recipe:region:phrase-05",
+      "regionId": "region:phrase-05",
+      "sourceId": "melody-contour",
+      "mapping": "pitch-contour",
+      "density": 0.85,
+      "motion": 1,
+      "challenge": 0.25
+    },
+    {
+      "id": "recipe:region:phrase-06",
+      "regionId": "region:phrase-06",
+      "sourceId": "melody-contour",
+      "mapping": "pitch-contour",
+      "density": 0.85,
+      "motion": 1,
+      "challenge": 0.25
+    },
+    {
+      "id": "recipe:region:phrase-07",
+      "regionId": "region:phrase-07",
+      "sourceId": "melody-contour",
+      "mapping": "pitch-contour",
+      "density": 0.85,
+      "motion": 1,
+      "challenge": 0.25
+    },
+    {
+      "id": "recipe:region:phrase-08",
+      "regionId": "region:phrase-08",
+      "sourceId": "melody-contour",
+      "mapping": "pitch-contour",
+      "density": 0.85,
+      "motion": 1,
+      "challenge": 0.25
+    },
+    {
+      "id": "recipe:region:phrase-09",
+      "regionId": "region:phrase-09",
+      "sourceId": "percussion-onsets",
+      "mapping": "alternating",
+      "density": 0.68,
+      "motion": 0.75,
+      "challenge": 0.35
+    },
+    {
+      "id": "recipe:region:phrase-10",
+      "regionId": "region:phrase-10",
+      "sourceId": "percussion-onsets",
+      "mapping": "alternating",
+      "density": 0.68,
+      "motion": 0.75,
+      "challenge": 0.35
+    },
+    {
+      "id": "recipe:region:phrase-11",
+      "regionId": "region:phrase-11",
+      "sourceId": "melody-contour",
+      "mapping": "pitch-contour",
+      "density": 0.85,
+      "motion": 1,
+      "challenge": 0.25
+    },
+    {
+      "id": "recipe:region:phrase-12",
+      "regionId": "region:phrase-12",
+      "sourceId": "melody-contour",
+      "mapping": "pitch-contour",
+      "density": 0.85,
+      "motion": 1,
+      "challenge": 0.25
+    },
+    {
+      "id": "recipe:region:phrase-13",
+      "regionId": "region:phrase-13",
+      "sourceId": "percussion-onsets",
+      "mapping": "pulse",
+      "density": 0.48,
+      "motion": 0.2,
+      "challenge": 0.18
+    },
+    {
+      "id": "recipe:region:phrase-14",
+      "regionId": "region:phrase-14",
+      "sourceId": "melody-contour",
+      "mapping": "pitch-contour",
+      "density": 0.85,
+      "motion": 1,
+      "challenge": 0.25
+    },
+    {
+      "id": "recipe:region:phrase-15",
+      "regionId": "region:phrase-15",
+      "sourceId": "percussion-onsets",
+      "mapping": "alternating",
+      "density": 0.68,
+      "motion": 0.75,
+      "challenge": 0.35
+    },
+    {
+      "id": "recipe:region:phrase-16",
+      "regionId": "region:phrase-16",
+      "sourceId": "percussion-onsets",
+      "mapping": "alternating",
+      "density": 0.68,
+      "motion": 0.75,
+      "challenge": 0.35
+    }
+  ],
   "rowOverrides": [],
   "colorRanges": []
 }
