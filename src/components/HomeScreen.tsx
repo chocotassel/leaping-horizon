@@ -170,23 +170,23 @@ export function HomeScreen({
   const vinylStageStyle = {
     '--vinyl-switch-duration': `${switchDuration}ms`,
     ...(dragPosition?.direction === 'next' ? {
-      '--vinyl-current-x': `${-58 * progress}cqw`,
+      '--vinyl-current-x': `${-105 * progress}%`,
       '--vinyl-current-scale': String(1 - 0.38 * progress),
       '--vinyl-current-opacity': String(1 - 0.54 * progress),
-      '--vinyl-previous-x': `${-58 - 54 * progress}cqw`,
+      '--vinyl-previous-x': `${-105 - 95 * progress}%`,
       '--vinyl-previous-scale': String(0.62 - 0.12 * progress),
       '--vinyl-previous-opacity': String(0.46 * (1 - progress)),
-      '--vinyl-next-x': `${58 * (1 - progress)}cqw`,
+      '--vinyl-next-x': `${105 * (1 - progress)}%`,
       '--vinyl-next-scale': String(0.62 + 0.38 * progress),
       '--vinyl-next-opacity': String(0.46 + 0.54 * progress),
     } : dragPosition ? {
-      '--vinyl-current-x': `${58 * progress}cqw`,
+      '--vinyl-current-x': `${105 * progress}%`,
       '--vinyl-current-scale': String(1 - 0.38 * progress),
       '--vinyl-current-opacity': String(1 - 0.54 * progress),
-      '--vinyl-previous-x': `${-58 * (1 - progress)}cqw`,
+      '--vinyl-previous-x': `${-105 * (1 - progress)}%`,
       '--vinyl-previous-scale': String(0.62 + 0.38 * progress),
       '--vinyl-previous-opacity': String(0.46 + 0.54 * progress),
-      '--vinyl-next-x': `${58 + 54 * progress}cqw`,
+      '--vinyl-next-x': `${105 + 95 * progress}%`,
       '--vinyl-next-scale': String(0.62 - 0.12 * progress),
       '--vinyl-next-opacity': String(0.46 * (1 - progress)),
     } : {}),
@@ -206,7 +206,9 @@ export function HomeScreen({
           onClick={onToggleSound}
         >
           <span aria-hidden="true">♪</span>
-          {t('songSelect.musicToggle', { state: soundEnabled ? t('common.on') : t('common.off') })}
+          <span className="header-music-label">
+            {t('songSelect.musicToggle', { state: soundEnabled ? t('common.on') : t('common.off') })}
+          </span>
           <i aria-hidden="true" />
         </button>
         <span>{String(activeIndex + 1).padStart(2, '0')} / {String(levels.length).padStart(2, '0')}</span>
@@ -289,7 +291,11 @@ export function HomeScreen({
           <div className="vinyl-track-copy">
             <strong>{level.song.title}</strong>
             <small>{artistLabel(level)}</small>
-            <span>{t('common.bpm', { value: level.song.bpm })} <i /> {durationLabel(level)}</span>
+            <span>
+              <span>{t('common.bpm', { value: level.song.bpm })}</span>
+              <i />
+              <span>{durationLabel(level)}</span>
+            </span>
           </div>
         </div>
       </section>
