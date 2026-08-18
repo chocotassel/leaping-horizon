@@ -15,8 +15,6 @@ export const COLOR_SCHEME_HUES = {
 
 export const COLOR_SCHEME_IDS = Object.keys(COLOR_SCHEME_HUES);
 
-const MIN_COLOR_SCENE_DWELL_SECONDS = 1;
-
 const ROLE_SCHEMES = {
   intro: ['cyanWhite', 'cyanRed', 'blueWhite', 'orangeAzure'],
   build: ['redWhite', 'orangeAzure', 'yellowWhite', 'yellowBlue'],
@@ -76,8 +74,13 @@ function chooseSectionScheme(section, fingerprint, previousSchemeId) {
   ], `${fingerprint}|${section.id}|${section.role}`, previousSchemeId);
 }
 
-function buildSectionEvents(analysis, sections, beatSeconds) {
+/** Generate a conservative starting palette. Manual ranges are applied later. */
+export function planColorSchemeEvents(analysis, layoutIntent) {
+  const sections = Array.isArray(layoutIntent?.sections)
+    ? [...layoutIntent.sections].sort((left, right) => left.startSeconds - right.startSeconds)
+    : [];
   const fingerprint = String(analysis?.song?.audioFingerprint ?? 'missing-audio-fingerprint');
+  const beatSeconds = 60 / Math.max(1, finite(analysis?.song?.bpm, 120));
   const events = [{
     timeSeconds: 0,
     colorSchemeId: 'cyanWhite',
@@ -90,119 +93,22 @@ function buildSectionEvents(analysis, sections, beatSeconds) {
   for (const section of sections.slice(1)) {
     const pressureChange = Math.abs(finite(section.pressure) - finite(previousSection?.pressure));
     const energyChange = Math.abs(finite(section.energy) - finite(previousSection?.energy));
-    const roleChanged = section.role !== previousSection?.role;
-    const mandatoryRole = ['peak', 'break', 'outro'].includes(section.role);
+    const importantRole = ['peak', 'break', 'outro'].includes(section.role);
     const timeSeconds = finite(section.startSeconds);
-    const enoughTime = timeSeconds - lastChangeTime >= Math.max(4, beatSeconds * 8);
     if (
-      (mandatoryRole || roleChanged || pressureChange >= 0.14 || energyChange >= 0.16)
-      && enoughTime
+      (importantRole || section.role !== previousSection?.role || pressureChange >= 0.14 || energyChange >= 0.16)
+      && timeSeconds - lastChangeTime >= Math.max(4, beatSeconds * 8)
     ) {
-      const colorSchemeId = chooseSectionScheme(section, fingerprint, events.at(-1).colorSchemeId);
-      if (colorSchemeId !== events.at(-1).colorSchemeId) {
-        events.push({
-          timeSeconds: Number(timeSeconds.toFixed(5)),
-          colorSchemeId,
-          kind: 'section',
-          source: section.id,
-          strength: Number(clamp(Math.max(pressureChange, energyChange, finite(section.pressure))).toFixed(3)),
-        });
-        lastChangeTime = timeSeconds;
-      }
+      events.push({
+        timeSeconds: Number(timeSeconds.toFixed(5)),
+        colorSchemeId: chooseSectionScheme(section, fingerprint, events.at(-1).colorSchemeId),
+        kind: 'section',
+        source: section.id,
+        strength: Number(clamp(Math.max(pressureChange, energyChange, finite(section.pressure))).toFixed(3)),
+      });
+      lastChangeTime = timeSeconds;
     }
     previousSection = section;
-  }
-  return events;
-}
-
-function buildDirectedSceneEvents(analysis, colorScenes) {
-  const fingerprint = String(analysis?.song?.audioFingerprint ?? 'missing-audio-fingerprint');
-  const scenes = colorScenes
-    .map((scene) => ({
-      ...scene,
-      resolvedTimeSeconds: finite(scene?.timeSeconds, finite(scene?.startSeconds, Number.NaN)),
-    }))
-    .filter((scene) => Number.isFinite(scene.resolvedTimeSeconds) && scene.resolvedTimeSeconds >= 0)
-    .sort((left, right) => left.resolvedTimeSeconds - right.resolvedTimeSeconds);
-  const events = [{
-    timeSeconds: 0,
-    colorSchemeId: 'cyanWhite',
-    kind: 'section',
-    source: 'song-start',
-    strength: 0,
-  }];
-
-  for (const scene of scenes) {
-    const timeSeconds = Number(scene.resolvedTimeSeconds.toFixed(5));
-    if (timeSeconds === 0 && events.length === 1) {
-      events[0] = {
-        ...events[0],
-        source: String(scene.id ?? scene.sceneId ?? 'director-scene-start'),
-        strength: Number(clamp(finite(scene.strength)).toFixed(3)),
-        sceneId: scene.sceneId,
-        anchorId: scene.startAnchorId ?? scene.anchorId,
-        evidenceIds: Array.isArray(scene.evidenceIds) ? [...scene.evidenceIds] : [],
-      };
-      continue;
-    }
-    if (timeSeconds - events.at(-1).timeSeconds < MIN_COLOR_SCENE_DWELL_SECONDS) continue;
-    events.push({
-      timeSeconds,
-      colorSchemeId: chooseDifferentScheme(
-        COLOR_SCHEME_IDS,
-        `${fingerprint}|${scene.id}|${scene.sceneId}|${JSON.stringify(scene.affect ?? null)}`,
-        events.at(-1).colorSchemeId,
-      ),
-      kind: 'section',
-      source: String(scene.id ?? scene.sceneId ?? 'director-color-scene'),
-      strength: Number(clamp(finite(scene.strength, 1)).toFixed(3)),
-      sceneId: scene.sceneId,
-      anchorId: scene.startAnchorId ?? scene.anchorId,
-      evidenceIds: Array.isArray(scene.evidenceIds) ? [...scene.evidenceIds] : [],
-    });
-  }
-  return events;
-}
-
-/** Keep ordinary strong Musical Anchors separate from persistent Color Scenes. */
-export function planVisualAccentEvents(direction) {
-  const accents = Array.isArray(direction?.visualAccents) ? direction.visualAccents : [];
-  return accents
-    .map((accent) => ({
-      accent,
-      resolvedTimeSeconds: finite(accent?.timeSeconds, Number.NaN),
-    }))
-    .filter(({ resolvedTimeSeconds }) => Number.isFinite(resolvedTimeSeconds) && resolvedTimeSeconds >= 0)
-    .sort((left, right) => left.resolvedTimeSeconds - right.resolvedTimeSeconds)
-    .map(({ accent, resolvedTimeSeconds }, index) => ({
-      id: String(accent.id ?? `visual-accent-${index + 1}`),
-      timeSeconds: Number(resolvedTimeSeconds.toFixed(5)),
-      anchorId: accent.anchorId,
-      ...(accent.sceneId == null ? {} : { sceneId: accent.sceneId }),
-      kind: 'pulse',
-      strength: Number(clamp(finite(accent.strength)).toFixed(3)),
-      source: String(accent.source ?? accent.id ?? 'director-visual-accent'),
-      evidenceIds: Array.isArray(accent.evidenceIds) ? [...accent.evidenceIds] : [],
-    }));
-}
-
-/** Compile supported Color Scenes into the runtime color timeline. */
-export function planColorSchemeEvents(analysis, layoutIntent, direction) {
-  if (direction != null) {
-    return buildDirectedSceneEvents(
-      analysis,
-      Array.isArray(direction?.colorScenes) ? direction.colorScenes : [],
-    );
-  }
-  const sections = Array.isArray(layoutIntent?.sections)
-    ? [...layoutIntent.sections].sort((left, right) => left.startSeconds - right.startSeconds)
-    : [];
-  const beatSeconds = 60 / Math.max(1, finite(analysis?.song?.bpm, 120));
-  const events = buildSectionEvents(analysis, sections, beatSeconds);
-  for (let index = 1; index < events.length; index += 1) {
-    if (!colorSchemesDiffer(events[index - 1].colorSchemeId, events[index].colorSchemeId)) {
-      throw new Error(`Color scheme event ${index} repeats a region hue from the previous event.`);
-    }
   }
   return events;
 }

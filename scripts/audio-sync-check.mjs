@@ -86,15 +86,7 @@ class FakeAudioContext {
 }
 
 const source = readFileSync(new URL('../src/audio/AudioEngine.ts', import.meta.url), 'utf8')
-  .replace("import { t } from '../i18n';", "const t = (key: string) => key;")
-  .replace(
-    "import type { HitSoundIntent } from '../types';",
-    'interface HitSoundIntent { pitchMidi: number; pitchClass: number; sourceRole: string; velocity: number; gain: number; brightness: number; }',
-  )
-  .replace(
-    "import { HitVoice } from './HitVoice';",
-    'class HitVoice { constructor(_context: AudioContext, _destination: AudioNode) {} play(_intent: HitSoundIntent | undefined) { return false; } dispose() {} }',
-  );
+  .replace("import { t } from '../i18n';", "const t = (key: string) => key;");
 const temporaryRoot = fileURLToPath(new URL('../node_modules/.cache/leaping-horizon-audio-check/', import.meta.url));
 mkdirSync(temporaryRoot, { recursive: true });
 const temporaryDirectory = mkdtempSync(join(temporaryRoot, 'run-'));

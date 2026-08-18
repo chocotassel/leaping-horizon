@@ -1,65 +1,46 @@
-# 音乐到完整关卡
+# 音乐关卡生成与人工编辑
 
-项目只保留一条生产管线：输入一首音乐，输出游戏使用的压缩 MP3 和完整 Level v3 数据。当前空间布局算法为 `music-responsive-choice-template-v11`。
+## 生成基础关卡
 
-## 首次安装
+首次安装分析环境：
 
-```powershell
+```sh
 npm run setup:rhythm
 ```
 
-需要 Python 3.11、FFmpeg。安装脚本会优先使用 `uv` 建立 `.venv-analysis`，并安装 Beat This!、librosa、Basic Pitch 与 scikit-learn；没有 `uv` 时使用本机的 `python3.11`。
+生成或更新歌曲：
 
-## 生成关卡
-
-```powershell
-npm run generate -- "D:\Music\song.wav" "Song title" "Artist" song-id
+```sh
+npm run generate -- "path/to/song.wav" "Song title" "Artist" song-id
 ```
 
-母带没有内嵌封面时，首次生成需显式提供封面；后续生成会保留歌曲目录中已有的封面：
+分析器输出真实 attack、beat 和 MIDI 音高。`transcribePerformance(...)` 把音高映射到五条轨道；Builder 只保存两类紧凑数据：
 
-```powershell
-npm run generate -- "D:\Music\song.wav" "Song title" "Artist" song-id --cover "D:\Music\cover.png"
+- `rhythmPoints`：所有可人工编辑的 attack/beat 时间点。
+- `events`：依据音高预生成的基础方块行。
+
+Builder 不再生成 Song Director、LLM 语义颜色、Hit Voice 或大体积解释数据。
+
+## 人工编辑
+
+```sh
+npm run editor
 ```
 
-标题、作者和 ID 都可从右向左省略。标题默认使用输入文件名，作者默认是 `Unknown Artist`。
+打开 `http://localhost:5173/editor.html`。工作台可以：
 
-每首歌按歌曲 ID 独立输出到 `src/songs/<song-id>/`：
+- 播放和拖动四首歌曲。
+- 在每个 Rhythm Point 的五条轨道上放置空白、方块或地刺。
+- 选择两个 Rhythm Point，建立不重叠的颜色区间。
+- 保存到 `src/songs/<song-id>/edits.json`，或导入/导出 JSON。
 
-- `audio.mp3`：96 kbps、32 kHz、立体声 MPEG Layer III 游戏音频。
-- `cover.jpeg`：从母带内嵌封面或 `--cover` 输入统一提取的 JPEG。
-- `level.json`：游戏直接读取的完整 Level v3 关卡。
-- `work/<song-id>/analysis.json`：构建中间数据，已忽略，不进入版本库。
-
-再次使用相同 ID 会更新该歌曲；不同 ID 会保留为不同歌曲。首页自动发现全部 `*.level.json` 并显示歌曲选择，无需维护额外清单。
-
-压缩后的 MP3 同时也是分析输入，因此关卡时间戳和游戏实际解码的音频使用同一时间轴。
-
-## 管线组成
-
-1. FFmpeg 将母带压缩成 96 kbps、32 kHz MP3，并去除不参与播放的元数据。
-2. Beat This! 检测 beat/downbeat，提供真实拍点、小节与乐句时间轴。
-3. librosa 检测多频段起音、能量和歌曲结构；段落尺度按歌曲长度动态选择，不使用某首歌固定的段数。
-4. Basic Pitch 补充旋律音符起点，并保留 MIDI 音高、音域、音长与同时发音数；和弦聚合仍选用真实检测时刻。
-5. 结构分析只在当前歌曲内部把重复乐句归为同一家族；不存在按绝对秒数写死的跨歌曲复用。
-6. `scripts/rhythm/layout-intent.mjs` 把分析数据转换成一份稳定的布局意图：连续的旋律/打击/节奏权重、intro/build/drive/peak/break/release/outro 段落角色、段落压力，以及重复乐句的音高走势共识。
-7. `scripts/rhythm/color-timeline.mjs` 从色环中选择统一 S/V 的主色，并搭配互补色或中性白；绿色只保留一个低频备用主题。在真实段落边界切换长期配色，并在高压力段的强打击检测时刻生成两套主题交替事件；每次切换的主色与强调色都不得复用上一事件的对应颜色。结果写入关卡的 `colorSchemeEvents`，运行时不再重复分析音频。
-8. 上行、下行、摆动和平稳旋律分别偏向不同的形态与左右方向；缺少可用音高时只使用音频指纹做确定性回退，不读取歌名、歌曲 ID 或固定时间表。
-9. C/S/V、阶梯、钩形、钟摆等形态会跨 1–3 小节保持连续入口与出口；M 手势严格输出 `22200 → 00000 → 10000 → 00000 → 22200 → 22200 → 00000 → 10000 → 00000 → 22200` 或镜像，其中 `00000` 是不写入关卡事件的静默模板槽。波浪门不保存逐行模板，而是用 `1→2→3→2` 的地刺深度周期生成双墙安全走廊；延长长度即可拼接，逐行翻转即可镜像。简单单墙版本不再生成。
-10. 一个 Choice Row 可以有 1–3 个可撞击方块；玩家吃到其中任意一个就完成这一行，分数、命中与 Combo 都只增加一次。多排 Choice Row 可以连续出现，生成器不公开推荐路线。
-11. build/drive/peak 段会高频加入连续全宽鼓点横扫：至少五个强制边缘击打点按第 `1 → 5 → 1 → 5 → 1` 道或镜像排列，每次换边落在下一个实测拍点，并使用 `0.09s/道` 的独立横扫移动余量。低压力使用无地刺的 `10000 / 00001`，高压力使用目标与三地刺间隔一格的 `10222 / 22201`；规划器同时检查同一家族全部 occurrence 的真实时间，绝不移动音乐事件。
-12. 相同乐句只生成一次 canonical 模板，连旋律细分行与全宽横扫也必须跨 occurrence 达成共识；只出现一次的独有乐句才允许 overlay，因此重复旋律的实际可见事件、手势与分支结构完全一致。
-13. 除 M 和稀疏全宽横摆外，生成器会按压力自动选择纵向密度：波浪与高压段以约 `0.04s` 间隔连续铺设 Gate Row，中压段以约 `0.22s` 间隔均匀补行。补行只覆盖相邻真实音乐锚点的连续安全走廊，不移动锚点，也不收窄已有完整路线。
-14. 全曲使用共享的前向/后向路线图同时检查生存与完整 Combo：每个显示出来的可选方块都必须属于至少一条完整路线，并检查连续分支、宽分支、决策路径数量、五道覆盖、压力与地刺强度、重复乐句一致性和跨歌曲布局差异。强段还会拒绝任何始终躲在 1–3 道微操的完整 Combo 路线。
-
-所有音乐锚点都来自检测器的真实音频峰值；Density Fill 仅在相邻锚点间等距插值，BPM 不建立固定网格，也不吸附事件时间。
+`edits.json` 是稀疏覆盖，不会因重新生成 `level.json` 而丢失。游戏加载时通过 `applyLevelEdits(...)` 合成最终关卡。
 
 ## 验证
 
-```powershell
+```sh
 npm run test:level
 npm run test:physics
+npm run test:audio
 npm run build
 ```
-
-`test:level` 会先运行布局意图、密度补行、M/横扫/波浪规则与路线图的纯函数测试，再检查 MP3 压缩信息、事件顺序、Choice Row 的按行 Combo 统计、无孤立中缝、字面六行 M、双向波浪、强段 `0↔4↔0` 横扫、多分支完整 Combo 路线、音高方向、段落心流、结构模板复用、边道覆盖、中心道偏置、跨歌曲布局差异和统计一致性。`test:physics` 还会验证多目标行的原子判定、连续命中、整行漏击、地刺优先和 Gate Row Combo。

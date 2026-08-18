@@ -16,11 +16,6 @@ function round(value, digits = 4) {
   return Math.round((value + Number.EPSILON) * scale) / scale;
 }
 
-function pitchClassOf(pitchMidi) {
-  if (!Number.isFinite(pitchMidi)) return null;
-  return ((Math.round(pitchMidi) % 12) + 12) % 12;
-}
-
 function sourceDescriptor(sourceId) {
   if (sourceId === 'basic-pitch') return { kind: 'pitch', priority: 6, laneHint: null };
   if (sourceId === 'librosa-onset') return { kind: 'onset', priority: 5, laneHint: null };
@@ -257,19 +252,6 @@ function emptyContinuity() {
   };
 }
 
-function makeHitSound(event) {
-  const pitchMidi = event.pitchMidi ?? 36 + event.lane * 2;
-  const voice = event.sourceRole;
-  return {
-    pitchMidi: round(pitchMidi, 3),
-    pitchClass: pitchClassOf(pitchMidi),
-    sourceRole: voice,
-    velocity: event.strength,
-    gain: voice === 'percussion' ? 0.13 : voice === 'vocal-like' ? 0.14 : 0.16,
-    brightness: voice === 'percussion' ? 0.36 : voice === 'vocal-like' ? 0.62 : 0.5,
-  };
-}
-
 function pitchDirection(currentPitch, previousPitch) {
   const interval = currentPitch - previousPitch;
   if (interval > 0.25) return 'up';
@@ -367,7 +349,6 @@ function applyMelodicTraces(attackRecords, options) {
         sustained: durationSeconds >= 0.38
           || (next != null && durationSeconds >= next.timeSeconds - event.timeSeconds - 0.06),
       };
-      event.hitSound = makeHitSound(event);
     }
     traces.push({
       id: traceId,
@@ -470,7 +451,6 @@ function realizeReachableLanes(attackRecords, melodicTraces, options) {
   for (const [index, record] of attackRecords.entries()) {
     if (realizedLanes[index] !== intendedLanes[index]) constrainedLaneCount += 1;
     record.event.lane = realizedLanes[index];
-    record.event.hitSound = makeHitSound(record.event);
   }
   const eventsById = new Map(attackRecords.map(({ event }) => [event.id, event]));
   for (const trace of melodicTraces) {
@@ -531,7 +511,6 @@ export function transcribePerformance(analysis, options = {}) {
       timeSeconds: round(timeCandidate.timeSeconds, 5),
       lane: initialLane(group, sourceRole, index),
       pitchMidi,
-      pitchClass: pitchClassOf(pitchMidi),
       sourceRole,
       strength,
       evidenceIds: group.map((candidate) => candidate.evidenceId).sort(),
@@ -543,9 +522,7 @@ export function transcribePerformance(analysis, options = {}) {
       phraseId,
       phraseIds,
       continuity: emptyContinuity(),
-      hitSound: null,
     };
-    event.hitSound = makeHitSound(event);
     return { event, group, canonical, timeCandidate };
   });
   const melodicTraces = applyMelodicTraces(attackRecords, options);

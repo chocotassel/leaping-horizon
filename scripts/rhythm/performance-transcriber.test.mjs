@@ -133,18 +133,9 @@ test('fuses coincident detector evidence without beat-snapping or dropping dense
     sourceId: 'librosa-onset',
     kind: 'onset',
   });
-  assert.equal(atFirstNote?.pitchClass, 0);
   assert.equal(atFirstNote?.phraseId, 'P01');
   assert.deepEqual(atFirstNote?.phraseIds, ['P01']);
   assert.ok(Number.isInteger(atFirstNote?.lane) && atFirstNote.lane >= 0 && atFirstNote.lane <= 4);
-  assert.deepEqual(atFirstNote?.hitSound, {
-    pitchMidi: 60,
-    pitchClass: 0,
-    sourceRole: 'melody',
-    velocity: atFirstNote.strength,
-    gain: 0.16,
-    brightness: 0.5,
-  });
   assert.ok(first.attackEvents.every((event) => event.evidenceIds.length > 0));
   assert.ok(first.attackEvents.every((event) => event.continuity != null));
   assert.ok(first.diagnostics.fusedAttackCount >= 2);
@@ -215,10 +206,7 @@ test('keeps a measured off-beat percussion attack instead of replacing it with t
   assert.ok(offBeat, 'the detector time must remain an authoritative Attack Event');
   assert.equal(offBeat.sourceRole, 'percussion');
   assert.equal(offBeat.pitchMidi, null);
-  assert.equal(offBeat.pitchClass, null);
   assert.deepEqual(offBeat.evidenceIds, ['event:librosa-percussive:1']);
-  assert.ok(Number.isFinite(offBeat.hitSound.pitchMidi));
-  assert.equal(offBeat.hitSound.sourceRole, 'percussion');
 });
 
 test('keeps long chromatic rises inside the five physical lanes', () => {

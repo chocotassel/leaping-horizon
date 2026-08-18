@@ -15,7 +15,6 @@ import {
   ObstacleType,
   type LaneIndex,
   type Level,
-  type LevelEvent,
   type ObstacleStateRow,
 } from '../types';
 import { getMaxEventRowsInWindow, getMaxObstacleCountInWindow } from '../chart';
@@ -179,13 +178,6 @@ function getSpectrumEnergy(spectrum: Uint8Array, startBin: number, endBin: numbe
   return energy / (end - startBin + 1);
 }
 
-/** Merge a Director accent with the current ring feedback without weakening it. */
-export function mergeMusicAccentPulse(currentPulse: number, strength: number): number {
-  const safeCurrent = Number.isFinite(currentPulse) ? Math.max(0, currentPulse) : 0;
-  const safeStrength = Number.isFinite(strength) ? THREE.MathUtils.clamp(strength, 0, 1) : 0;
-  return Math.max(safeCurrent, safeStrength * 1.25);
-}
-
 export class GameScene {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly renderProfile: RenderProfile;
@@ -249,8 +241,6 @@ export class GameScene {
   private playerVelocity = 0;
   private playerSpinSpeed = PLAYER_IDLE_SPIN_SPEED;
   private hitImpulse = 0;
-  private nextSpectrumLayoutEventIndex = 0;
-  private spectrumLayoutBar = -1;
   private outerSpectrumClusters: SpectrumCluster[] = [];
   private innerSpectrumClusters: SpectrumCluster[] = [];
   private readonly outerSpectrumHeights = new Float32Array(OUTER_SPECTRUM_COUNT).fill(1);
@@ -568,13 +558,6 @@ export class GameScene {
 
   getColorSchemeId(): SceneColorSchemeId {
     return this.colorSchemeId;
-  }
-
-  pulseMusicAccent(strength: number): void {
-    const safeStrength = Number.isFinite(strength) ? THREE.MathUtils.clamp(strength, 0, 1) : 0;
-    this.ringHitPulse = mergeMusicAccentPulse(this.ringHitPulse, safeStrength);
-    this.outerSpectrumImpact = Math.max(this.outerSpectrumImpact, safeStrength * 0.65);
-    this.innerSpectrumImpact = Math.max(this.innerSpectrumImpact, safeStrength * 0.5);
   }
 
   private createFeedback(width: number, height: number): {
@@ -1242,7 +1225,7 @@ export class GameScene {
         easedIntro,
       );
     }
-    this.updateSpectrum(dt, time, level.song.durationSeconds, level.events, spectrum);
+    this.updateSpectrum(dt, time, level.song.durationSeconds, spectrum);
     if (transitionImpact > 0 && this.composer && this.rgbShiftPass) {
       this.rgbShiftPass.uniforms.amount.value = COLOR_TRANSITION_RGB_SHIFT * transitionImpact;
       this.rgbShiftPass.uniforms.angle.value = 0;
@@ -1311,28 +1294,10 @@ export class GameScene {
     colors.needsUpdate = true;
   }
 
-  private updateSpectrumLayout(event: LevelEvent): void {
-    if (!event.downbeatCue) return;
-    const barIndex = event.barIndex ?? Math.floor(event.timeSeconds / 1.2);
-    if (barIndex === this.spectrumLayoutBar) return;
-    this.spectrumLayoutBar = barIndex;
-    const seed = (event.barIndex ?? Math.floor(event.timeSeconds / 1.2)) * 101 + 17;
-    const outerCount = 2 + Math.floor(getSpectrumNoise(seed, 31) * 3);
-    const innerCount = 2 + Math.floor(getSpectrumNoise(seed, 47) * 4);
-    this.outerSpectrumClusters = createSpectrumClusters(seed, outerCount, OUTER_SPECTRUM_COUNT);
-    this.innerSpectrumClusters = createSpectrumClusters(
-      seed + 7919,
-      innerCount,
-      INNER_SPECTRUM_COUNT,
-      this.outerSpectrumClusters.map((cluster) => cluster.position),
-    );
-  }
-
   private updateSpectrum(
     dt: number,
     time: number,
     duration: number,
-    events: readonly LevelEvent[],
     spectrum: Uint8Array,
   ): void {
     const approach = getRingApproach(time, duration, this.lastObstacleTime);
@@ -1343,14 +1308,6 @@ export class GameScene {
     );
     const lowEnergy = getSpectrumEnergy(spectrum, 1, 14);
     const highEnergy = getSpectrumEnergy(spectrum, 18, 72);
-    while (
-      this.nextSpectrumLayoutEventIndex < events.length
-      && events[this.nextSpectrumLayoutEventIndex].timeSeconds <= time
-    ) {
-      this.updateSpectrumLayout(events[this.nextSpectrumLayoutEventIndex]);
-      this.nextSpectrumLayoutEventIndex += 1;
-    }
-
     const previousSpectrum = this.previousSpectrum?.length === spectrum.length
       ? this.previousSpectrum
       : spectrum;
