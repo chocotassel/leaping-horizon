@@ -11,6 +11,7 @@ import {
 } from '../types';
 import { GameScene } from './GameScene';
 import type { SceneColorSchemeId } from './colorSchemes';
+import { getGameplayIntroProgress } from './launchGate';
 import { overlapsCollectibleTarget, overlapsPlayer } from './physics';
 
 export interface GameCallbacks {
@@ -31,6 +32,26 @@ const DRAG_SENSITIVITY = 3;
 export const CRASH_EFFECT_DURATION_MS = 1150;
 const CRASH_SCENE_MAX_ADVANCE_SECONDS = 0.07;
 const CRASH_SCENE_DECAY_MS = 180;
+
+function disposeAfterNextPaint(dispose: () => void): void {
+  let disposed = false;
+  const run = () => {
+    if (disposed) return;
+    disposed = true;
+    window.clearTimeout(fallback);
+    dispose();
+  };
+  const fallback = window.setTimeout(run, 1_200);
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(run, { timeout: 600 });
+      } else {
+        window.setTimeout(run, 0);
+      }
+    });
+  });
+}
 
 export function getCrashEffectProgress(startedAt: number, now: number): number {
   return Math.min(1, Math.max(0, (now - startedAt) / CRASH_EFFECT_DURATION_MS));
@@ -233,6 +254,11 @@ export class GameController {
   private pointerId: number | null = null;
   private lastPointerX = 0;
   private lastHudUpdate = 0;
+  private preparation: Promise<void> | null = null;
+  private started = false;
+  private running = false;
+  private destroyed = false;
+  private introStartedAt = 0;
 
   constructor(canvas: HTMLCanvasElement, level: Level, callbacks: GameCallbacks) {
     this.scene = new GameScene(canvas, level);
@@ -244,10 +270,30 @@ export class GameController {
     )) as ObstacleStateRow);
   }
 
+  prepare(): Promise<void> {
+    if (this.preparation) return this.preparation;
+    while (
+      this.nextColorSchemeEventIndex < this.level.colorSchemeEvents.length
+      && this.level.colorSchemeEvents[this.nextColorSchemeEventIndex].timeSeconds <= 0
+    ) {
+      this.scene.setColorScheme(this.level.colorSchemeEvents[this.nextColorSchemeEventIndex].colorSchemeId);
+      this.nextColorSchemeEventIndex += 1;
+    }
+    this.preparation = Promise.all([
+      this.audio.prepare(),
+      this.scene.prepare(this.level, this.states),
+    ]).then(() => undefined);
+    return this.preparation;
+  }
+
   start(): void {
-    void this.audio.start().then(() => {
-      if (!this.finished) this.frameId = requestAnimationFrame(this.loop);
-    });
+    if (this.started || this.destroyed) return;
+    this.started = true;
+    void this.prepare().then(() => {
+      if (this.finished) return;
+      this.introStartedAt = performance.now();
+      this.frameId = requestAnimationFrame(this.introLoop);
+    }).catch(() => { /* GameScreen reports preparation failures. */ });
   }
 
   resize(width: number, height: number): void {
@@ -263,7 +309,7 @@ export class GameController {
   }
 
   setPointer(pointerId: number, normalizedX: number): void {
-    if (this.dead) return;
+    if (this.dead || !this.running) return;
     if (this.pointerId === null) {
       this.pointerId = pointerId;
       this.lastPointerX = normalizedX;
@@ -278,11 +324,26 @@ export class GameController {
   }
 
   async togglePause(): Promise<boolean> {
-    if (this.dead) return false;
+    if (this.dead || !this.running) return false;
     if (this.audio.paused) await this.audio.resume();
     else await this.audio.pause();
     return this.audio.paused;
   }
+
+  private introLoop = (now: number): void => {
+    if (this.finished) return;
+    const progress = getGameplayIntroProgress(now - this.introStartedAt);
+    this.scene.renderIntro(progress, this.level, this.states);
+    if (progress < 1) {
+      this.frameId = requestAnimationFrame(this.introLoop);
+      return;
+    }
+    void this.audio.start().then(() => {
+      if (this.finished) return;
+      this.running = true;
+      this.frameId = requestAnimationFrame(this.loop);
+    }).catch(() => { /* preparation already reports audio failures */ });
+  };
 
   private loop = (): void => {
     if (this.finished) return;
@@ -401,9 +462,12 @@ export class GameController {
   }
 
   destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
     this.finished = true;
     cancelAnimationFrame(this.frameId);
     this.audio.stop();
-    this.scene.dispose();
+    if (this.started) disposeAfterNextPaint(() => this.scene.dispose());
+    else this.scene.dispose();
   }
 }

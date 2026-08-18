@@ -62,6 +62,9 @@ const MIN_PARTICLE_POOL_SIZE = 96;
 const CAMERA_Y = 6.8;
 const CAMERA_Z = 9.35;
 const CAMERA_TARGET_Z = -14.9;
+const CAMERA_INTRO_Y = 4.6;
+const CAMERA_INTRO_Z = 0.35;
+const CAMERA_INTRO_PITCH = -Math.atan2(CAMERA_INTRO_Y - 0.32, CAMERA_INTRO_Z - PLAYER_Z);
 const FLOATING_CUBE_COUNT = 64;
 const FLOATING_CUBE_SPEED = 5.4;
 // 穿过相机后再循环，避免仍在画面内时突然重置到远处。
@@ -109,6 +112,7 @@ const SPIKE_OFFSETS = [
   [0.28, 0.28],
 ] as const;
 const hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
+const SILENT_SPECTRUM = new Uint8Array(128);
 
 interface RingTransform {
   angle: number;
@@ -266,6 +270,9 @@ export class GameScene {
   private crashElapsed = 0;
   private colorTransitionElapsed = COLOR_TRANSITION_SECONDS;
   private disposed = false;
+  private preparation: Promise<void> | null = null;
+  private gameplayCameraPitch = 0;
+  private cameraIntroProgress = 1;
 
   constructor(canvas: HTMLCanvasElement, level: Level) {
     const nav = navigator as Navigator & { deviceMemory?: number };
@@ -399,6 +406,11 @@ export class GameScene {
       this.createMetalMaterial({ metalness: 0.9, roughness: 0.25, emissiveIntensity: 0.8 }),
       particlePoolSize,
     );
+    for (let index = 0; index < particlePoolSize; index += 1) {
+      this.particles.setColorAt(index, this.glowColor);
+    }
+    this.particles.instanceColor?.setUsage(THREE.DynamicDrawUsage);
+    if (this.particles.instanceColor) this.particles.instanceColor.needsUpdate = true;
     this.particleData = Array.from({ length: particlePoolSize }, () => ({
       active: false,
       x: 0,
@@ -1088,11 +1100,11 @@ export class GameScene {
     const viewport = getGameplayViewport(width / height);
     this.camera.clearViewOffset();
     this.camera.aspect = width / height;
-    this.camera.rotation.set(
-      -Math.atan2(CAMERA_Y - viewport.cameraTargetY, CAMERA_Z - CAMERA_TARGET_Z),
-      0,
-      0,
+    this.gameplayCameraPitch = -Math.atan2(
+      CAMERA_Y - viewport.cameraTargetY,
+      CAMERA_Z - CAMERA_TARGET_Z,
     );
+    this.camera.rotation.set(this.gameplayCameraPitch, 0, 0);
     this.camera.zoom = viewport.cameraZoom;
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
@@ -1116,6 +1128,21 @@ export class GameScene {
     ));
     this.composer?.setSize(width, height);
     this.warmColorTransition();
+  }
+
+  prepare(level: Level, states: ObstacleStateRow[]): Promise<void> {
+    if (this.preparation) return this.preparation;
+    this.preparation = this.renderer.compileAsync(this.scene, this.camera).then(() => {
+      if (this.disposed) return;
+      this.renderIntro(0, level, states);
+      this.renderer.getContext().finish();
+    });
+    return this.preparation;
+  }
+
+  renderIntro(progress: number, level: Level, states: ObstacleStateRow[]): void {
+    this.cameraIntroProgress = THREE.MathUtils.clamp(progress, 0, 1);
+    this.render(0, level, states, 0, SILENT_SPECTRUM);
   }
 
   movePlayerNormalized(normalizedDeltaX: number): void {
@@ -1173,6 +1200,7 @@ export class GameScene {
     this.updateParticles(dt);
     this.hitImpulse *= Math.pow(0.015, dt);
     const cameraJitter = this.hitImpulse * Math.sin(time * 115);
+    this.camera.rotation.x = this.gameplayCameraPitch;
     if (this.crashed) {
       const crashShake = Math.exp(-this.crashElapsed * 3.1);
       const crashJitterX = crashShake * (
@@ -1203,6 +1231,16 @@ export class GameScene {
       this.camera.rotation.z = transitionImpact
         * Math.sin(this.colorTransitionElapsed * 83) * 0.012;
       this.renderer.toneMappingExposure = 1.02 + transitionImpact * 0.32;
+    }
+    if (!this.crashed && this.cameraIntroProgress < 1) {
+      const easedIntro = 1 - Math.pow(1 - this.cameraIntroProgress, 3);
+      this.camera.position.y = THREE.MathUtils.lerp(CAMERA_INTRO_Y, this.camera.position.y, easedIntro);
+      this.camera.position.z = THREE.MathUtils.lerp(CAMERA_INTRO_Z, this.camera.position.z, easedIntro);
+      this.camera.rotation.x = THREE.MathUtils.lerp(
+        CAMERA_INTRO_PITCH,
+        this.gameplayCameraPitch,
+        easedIntro,
+      );
     }
     this.updateSpectrum(dt, time, level.song.durationSeconds, level.events, spectrum);
     if (transitionImpact > 0 && this.composer && this.rgbShiftPass) {
@@ -1624,6 +1662,7 @@ export class GameScene {
   }
 
   dispose(): void {
+    if (this.disposed) return;
     this.disposed = true;
     this.playerReflection.material.map?.dispose();
     const textures = new Set<THREE.Texture>();

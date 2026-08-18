@@ -8,6 +8,7 @@ import {
 import { isLevelUnlocked, type GameData } from '../data/localData';
 import type { Level } from '../types';
 import { albumArtworkStyle } from '../assets/ui/albumArtwork';
+import { GameLaunchTimeoutError, waitForGameLaunch } from '../game/launchGate';
 import { t } from '../i18n';
 import { BrandHeader } from './BrandHeader';
 import { StarRating } from './StarRating';
@@ -18,7 +19,8 @@ interface HomeScreenProps {
   gameData: GameData;
   soundEnabled: boolean;
   onSelectLevel: (levelId: string) => void;
-  onPrepareStart: () => void;
+  onCancelStart: () => void;
+  onPrepareStart: () => Promise<void>;
   onToggleSound: () => void;
   onStart: () => void;
 }
@@ -56,14 +58,16 @@ export function HomeScreen({
   gameData,
   soundEnabled,
   onSelectLevel,
+  onCancelStart,
   onPrepareStart,
   onToggleSound,
   onStart,
 }: HomeScreenProps) {
-  const startTimerRef = useRef<number | null>(null);
   const switchTimerRef = useRef<number | null>(null);
   const suppressClickRef = useRef(false);
+  const launchAttemptRef = useRef(0);
   const [starting, setStarting] = useState(false);
+  const [launchError, setLaunchError] = useState<string | null>(null);
   const [switchDirection, setSwitchDirection] = useState<SwitchDirection | null>(null);
   const [switchDuration, setSwitchDuration] = useState(SWITCH_DURATION_MS);
   const [dragPosition, setDragPosition] = useState<DragPosition | null>(null);
@@ -83,7 +87,7 @@ export function HomeScreen({
   const stars = gameData.levels[level.id]?.stars ?? 0;
 
   useEffect(() => () => {
-    if (startTimerRef.current !== null) window.clearTimeout(startTimerRef.current);
+    launchAttemptRef.current += 1;
     if (switchTimerRef.current !== null) window.clearTimeout(switchTimerRef.current);
   }, []);
 
@@ -109,15 +113,26 @@ export function HomeScreen({
     }, duration);
   };
 
-  const handleStart = () => {
+  const handleStart = async () => {
     if (!unlocked || starting || switchDirection) return;
-    onPrepareStart();
+    const attempt = ++launchAttemptRef.current;
     setStarting(true);
-    const delay = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 80 : 720;
-    startTimerRef.current = window.setTimeout(() => {
-      startTimerRef.current = null;
+    setLaunchError(null);
+    try {
+      const minimumWait = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 80 : 720;
+      await waitForGameLaunch(onPrepareStart(), minimumWait);
+      if (attempt !== launchAttemptRef.current) return;
       onStart();
-    }, delay);
+    } catch (error) {
+      if (attempt !== launchAttemptRef.current) return;
+      onCancelStart();
+      setStarting(false);
+      setLaunchError(t(
+        error instanceof GameLaunchTimeoutError
+          ? 'songSelect.startTimeout'
+          : 'songSelect.startFailed',
+      ));
+    }
   };
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -170,23 +185,23 @@ export function HomeScreen({
   const vinylStageStyle = {
     '--vinyl-switch-duration': `${switchDuration}ms`,
     ...(dragPosition?.direction === 'next' ? {
-      '--vinyl-current-x': `${-58 * progress}cqw`,
+      '--vinyl-current-x': `${-105 * progress}%`,
       '--vinyl-current-scale': String(1 - 0.38 * progress),
       '--vinyl-current-opacity': String(1 - 0.54 * progress),
-      '--vinyl-previous-x': `${-58 - 54 * progress}cqw`,
+      '--vinyl-previous-x': `${-105 - 95 * progress}%`,
       '--vinyl-previous-scale': String(0.62 - 0.12 * progress),
       '--vinyl-previous-opacity': String(0.46 * (1 - progress)),
-      '--vinyl-next-x': `${58 * (1 - progress)}cqw`,
+      '--vinyl-next-x': `${105 * (1 - progress)}%`,
       '--vinyl-next-scale': String(0.62 + 0.38 * progress),
       '--vinyl-next-opacity': String(0.46 + 0.54 * progress),
     } : dragPosition ? {
-      '--vinyl-current-x': `${58 * progress}cqw`,
+      '--vinyl-current-x': `${105 * progress}%`,
       '--vinyl-current-scale': String(1 - 0.38 * progress),
       '--vinyl-current-opacity': String(1 - 0.54 * progress),
-      '--vinyl-previous-x': `${-58 * (1 - progress)}cqw`,
+      '--vinyl-previous-x': `${-105 * (1 - progress)}%`,
       '--vinyl-previous-scale': String(0.62 + 0.38 * progress),
       '--vinyl-previous-opacity': String(0.46 + 0.54 * progress),
-      '--vinyl-next-x': `${58 + 54 * progress}cqw`,
+      '--vinyl-next-x': `${105 + 95 * progress}%`,
       '--vinyl-next-scale': String(0.62 - 0.12 * progress),
       '--vinyl-next-opacity': String(0.46 * (1 - progress)),
     } : {}),
@@ -206,7 +221,9 @@ export function HomeScreen({
           onClick={onToggleSound}
         >
           <span aria-hidden="true">♪</span>
-          {t('songSelect.musicToggle', { state: soundEnabled ? t('common.on') : t('common.off') })}
+          <span className="header-music-label">
+            {t('songSelect.musicToggle', { state: soundEnabled ? t('common.on') : t('common.off') })}
+          </span>
           <i aria-hidden="true" />
         </button>
         <span>{String(activeIndex + 1).padStart(2, '0')} / {String(levels.length).padStart(2, '0')}</span>
@@ -289,7 +306,11 @@ export function HomeScreen({
           <div className="vinyl-track-copy">
             <strong>{level.song.title}</strong>
             <small>{artistLabel(level)}</small>
-            <span>{t('common.bpm', { value: level.song.bpm })} <i /> {durationLabel(level)}</span>
+            <span>
+              <span>{t('common.bpm', { value: level.song.bpm })}</span>
+              <i />
+              <span>{durationLabel(level)}</span>
+            </span>
           </div>
         </div>
       </section>
@@ -303,6 +324,7 @@ export function HomeScreen({
       >
         {starting ? t('songSelect.starting') : unlocked ? t('songSelect.start') : t('songSelect.locked')}
       </button>
+      {launchError && <p className="launch-error-message" role="alert">{launchError}</p>}
     </main>
   );
 }

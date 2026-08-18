@@ -15,20 +15,28 @@ import { type GameResult, type Level } from '../types';
 import { StarRating } from './StarRating';
 
 interface GameScreenProps {
+  active?: boolean;
   level: Level;
+  preparing?: boolean;
   soundEnabled: boolean;
   onDeath: (result: GameResult) => void;
   onExit: () => void;
   onFinish: (result: GameResult) => void;
+  onPrepared?: () => void;
+  onPrepareError?: (error: unknown) => void;
   onToggleSound: () => void;
 }
 
 export function GameScreen({
+  active = true,
   level,
+  preparing = false,
   soundEnabled,
   onDeath,
   onExit,
   onFinish,
+  onPrepared,
+  onPrepareError,
   onToggleSound,
 }: GameScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -57,35 +65,51 @@ export function GameScreen({
     : '#4ddbff';
   useEffect(() => {
     if (!canvasRef.current || !stageRef.current) return;
-    const controller = new GameController(canvasRef.current, level, {
-      onHud: setHud,
-      onCrash: () => {
-        setCrashed(true);
-        setCountdown(null);
-        setPaused(false);
-      },
-      onDeath: (result) => {
-        setCountdown(null);
-        setPaused(false);
-        onDeath(result);
-      },
-      onFinish,
-    });
+    let cancelled = false;
+    let controller: GameController;
+    try {
+      controller = new GameController(canvasRef.current, level, {
+        onHud: setHud,
+        onCrash: () => {
+          setCrashed(true);
+          setCountdown(null);
+          setPaused(false);
+        },
+        onDeath: (result) => {
+          setCountdown(null);
+          setPaused(false);
+          onDeath(result);
+        },
+        onFinish,
+      });
+    } catch (error) {
+      onPrepareError?.(error);
+      return;
+    }
     controllerRef.current = controller;
 
     const resize = () => {
       const canvas = canvasRef.current;
       if (canvas) controller.resize(canvas.clientWidth, canvas.clientHeight);
     };
-    controller.start();
     resize();
+    void controller.prepare().then(() => {
+      if (!cancelled) onPrepared?.();
+    }).catch((error: unknown) => {
+      if (!cancelled) onPrepareError?.(error);
+    });
     window.addEventListener('resize', resize);
     return () => {
+      cancelled = true;
       window.removeEventListener('resize', resize);
       controller.destroy();
       controllerRef.current = null;
     };
-  }, [level, onDeath, onFinish]);
+  }, [level, onDeath, onFinish, onPrepared, onPrepareError]);
+
+  useEffect(() => {
+    if (active) controllerRef.current?.start();
+  }, [active]);
 
   useEffect(() => {
     if (countdown === null) return;
@@ -151,7 +175,8 @@ export function GameScreen({
   return (
     <main
       ref={stageRef}
-      className={`screen game-screen${crashed ? ' is-crashed' : ''}`}
+      aria-hidden={preparing}
+      className={`screen game-screen${preparing ? ' is-preparing' : ''}${crashed ? ' is-crashed' : ''}`}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}

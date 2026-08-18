@@ -28,6 +28,8 @@ export const zhCN = {
   'songSelect.locked': '未解锁',
   'songSelect.start': '开始游戏',
   'songSelect.starting': '正在启动',
+  'songSelect.startFailed': '游戏启动失败，请重新尝试。',
+  'songSelect.startTimeout': '游戏启动超时，请检查设备状态后重试。',
 
   'game.starProgress': '星级进度',
   'game.starProgressLabel': '本局五星目标进度',
